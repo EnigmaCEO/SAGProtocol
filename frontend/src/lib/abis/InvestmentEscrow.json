@@ -1,0 +1,88 @@
+{
+  "abi": [
+    {
+      "inputs": [
+        { "internalType": "address", "name": "_usdc", "type": "address" },
+        { "internalType": "address", "name": "_treasury", "type": "address" }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        { "indexed": true, "internalType": "uint256", "name": "investmentId", "type": "uint256" },
+        { "indexed": false, "internalType": "uint256", "name": "returnedAmount", "type": "uint256" },
+        { "indexed": false, "internalType": "uint256", "name": "profit", "type": "uint256" }
+      ],
+      "name": "InvestmentClosed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        { "indexed": true, "internalType": "uint256", "name": "investmentId", "type": "uint256" },
+        { "indexed": true, "internalType": "address", "name": "vendor", "type": "address" },
+        { "indexed": false, "internalType": "uint256", "name": "amountUsd6", "type": "uint256" },
+        { "indexed": false, "internalType": "uint256", "name": "duration", "type": "uint256" }
+      ],
+      "name": "InvestmentOpened",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        { "internalType": "uint256", "name": "investmentId", "type": "uint256" },
+        { "internalType": "uint256", "name": "returnedAmount", "type": "uint256" }
+      ],
+      "name": "closeInvestment",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+      "name": "investments",
+      "outputs": [
+        { "internalType": "address", "name": "vendor", "type": "address" },
+        { "internalType": "uint256", "name": "amountUsd6", "type": "uint256" },
+        { "internalType": "uint256", "name": "startTime", "type": "uint256" },
+        { "internalType": "uint256", "name": "endTime", "type": "uint256" },
+        { "internalType": "bool", "name": "returned", "type": "bool" }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "nextInvestmentId",
+      "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        { "internalType": "address", "name": "vendor", "type": "address" },
+        { "internalType": "uint256", "name": "amountUsd6", "type": "uint256" },
+        { "internalType": "uint256", "name": "duration", "type": "uint256" }
+      ],
+      "name": "openInvestment",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "treasury",
+      "outputs": [{ "internalType": "contract ITreasury", "name": "", "type": "address" }],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "usdc",
+      "outputs": [{ "internalType": "contract IERC20", "name": "", "type": "address" }],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ]
+}

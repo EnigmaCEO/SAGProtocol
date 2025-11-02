@@ -1,0 +1,20 @@
+// AUTO-GENERATED. DO NOT EDIT.
+export const CONTRACT_ADDRESSES = {
+  network: "localhost",
+  chainId: 1337,
+  MockUSDC: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  MockGOLD: "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+  Vault: "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+  Treasury: "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
+  ReserveController: "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707",
+  InvestmentEscrow: "0x610178dA211FEF7D417bC0e6FeD39F05609AD788",
+  MockOracle: "0x0165878A594ca255338adfa4d48449f69242Eb8F",
+} as const;
+
+// Legacy exports for compatibility
+export const VAULT_ADDRESS = CONTRACT_ADDRESSES.Vault;
+export const TREASURY_ADDRESS = CONTRACT_ADDRESSES.Treasury;
+export const USDC_ADDRESS = CONTRACT_ADDRESSES.MockUSDC;
+export const ESCROW_ADDRESS = CONTRACT_ADDRESSES.InvestmentEscrow;
+export const RESERVE_ADDRESS = CONTRACT_ADDRESSES.ReserveController;
+export const GOLD_ADDRESS = CONTRACT_ADDRESSES.MockGOLD;
