@@ -17,12 +17,25 @@ import type {
 const _abi = [
   {
     inputs: [],
-    name: "latestAnswer",
+    name: "getPrice",
     outputs: [
       {
-        internalType: "int256",
+        internalType: "uint256",
         name: "",
-        type: "int256",
+        type: "uint256",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "price",
+    outputs: [
+      {
+        internalType: "uint256",
+        name: "",
+        type: "uint256",
       },
     ],
     stateMutability: "view",
@@ -31,9 +44,9 @@ const _abi = [
   {
     inputs: [
       {
-        internalType: "int256",
+        internalType: "uint256",
         name: "_price",
-        type: "int256",
+        type: "uint256",
       },
     ],
     name: "setPrice",
@@ -44,7 +57,7 @@ const _abi = [
 ] as const;
 
 const _bytecode =
-  "0x6080604052348015600f57600080fd5b5060ac8061001e6000396000f3fe6080604052348015600f57600080fd5b506004361060325760003560e01c806350d25bcd146037578063f7a3080614604c575b600080fd5b60005460405190815260200160405180910390f35b605c6057366004605e565b600055565b005b600060208284031215606f57600080fd5b503591905056fea264697066735822122095c049d694c9122bc9747b73f9ea55a407ceaa14bb3be88736c95155df21165664736f6c63430008180033";
+  "0x608060405234801561001057600080fd5b5060bf8061001f6000396000f3fe6080604052348015600f57600080fd5b5060043610603c5760003560e01c806391b7f5ed14604157806398d5fdca146053578063a035b1fe146069575b600080fd5b6051604c3660046071565b600055565b005b6000545b60405190815260200160405180910390f35b605760005481565b600060208284031215608257600080fd5b503591905056fea26469706673582212209867b40ed6114476cf1c967a50e58c5457c699963d6040403b02f249b9e63b0a64736f6c63430008180033";
 
 type MockOracleConstructorParams =
   | [signer?: Signer]

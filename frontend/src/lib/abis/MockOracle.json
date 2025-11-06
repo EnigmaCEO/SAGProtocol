@@ -7,12 +7,12 @@
     },
     {
       "inputs": [],
-      "name": "latestAnswer",
+      "name": "price",
       "outputs": [
         {
-          "internalType": "int256",
+          "internalType": "uint256",
           "name": "",
-          "type": "int256"
+          "type": "uint256"
         }
       ],
       "stateMutability": "view",
@@ -21,14 +21,27 @@
     {
       "inputs": [
         {
-          "internalType": "int256",
+          "internalType": "uint256",
           "name": "_price",
-          "type": "int256"
+          "type": "uint256"
         }
       ],
       "name": "setPrice",
       "outputs": [],
       "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "getPrice",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
       "type": "function"
     }
   ]

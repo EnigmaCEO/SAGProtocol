@@ -2,6 +2,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type { IPriceOracle } from "./IPriceOracle";
+export type { IReceiptNFT } from "./IReceiptNFT";
 export type { ITreasury } from "./ITreasury";
 export type { ITreasuryPay } from "./ITreasuryPay";
 export type { Vault } from "./Vault";

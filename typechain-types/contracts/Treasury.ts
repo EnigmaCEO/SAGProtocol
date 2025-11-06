@@ -26,6 +26,7 @@ import type {
 export interface TreasuryInterface extends Interface {
   getFunction(
     nameOrSignature:
+      | "canAdmit"
       | "completeBuyback"
       | "crMinBps"
       | "harvest"
@@ -47,6 +48,10 @@ export interface TreasuryInterface extends Interface {
       | "OwnershipTransferred"
   ): EventFragment;
 
+  encodeFunctionData(
+    functionFragment: "canAdmit",
+    values: [BigNumberish]
+  ): string;
   encodeFunctionData(
     functionFragment: "completeBuyback",
     values: [BigNumberish]
@@ -80,6 +85,7 @@ export interface TreasuryInterface extends Interface {
   encodeFunctionData(functionFragment: "usdc", values?: undefined): string;
   encodeFunctionData(functionFragment: "vault", values?: undefined): string;
 
+  decodeFunctionResult(functionFragment: "canAdmit", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "completeBuyback",
     data: BytesLike
@@ -213,6 +219,8 @@ export interface Treasury extends BaseContract {
     event?: TCEvent
   ): Promise<this>;
 
+  canAdmit: TypedContractMethod<[amountUsd6: BigNumberish], [boolean], "view">;
+
   completeBuyback: TypedContractMethod<
     [amount: BigNumberish],
     [void],
@@ -251,6 +259,9 @@ export interface Treasury extends BaseContract {
     key: string | FunctionFragment
   ): T;
 
+  getFunction(
+    nameOrSignature: "canAdmit"
+  ): TypedContractMethod<[amountUsd6: BigNumberish], [boolean], "view">;
   getFunction(
     nameOrSignature: "completeBuyback"
   ): TypedContractMethod<[amount: BigNumberish], [void], "nonpayable">;

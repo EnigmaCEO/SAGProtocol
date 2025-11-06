@@ -72,6 +72,7 @@ export interface VaultInterface extends Interface {
   getFunction(
     nameOrSignature:
       | "assets"
+      | "autoReturn"
       | "balanceOf(address)"
       | "balanceOf(address,address)"
       | "claimCredit"
@@ -81,7 +82,10 @@ export interface VaultInterface extends Interface {
       | "depositInfo"
       | "depositedUsd"
       | "deposits"
+      | "getReceipt"
       | "getUserCredits"
+      | "getUserReceipts"
+      | "getUserTotals"
       | "issueCredit"
       | "lockDuration"
       | "nextDepositId"
@@ -90,11 +94,15 @@ export interface VaultInterface extends Interface {
       | "paused"
       | "pendingCreditsUsd6"
       | "principalOf"
+      | "processExpiredReceipts"
       | "receiptCount"
+      | "receiptNFT"
       | "receipts"
+      | "redeem"
       | "renounceOwnership"
       | "setAsset"
       | "setLockDuration"
+      | "setReceiptNFT"
       | "setTreasury"
       | "sharesOf"
       | "sweep"
@@ -106,24 +114,31 @@ export interface VaultInterface extends Interface {
       | "unpause"
       | "userDeposits"
       | "userDepositsOf"
-      | "withdrawPrincipal"
   ): FunctionFragment;
 
   getEvent(
     nameOrSignatureOrTopic:
       | "AssetSet"
+      | "AutoReturned"
       | "DepositAccepted"
+      | "Deposited"
       | "LockSecondsSet"
       | "OwnershipTransferred"
       | "Paused"
       | "PrincipalWithdrawn"
       | "ProfitCreditClaimed"
       | "ProfitCreditIssued"
+      | "ReceiptNFTSet"
+      | "Redeemed"
       | "TreasurySet"
       | "Unpaused"
   ): EventFragment;
 
   encodeFunctionData(functionFragment: "assets", values: [AddressLike]): string;
+  encodeFunctionData(
+    functionFragment: "autoReturn",
+    values: [BigNumberish]
+  ): string;
   encodeFunctionData(
     functionFragment: "balanceOf(address)",
     values: [AddressLike]
@@ -161,7 +176,19 @@ export interface VaultInterface extends Interface {
     values: [BigNumberish]
   ): string;
   encodeFunctionData(
+    functionFragment: "getReceipt",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
     functionFragment: "getUserCredits",
+    values: [AddressLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "getUserReceipts",
+    values: [AddressLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "getUserTotals",
     values: [AddressLike]
   ): string;
   encodeFunctionData(
@@ -188,12 +215,24 @@ export interface VaultInterface extends Interface {
     values: [AddressLike, AddressLike]
   ): string;
   encodeFunctionData(
+    functionFragment: "processExpiredReceipts",
+    values: [BigNumberish[]]
+  ): string;
+  encodeFunctionData(
     functionFragment: "receiptCount",
     values: [AddressLike]
   ): string;
   encodeFunctionData(
+    functionFragment: "receiptNFT",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "receipts",
     values: [AddressLike, BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "redeem",
+    values: [BigNumberish]
   ): string;
   encodeFunctionData(
     functionFragment: "renounceOwnership",
@@ -206,6 +245,10 @@ export interface VaultInterface extends Interface {
   encodeFunctionData(
     functionFragment: "setLockDuration",
     values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "setReceiptNFT",
+    values: [AddressLike]
   ): string;
   encodeFunctionData(
     functionFragment: "setTreasury",
@@ -242,12 +285,9 @@ export interface VaultInterface extends Interface {
     functionFragment: "userDepositsOf",
     values: [AddressLike]
   ): string;
-  encodeFunctionData(
-    functionFragment: "withdrawPrincipal",
-    values: [BigNumberish, AddressLike]
-  ): string;
 
   decodeFunctionResult(functionFragment: "assets", data: BytesLike): Result;
+  decodeFunctionResult(functionFragment: "autoReturn", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "balanceOf(address)",
     data: BytesLike
@@ -275,8 +315,17 @@ export interface VaultInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "deposits", data: BytesLike): Result;
+  decodeFunctionResult(functionFragment: "getReceipt", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "getUserCredits",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "getUserReceipts",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "getUserTotals",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -303,10 +352,16 @@ export interface VaultInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "processExpiredReceipts",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "receiptCount",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(functionFragment: "receiptNFT", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "receipts", data: BytesLike): Result;
+  decodeFunctionResult(functionFragment: "redeem", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "renounceOwnership",
     data: BytesLike
@@ -314,6 +369,10 @@ export interface VaultInterface extends Interface {
   decodeFunctionResult(functionFragment: "setAsset", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "setLockDuration",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "setReceiptNFT",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -345,10 +404,6 @@ export interface VaultInterface extends Interface {
     functionFragment: "userDepositsOf",
     data: BytesLike
   ): Result;
-  decodeFunctionResult(
-    functionFragment: "withdrawPrincipal",
-    data: BytesLike
-  ): Result;
 }
 
 export namespace AssetSetEvent {
@@ -369,6 +424,24 @@ export namespace AssetSetEvent {
     enabled: boolean;
     decimals: bigint;
     oracle: string;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace AutoReturnedEvent {
+  export type InputTuple = [
+    user: AddressLike,
+    tokenId: BigNumberish,
+    principal: BigNumberish
+  ];
+  export type OutputTuple = [user: string, tokenId: bigint, principal: bigint];
+  export interface OutputObject {
+    user: string;
+    tokenId: bigint;
+    principal: bigint;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -403,6 +476,34 @@ export namespace DepositAcceptedEvent {
     usd6: bigint;
     shares: bigint;
     lockUntil: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace DepositedEvent {
+  export type InputTuple = [
+    user: AddressLike,
+    tokenId: BigNumberish,
+    asset: AddressLike,
+    principal: BigNumberish,
+    unlockTimestamp: BigNumberish
+  ];
+  export type OutputTuple = [
+    user: string,
+    tokenId: bigint,
+    asset: string,
+    principal: bigint,
+    unlockTimestamp: bigint
+  ];
+  export interface OutputObject {
+    user: string;
+    tokenId: bigint;
+    asset: string;
+    principal: bigint;
+    unlockTimestamp: bigint;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -507,6 +608,43 @@ export namespace ProfitCreditIssuedEvent {
   export type LogDescription = TypedLogDescription<Event>;
 }
 
+export namespace ReceiptNFTSetEvent {
+  export type InputTuple = [nft: AddressLike];
+  export type OutputTuple = [nft: string];
+  export interface OutputObject {
+    nft: string;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace RedeemedEvent {
+  export type InputTuple = [
+    user: AddressLike,
+    tokenId: BigNumberish,
+    asset: AddressLike,
+    principal: BigNumberish
+  ];
+  export type OutputTuple = [
+    user: string,
+    tokenId: bigint,
+    asset: string,
+    principal: bigint
+  ];
+  export interface OutputObject {
+    user: string;
+    tokenId: bigint;
+    asset: string;
+    principal: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
 export namespace TreasurySetEvent {
   export type InputTuple = [treasury: AddressLike];
   export type OutputTuple = [treasury: string];
@@ -586,6 +724,12 @@ export interface Vault extends BaseContract {
     "view"
   >;
 
+  autoReturn: TypedContractMethod<
+    [tokenId: BigNumberish],
+    [void],
+    "nonpayable"
+  >;
+
   "balanceOf(address)": TypedContractMethod<
     [user: AddressLike],
     [bigint],
@@ -645,9 +789,40 @@ export interface Vault extends BaseContract {
     "view"
   >;
 
+  getReceipt: TypedContractMethod<
+    [tokenId: BigNumberish],
+    [
+      [string, string, bigint, bigint, bigint, bigint, boolean] & {
+        receiptOwner: string;
+        asset: string;
+        principal: bigint;
+        entryValueUsd: bigint;
+        depositTimestamp: bigint;
+        unlockTimestamp: bigint;
+        withdrawn: boolean;
+      }
+    ],
+    "view"
+  >;
+
   getUserCredits: TypedContractMethod<
     [user: AddressLike],
     [Vault.CreditStructOutput[]],
+    "view"
+  >;
+
+  getUserReceipts: TypedContractMethod<[user: AddressLike], [bigint[]], "view">;
+
+  getUserTotals: TypedContractMethod<
+    [user: AddressLike],
+    [
+      [bigint, bigint, bigint, bigint] & {
+        totalPrincipalLocked: bigint;
+        totalUnlockedPrincipal: bigint;
+        activeCount: bigint;
+        nextUnlockTimestamp: bigint;
+      }
+    ],
     "view"
   >;
 
@@ -679,13 +854,23 @@ export interface Vault extends BaseContract {
     "view"
   >;
 
+  processExpiredReceipts: TypedContractMethod<
+    [tokenIds: BigNumberish[]],
+    [void],
+    "nonpayable"
+  >;
+
   receiptCount: TypedContractMethod<[user: AddressLike], [bigint], "view">;
+
+  receiptNFT: TypedContractMethod<[], [string], "view">;
 
   receipts: TypedContractMethod<
     [user: AddressLike, index: BigNumberish],
     [Vault.DepositReceiptStructOutput],
     "view"
   >;
+
+  redeem: TypedContractMethod<[tokenId: BigNumberish], [void], "nonpayable">;
 
   renounceOwnership: TypedContractMethod<[], [void], "nonpayable">;
 
@@ -705,6 +890,8 @@ export interface Vault extends BaseContract {
     [void],
     "nonpayable"
   >;
+
+  setReceiptNFT: TypedContractMethod<[_nft: AddressLike], [void], "nonpayable">;
 
   setTreasury: TypedContractMethod<
     [_treasury: AddressLike],
@@ -760,12 +947,6 @@ export interface Vault extends BaseContract {
 
   userDepositsOf: TypedContractMethod<[user: AddressLike], [bigint[]], "view">;
 
-  withdrawPrincipal: TypedContractMethod<
-    [id: BigNumberish, to: AddressLike],
-    [void],
-    "nonpayable"
-  >;
-
   getFunction<T extends ContractMethod = ContractMethod>(
     key: string | FunctionFragment
   ): T;
@@ -783,6 +964,9 @@ export interface Vault extends BaseContract {
     ],
     "view"
   >;
+  getFunction(
+    nameOrSignature: "autoReturn"
+  ): TypedContractMethod<[tokenId: BigNumberish], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "balanceOf(address)"
   ): TypedContractMethod<[user: AddressLike], [bigint], "view">;
@@ -848,10 +1032,44 @@ export interface Vault extends BaseContract {
     "view"
   >;
   getFunction(
+    nameOrSignature: "getReceipt"
+  ): TypedContractMethod<
+    [tokenId: BigNumberish],
+    [
+      [string, string, bigint, bigint, bigint, bigint, boolean] & {
+        receiptOwner: string;
+        asset: string;
+        principal: bigint;
+        entryValueUsd: bigint;
+        depositTimestamp: bigint;
+        unlockTimestamp: bigint;
+        withdrawn: boolean;
+      }
+    ],
+    "view"
+  >;
+  getFunction(
     nameOrSignature: "getUserCredits"
   ): TypedContractMethod<
     [user: AddressLike],
     [Vault.CreditStructOutput[]],
+    "view"
+  >;
+  getFunction(
+    nameOrSignature: "getUserReceipts"
+  ): TypedContractMethod<[user: AddressLike], [bigint[]], "view">;
+  getFunction(
+    nameOrSignature: "getUserTotals"
+  ): TypedContractMethod<
+    [user: AddressLike],
+    [
+      [bigint, bigint, bigint, bigint] & {
+        totalPrincipalLocked: bigint;
+        totalUnlockedPrincipal: bigint;
+        activeCount: bigint;
+        nextUnlockTimestamp: bigint;
+      }
+    ],
     "view"
   >;
   getFunction(
@@ -891,8 +1109,14 @@ export interface Vault extends BaseContract {
     "view"
   >;
   getFunction(
+    nameOrSignature: "processExpiredReceipts"
+  ): TypedContractMethod<[tokenIds: BigNumberish[]], [void], "nonpayable">;
+  getFunction(
     nameOrSignature: "receiptCount"
   ): TypedContractMethod<[user: AddressLike], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "receiptNFT"
+  ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "receipts"
   ): TypedContractMethod<
@@ -900,6 +1124,9 @@ export interface Vault extends BaseContract {
     [Vault.DepositReceiptStructOutput],
     "view"
   >;
+  getFunction(
+    nameOrSignature: "redeem"
+  ): TypedContractMethod<[tokenId: BigNumberish], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "renounceOwnership"
   ): TypedContractMethod<[], [void], "nonpayable">;
@@ -918,6 +1145,9 @@ export interface Vault extends BaseContract {
   getFunction(
     nameOrSignature: "setLockDuration"
   ): TypedContractMethod<[_duration: BigNumberish], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "setReceiptNFT"
+  ): TypedContractMethod<[_nft: AddressLike], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "setTreasury"
   ): TypedContractMethod<[_treasury: AddressLike], [void], "nonpayable">;
@@ -967,13 +1197,6 @@ export interface Vault extends BaseContract {
   getFunction(
     nameOrSignature: "userDepositsOf"
   ): TypedContractMethod<[user: AddressLike], [bigint[]], "view">;
-  getFunction(
-    nameOrSignature: "withdrawPrincipal"
-  ): TypedContractMethod<
-    [id: BigNumberish, to: AddressLike],
-    [void],
-    "nonpayable"
-  >;
 
   getEvent(
     key: "AssetSet"
@@ -983,11 +1206,25 @@ export interface Vault extends BaseContract {
     AssetSetEvent.OutputObject
   >;
   getEvent(
+    key: "AutoReturned"
+  ): TypedContractEvent<
+    AutoReturnedEvent.InputTuple,
+    AutoReturnedEvent.OutputTuple,
+    AutoReturnedEvent.OutputObject
+  >;
+  getEvent(
     key: "DepositAccepted"
   ): TypedContractEvent<
     DepositAcceptedEvent.InputTuple,
     DepositAcceptedEvent.OutputTuple,
     DepositAcceptedEvent.OutputObject
+  >;
+  getEvent(
+    key: "Deposited"
+  ): TypedContractEvent<
+    DepositedEvent.InputTuple,
+    DepositedEvent.OutputTuple,
+    DepositedEvent.OutputObject
   >;
   getEvent(
     key: "LockSecondsSet"
@@ -1032,6 +1269,20 @@ export interface Vault extends BaseContract {
     ProfitCreditIssuedEvent.OutputObject
   >;
   getEvent(
+    key: "ReceiptNFTSet"
+  ): TypedContractEvent<
+    ReceiptNFTSetEvent.InputTuple,
+    ReceiptNFTSetEvent.OutputTuple,
+    ReceiptNFTSetEvent.OutputObject
+  >;
+  getEvent(
+    key: "Redeemed"
+  ): TypedContractEvent<
+    RedeemedEvent.InputTuple,
+    RedeemedEvent.OutputTuple,
+    RedeemedEvent.OutputObject
+  >;
+  getEvent(
     key: "TreasurySet"
   ): TypedContractEvent<
     TreasurySetEvent.InputTuple,
@@ -1058,6 +1309,17 @@ export interface Vault extends BaseContract {
       AssetSetEvent.OutputObject
     >;
 
+    "AutoReturned(address,uint256,uint256)": TypedContractEvent<
+      AutoReturnedEvent.InputTuple,
+      AutoReturnedEvent.OutputTuple,
+      AutoReturnedEvent.OutputObject
+    >;
+    AutoReturned: TypedContractEvent<
+      AutoReturnedEvent.InputTuple,
+      AutoReturnedEvent.OutputTuple,
+      AutoReturnedEvent.OutputObject
+    >;
+
     "DepositAccepted(uint256,address,address,uint256,uint256,uint256,uint64)": TypedContractEvent<
       DepositAcceptedEvent.InputTuple,
       DepositAcceptedEvent.OutputTuple,
@@ -1067,6 +1329,17 @@ export interface Vault extends BaseContract {
       DepositAcceptedEvent.InputTuple,
       DepositAcceptedEvent.OutputTuple,
       DepositAcceptedEvent.OutputObject
+    >;
+
+    "Deposited(address,uint256,address,uint256,uint256)": TypedContractEvent<
+      DepositedEvent.InputTuple,
+      DepositedEvent.OutputTuple,
+      DepositedEvent.OutputObject
+    >;
+    Deposited: TypedContractEvent<
+      DepositedEvent.InputTuple,
+      DepositedEvent.OutputTuple,
+      DepositedEvent.OutputObject
     >;
 
     "LockSecondsSet(uint64)": TypedContractEvent<
@@ -1133,6 +1406,28 @@ export interface Vault extends BaseContract {
       ProfitCreditIssuedEvent.InputTuple,
       ProfitCreditIssuedEvent.OutputTuple,
       ProfitCreditIssuedEvent.OutputObject
+    >;
+
+    "ReceiptNFTSet(address)": TypedContractEvent<
+      ReceiptNFTSetEvent.InputTuple,
+      ReceiptNFTSetEvent.OutputTuple,
+      ReceiptNFTSetEvent.OutputObject
+    >;
+    ReceiptNFTSet: TypedContractEvent<
+      ReceiptNFTSetEvent.InputTuple,
+      ReceiptNFTSetEvent.OutputTuple,
+      ReceiptNFTSetEvent.OutputObject
+    >;
+
+    "Redeemed(address,uint256,address,uint256)": TypedContractEvent<
+      RedeemedEvent.InputTuple,
+      RedeemedEvent.OutputTuple,
+      RedeemedEvent.OutputObject
+    >;
+    Redeemed: TypedContractEvent<
+      RedeemedEvent.InputTuple,
+      RedeemedEvent.OutputTuple,
+      RedeemedEvent.OutputObject
     >;
 
     "TreasurySet(address)": TypedContractEvent<

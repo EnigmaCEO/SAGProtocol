@@ -1,0 +1,15 @@
+await vault.autoReturn(0); 
+vault = await ethers.getContractAt("Vault", "0x2e8880cAdC08E9B438c6052F5ce3869FBd6cE513");
+const vault = await ethers.getContractAt("Vault", "0x2e8880cAdC08E9B438c6052F5ce3869FBd6cE513");
+    at async node:repl:639:29
+    at async REPL1:1:41
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at getContractAtFromArtifact (D:\Projects\Sagitta\SAGProtocol\node_modules\@nomicfoundation\hardhat-ethers\src\internal\helpers.ts:426:18)
+    at new Contract (D:\Projects\Sagitta\SAGProtocol\node_modules\ethers\src.ts\contract\contract.ts:1120:1)
+    at new BaseContract (D:\Projects\Sagitta\SAGProtocol\node_modules\ethers\src.ts\contract\contract.ts:722:40)
+    at HardhatEthersSigner.resolveName (D:\Projects\Sagitta\SAGProtocol\node_modules\@nomicfoundation\hardhat-ethers\src\signers.ts:164:26)  
+    at HardhatEthersProvider.resolveName (D:\Projects\Sagitta\SAGProtocol\node_modules\@nomicfoundation\hardhat-ethers\src\internal\hardhat-ethers-provider.ts:364:11)
+NotImplemame' is not implemented
+> Uncaught:
+undefined
+const vault = await ethers.getContractAt("Vault", "<VaultAddress>");

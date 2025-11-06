@@ -19,6 +19,12 @@ interface IPriceOracle {
     function getPrice() external view returns (uint256); // returns price in USD with 8 decimals
 }
 
+interface IReceiptNFT {
+    function mint(address to, uint256 tokenId) external;
+    function burn(uint256 tokenId) external;
+    function ownerOf(uint256 tokenId) external view returns (address);
+}
+
 contract Vault is Ownable, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
@@ -47,6 +53,7 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
 
     address public treasury;
     uint64 public lockDuration = 365 days;
+    address public receiptNFT; // ERC-721 receipt contract
 
     mapping(address => AssetInfo) public assets;
     mapping(uint256 => DepositReceipt) public deposits;
@@ -78,6 +85,10 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
     );
     event ProfitCreditIssued(address indexed user, uint256 amountUsd6, uint64 unlockAt);
     event ProfitCreditClaimed(address indexed user, uint256 amountUsd6);
+    event ReceiptNFTSet(address indexed nft);
+    event Deposited(address indexed user, uint256 indexed tokenId, address asset, uint256 principal, uint256 unlockTimestamp);
+    event Redeemed(address indexed user, uint256 indexed tokenId, address asset, uint256 principal);
+    event AutoReturned(address indexed user, uint256 indexed tokenId, uint256 principal);
 
     modifier onlyTreasury() {
         require(msg.sender == treasury, "not treasury");
@@ -113,6 +124,12 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         address oracle
     ) external onlyOwner {
         require(asset != address(0), "Invalid asset address");
+        // Always enforce 6 decimals for MockDOT
+        // (replace with your actual MockDOT address if needed)
+        address MOCK_DOT = 0xC9a43158891282A2B1475592D5719c001986Aaec; // update if needed
+        if (asset == MOCK_DOT) {
+            require(decimals == 6, "MockDOT must have 6 decimals");
+        }
         if (enabled) {
             require(oracle != address(0), "Oracle required for enabled asset");
             require(decimals > 0 && decimals <= 18, "Invalid decimals");
@@ -127,27 +144,37 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         emit AssetSet(asset, enabled, decimals, oracle);
     }
 
+    /// @notice Set the Receipt NFT contract address
+    function setReceiptNFT(address _nft) external onlyOwner {
+        require(_nft != address(0), "invalid NFT");
+        receiptNFT = _nft;
+        emit ReceiptNFTSet(_nft);
+    }
+
     /// @notice Deposit tokens into the vault
     /// @param asset Address of the token to deposit
     /// @param amount Amount of tokens to deposit
     function deposit(address asset, uint256 amount) external nonReentrant whenNotPaused {
-        require(amount > 0, "Amount must be greater than 0");
+        require(amount > 0, "Deposit amount must be greater than 0");
         
         AssetInfo memory assetInfo = assets[asset];
-        require(assetInfo.enabled, "Asset not enabled");
+        require(assetInfo.enabled, "The specified asset is not enabled for deposits");
         
         // Convert to USD6
         uint256 amountUsd6 = _usd6(asset, amount, assetInfo);
         
         // Check Treasury coverage
-        require(treasury != address(0), "Treasury not set");
-        require(ITreasury(treasury).canAdmit(amountUsd6), "Treasury coverage insufficient");
+        require(treasury != address(0), "Treasury contract address is not set");
+        require(ITreasury(treasury).canAdmit(amountUsd6), "Treasury coverage is insufficient for this deposit");
         
         // Transfer tokens from user
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
         
-        // Calculate shares (1:1 with USD6 value for simplicity)
-        uint256 shares = amountUsd6;
+        // Calculate shares (18 decimals)
+        // shares = (amount * price * 1e12) / (10^(assetDecimals + 2))
+        uint256 price = IPriceOracle(assetInfo.oracle).getPrice();
+        require(price > 0, "The oracle returned an invalid price");
+        uint256 shares = (amount * price * 1e12) / (10 ** (assetInfo.decimals + 2));
         
         // Create deposit receipt
         uint64 now64 = uint64(block.timestamp);
@@ -170,33 +197,77 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         totalPrincipalByAsset[asset] += amount;
         totalSharesByAsset[asset] += shares;
         sharesOf[msg.sender][asset] += shares;
+
+        // Mint receipt NFT (tokenId == depositId)
+        if (receiptNFT != address(0)) {
+            IReceiptNFT(receiptNFT).mint(msg.sender, depositId);
+        }
         
         emit DepositAccepted(depositId, msg.sender, asset, amount, amountUsd6, shares, lockUntil);
+        emit Deposited(msg.sender, depositId, asset, amount, lockUntil);
     }
 
-    /// @notice Withdraw principal after lock period expires
-    /// @param id Deposit receipt ID
-    /// @param to Address to receive the withdrawn tokens
-    function withdrawPrincipal(uint256 id, address to) external nonReentrant whenNotPaused {
-        require(to != address(0), "Invalid recipient");
-        
-        DepositReceipt storage receipt = deposits[id];
-        require(receipt.user == msg.sender, "Not deposit owner");
+    /// @notice Redeem principal using the receipt NFT
+    function redeem(uint256 tokenId) external nonReentrant whenNotPaused {
+        require(receiptNFT != address(0), "receipt NFT not set");
+        require(IReceiptNFT(receiptNFT).ownerOf(tokenId) == msg.sender, "not NFT owner");
+
+        DepositReceipt storage receipt = deposits[tokenId];
         require(!receipt.withdrawn, "Already withdrawn");
         require(block.timestamp >= receipt.lockUntil, "Lock period not expired");
-        
+
         // Mark as withdrawn
         receipt.withdrawn = true;
-        
+
         // Update tracking
         totalPrincipalByAsset[receipt.asset] -= receipt.amount;
         totalSharesByAsset[receipt.asset] -= receipt.shares;
-        sharesOf[msg.sender][receipt.asset] -= receipt.shares;
-        
-        // Transfer tokens
-        IERC20(receipt.asset).safeTransfer(to, receipt.amount);
-        
-        emit PrincipalWithdrawn(id, msg.sender, receipt.asset, receipt.amount);
+        sharesOf[receipt.user][receipt.asset] -= receipt.shares;
+
+        // Burn NFT and transfer principal
+        IReceiptNFT(receiptNFT).burn(tokenId);
+        IERC20(receipt.asset).safeTransfer(msg.sender, receipt.amount);
+
+        emit PrincipalWithdrawn(tokenId, msg.sender, receipt.asset, receipt.amount);
+        emit Redeemed(msg.sender, tokenId, receipt.asset, receipt.amount);
+    }
+
+    /// @notice Automatically return matured deposits
+    /// @param tokenId Receipt token ID
+    function autoReturn(uint256 tokenId) public nonReentrant whenNotPaused {
+        require(receiptNFT != address(0), "receipt NFT not set");
+        DepositReceipt storage receipt = deposits[tokenId];
+        require(receipt.lockUntil > 0, "Invalid receipt");
+        require(block.timestamp >= receipt.lockUntil, "Deposit still locked");
+        require(!receipt.withdrawn, "Already withdrawn");
+
+        address nftOwner;
+        // Try/catch to provide a clear error if NFT does not exist
+        try IReceiptNFT(receiptNFT).ownerOf(tokenId) returns (address _nftOwner) {
+            nftOwner = _nftOwner;
+        } catch {
+            revert("NFT does not exist");
+        }
+        require(msg.sender == nftOwner, "not NFT owner");
+
+        uint256 principal = receipt.amount;
+
+        receipt.withdrawn = true;
+        IReceiptNFT(receiptNFT).burn(tokenId);
+
+        // Transfer principal to owner
+        IERC20(receipt.asset).safeTransfer(nftOwner, principal);
+
+        emit AutoReturned(nftOwner, tokenId, principal);
+    }
+
+    /// @notice Batch process expired receipts
+    /// @param tokenIds Array of receipt token IDs
+    function processExpiredReceipts(uint256[] calldata tokenIds) external nonReentrant whenNotPaused {
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            // try/catch to skip already returned or not yet matured
+            try this.autoReturn(tokenIds[i]) {} catch {}
+        }
     }
 
     /// @notice Issue a profit credit to a user (Treasury only)
@@ -398,5 +469,71 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         // For now, return 0 as placeholder - implement based on your needs
         user; // Silence unused parameter warning
         return 0;
+    }
+
+    /// View helper: returns receipt details by tokenId
+    function getReceipt(uint256 tokenId)
+        external
+        view
+        returns (
+            address receiptOwner,
+            address asset,
+            uint256 principal,
+            uint256 entryValueUsd,
+            uint256 depositTimestamp,
+            uint256 unlockTimestamp,
+            bool withdrawn
+        )
+    {
+        DepositReceipt memory r = deposits[tokenId];
+        receiptOwner = r.user;
+        asset = r.asset;
+        principal = r.amount;
+        entryValueUsd = r.amountUsd6;
+        depositTimestamp = r.createdAt;
+        unlockTimestamp = r.lockUntil;
+        withdrawn = r.withdrawn;
+    }
+
+    /// Convenience: list of tokenIds (receiptIds) for user
+    function getUserReceipts(address user) external view returns (uint256[] memory) {
+        return userDeposits[user];
+    }
+
+    /// Aggregates for dashboard
+    function getUserTotals(address user)
+        external
+        view
+        returns (
+            uint256 totalPrincipalLocked,
+            uint256 totalUnlockedPrincipal,
+            uint256 activeCount,
+            uint256 nextUnlockTimestamp
+        )
+    {
+        uint256[] memory ids = userDeposits[user];
+        uint256 nextUnlock = 0;
+        uint64 now64 = uint64(block.timestamp);
+
+        for (uint256 i = 0; i < ids.length; i++) {
+            DepositReceipt memory r = deposits[ids[i]];
+            if (!r.withdrawn) {
+                if (now64 < r.lockUntil) {
+                    totalPrincipalLocked += r.amountUsd6; // USD6 locked
+                    activeCount += 1;
+                    if (nextUnlock == 0 || r.lockUntil < nextUnlock) {
+                        nextUnlock = r.lockUntil;
+                    }
+                } else {
+                    totalUnlockedPrincipal += r.amountUsd6; // USD6 unlocked
+                }
+            }
+        }
+        nextUnlockTimestamp = nextUnlock;
+    }
+
+    // Add this function for compatibility with scripts and frontend
+    function owner() public view override returns (address) {
+        return Ownable.owner();
     }
 }

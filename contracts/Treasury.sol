@@ -51,4 +51,10 @@ contract Treasury is Ownable {
         // Placeholder for actual buyback completion logic
         emit BuybackCompleted(amount);
     }
+
+    function canAdmit(uint256 amountUsd6) external pure returns (bool) {
+        // Example logic: always admit for testing
+        amountUsd6; // silence unused warning
+        return true;
+    }
 }

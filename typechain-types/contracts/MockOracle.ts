@@ -21,21 +21,19 @@ import type {
 } from "../common";
 
 export interface MockOracleInterface extends Interface {
-  getFunction(nameOrSignature: "latestAnswer" | "setPrice"): FunctionFragment;
+  getFunction(
+    nameOrSignature: "getPrice" | "price" | "setPrice"
+  ): FunctionFragment;
 
-  encodeFunctionData(
-    functionFragment: "latestAnswer",
-    values?: undefined
-  ): string;
+  encodeFunctionData(functionFragment: "getPrice", values?: undefined): string;
+  encodeFunctionData(functionFragment: "price", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "setPrice",
     values: [BigNumberish]
   ): string;
 
-  decodeFunctionResult(
-    functionFragment: "latestAnswer",
-    data: BytesLike
-  ): Result;
+  decodeFunctionResult(functionFragment: "getPrice", data: BytesLike): Result;
+  decodeFunctionResult(functionFragment: "price", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "setPrice", data: BytesLike): Result;
 }
 
@@ -82,7 +80,9 @@ export interface MockOracle extends BaseContract {
     event?: TCEvent
   ): Promise<this>;
 
-  latestAnswer: TypedContractMethod<[], [bigint], "view">;
+  getPrice: TypedContractMethod<[], [bigint], "view">;
+
+  price: TypedContractMethod<[], [bigint], "view">;
 
   setPrice: TypedContractMethod<[_price: BigNumberish], [void], "nonpayable">;
 
@@ -91,7 +91,10 @@ export interface MockOracle extends BaseContract {
   ): T;
 
   getFunction(
-    nameOrSignature: "latestAnswer"
+    nameOrSignature: "getPrice"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "price"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "setPrice"

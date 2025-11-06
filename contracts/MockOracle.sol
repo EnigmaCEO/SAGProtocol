@@ -2,13 +2,13 @@
 pragma solidity ^0.8.24;
 
 contract MockOracle {
-    int256 private price;
+    uint256 public price;
 
-    function setPrice(int256 _price) external {
+    function setPrice(uint256 _price) external {
         price = _price;
     }
 
-    function latestAnswer() external view returns (int256) {
+    function getPrice() external view returns (uint256) {
         return price;
     }
 }

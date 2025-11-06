@@ -2,6 +2,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export { IPriceOracle__factory } from "./IPriceOracle__factory";
+export { IReceiptNFT__factory } from "./IReceiptNFT__factory";
 export { ITreasury__factory } from "./ITreasury__factory";
 export { ITreasuryPay__factory } from "./ITreasuryPay__factory";
 export { Vault__factory } from "./Vault__factory";
