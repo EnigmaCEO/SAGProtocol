@@ -327,71 +327,6 @@ export default function UserTab() {
     }
   };
 
-  // Quick local configuration: set treasury, enable mDOT asset, set oracle price
-  const handleConfigureLocal = async () => {
-    try {
-      setIsLoading(true);
-
-      // Ensure Treasury is set
-      const currentTreasury = await publicClient.readContract({
-        address: VAULT_ADDRESS,
-        abi: VAULT_ABI,
-        functionName: 'treasury',
-      }) as `0x${string}`;
-
-      if (currentTreasury.toLowerCase() !== TREASURY_ADDRESS.toLowerCase()) {
-        let hash = await walletClient.writeContract({
-          account,
-          address: VAULT_ADDRESS,
-          abi: VAULT_ABI,
-          functionName: 'setTreasury',
-          args: [TREASURY_ADDRESS],
-          chain: LOCALHOST_CHAIN,
-        });
-        await publicClient.waitForTransactionReceipt({ hash });
-      }
-
-      // Detect token decimals for correct asset setup
-      const dec = await publicClient.readContract({
-        address: MOCK_DOT_ADDRESS,
-        abi: MockDOTABI,
-        functionName: 'decimals',
-      }) as number | bigint;
-      const decNum = Number(dec);
-
-      // Enable asset (idempotent – setting same values is fine on local)
-      let hash = await walletClient.writeContract({
-        account,
-        address: VAULT_ADDRESS,
-        abi: VAULT_ABI,
-        functionName: 'setAsset',
-        args: [MOCK_DOT_ADDRESS, true, decNum, MOCK_ORACLE_ADDRESS],
-        chain: LOCALHOST_CHAIN,
-      });
-      await publicClient.waitForTransactionReceipt({ hash });
-
-      // Set a development price on MockOracle (e.g., $7.00 with 8 decimals)
-      hash = await walletClient.writeContract({
-        account,
-        address: MOCK_ORACLE_ADDRESS,
-        abi: MOCK_ORACLE_ABI,
-        functionName: 'setPrice',
-        args: [parseUnits('7', 8)],
-        chain: LOCALHOST_CHAIN,
-      });
-      await publicClient.waitForTransactionReceipt({ hash });
-
-      setContractError(null);
-      await fetchData();
-      alert('Local Vault configured.');
-    } catch (e) {
-      console.error('Configure failed:', e);
-      alert('Failed to configure local Vault. Make sure you are the owner account.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const lockedDeposits = deposits.filter(d => d.status === 'LOCKED');
   const totalPrincipalLocked = lockedDeposits.reduce((sum, d) => sum + d.entryValueUsd, 0);
   const nextUnlockDate = lockedDeposits.length > 0 
@@ -412,13 +347,6 @@ export default function UserTab() {
           User Vault
         </h2>
         <div className="flex items-center gap-4 text-sm text-slate-400">
-          <button
-            onClick={handleConfigureLocal}
-            disabled={isLoading}
-            className="px-3 py-2 rounded-full bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/50 text-sky-300 transition-all disabled:opacity-50"
-          >
-            Configure Local Vault
-          </button>
           <button 
             onClick={handleMintDOT}
             disabled={isLoading}

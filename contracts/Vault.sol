@@ -224,6 +224,9 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         totalSharesByAsset[receipt.asset] -= receipt.shares;
         sharesOf[receipt.user][receipt.asset] -= receipt.shares;
 
+        // Update historical record to current NFT owner
+        receipt.user = msg.sender;
+
         // Burn NFT and transfer principal
         IReceiptNFT(receiptNFT).burn(tokenId);
         IERC20(receipt.asset).safeTransfer(msg.sender, receipt.amount);
@@ -251,6 +254,9 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         require(msg.sender == nftOwner, "not NFT owner");
 
         uint256 principal = receipt.amount;
+
+        // Update historical record to current NFT owner
+        receipt.user = nftOwner;
 
         receipt.withdrawn = true;
         IReceiptNFT(receiptNFT).burn(tokenId);
