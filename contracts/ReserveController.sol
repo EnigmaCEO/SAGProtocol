@@ -4,6 +4,10 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
+interface IGoldOracle {
+    function getGoldPrice() external view returns (uint256);
+}
+
 contract ReserveController is Ownable {
     IERC20 public immutable gold;
     address public treasury;
@@ -11,7 +15,7 @@ contract ReserveController is Ownable {
     uint256 public reserveFloorBps = 1200; // 12%
     uint256 public reserveCeilBps = 2500; // 25%
     uint256 public reserveRatio;
-    uint256 public goldPriceUsd6; // Gold price in USD with 6 decimals
+    address public goldOracle; // authoritative oracle address (returns USD*1e6)
     mapping(address => uint256) public reserves;
 
     event ReserveFilled(uint256 amount);
@@ -20,10 +24,10 @@ contract ReserveController is Ownable {
     event ReservesAdded(address indexed asset, uint256 amount);
     event GoldPriceUpdated(uint256 newPrice);
 
-    constructor(IERC20 _gold) Ownable(msg.sender) {
+    constructor(IERC20 _gold, address _goldOracle) Ownable(msg.sender) {
         gold = _gold;
         reserveRatio = 2000; // 20% default
-        goldPriceUsd6 = 2000_000000; // Default $2000 per GOLD
+        goldOracle = _goldOracle;
     }
 
     function setTreasury(address _treasury) external onlyOwner {
@@ -31,10 +35,10 @@ contract ReserveController is Ownable {
         treasury = _treasury;
     }
 
-    function setGoldPrice(uint256 newPrice) external onlyOwner {
-        require(newPrice > 0, "Price must be positive");
-        goldPriceUsd6 = newPrice;
-        emit GoldPriceUpdated(newPrice);
+    // set the external oracle address (owner only) to support migration
+    function setGoldOracle(address _oracle) external onlyOwner {
+        require(_oracle != address(0), "oracle cannot be zero");
+        goldOracle = _oracle;
     }
 
     function manageReserve(uint256 currentRatio) external onlyOwner {
@@ -72,9 +76,13 @@ contract ReserveController is Ownable {
     /// @return Total USD value of all reserves
     function navReserveUsd() external view returns (uint256) {
         uint256 goldBal = gold.balanceOf(address(this));
-        // Convert GOLD balance (18 decimals) to USD value (6 decimals)
-        // goldBal * goldPriceUsd6 / 1e18
-        return (goldBal * goldPriceUsd6) / 1e18;
+        // Read authoritative price from GoldOracle (expected usd * 1e6)
+        uint256 priceUsd6 = 0;
+        if (goldOracle != address(0)) {
+            priceUsd6 = IGoldOracle(goldOracle).getGoldPrice();
+        }
+        // Convert GOLD balance (18 decimals) to USD value (6 decimals): goldBal * priceUsd6 / 1e18
+        return (goldBal * priceUsd6) / 1e18;
     }
 
     /// @notice Calculate coverage ratio in basis points

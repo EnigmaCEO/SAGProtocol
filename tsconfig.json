@@ -8,8 +8,8 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "esModuleInterop": true,
-    "module": "commonjs",
-    "moduleResolution": "node",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",
@@ -18,8 +18,16 @@
     "paths": {
       "@/lib/*": ["./frontend/src/lib/*"],
       "@/components/*": ["frontend/src/components/components/*"]
-    }
+    },
+    "allowImportingTsExtensions": true
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", "frontend/**/*", "frontend/src/components/components/**/*", "pages/**/*"],
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    "frontend/**/*",
+    "frontend/src/components/components/**/*",
+    "pages/**/*"
+  ],
   "exclude": ["node_modules"]
 }

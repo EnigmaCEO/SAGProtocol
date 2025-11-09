@@ -1,8 +1,11 @@
-import { Clock, Lock, BarChart, Percent } from 'lucide-react';
+import { Clock, Lock, Users, Layers, Repeat } from 'lucide-react';
 import MetricGrid from '../ui/MetricGrid';
 import MetricCard from '../ui/MetricCard';
+import useVaultMetrics from '../../hooks/useVaultMetrics';
 
 export default function VaultTab() {
+  const metrics = useVaultMetrics();
+
   return (
     <div className="space-y-8 animate-fadeIn">
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
@@ -11,44 +14,63 @@ export default function VaultTab() {
         </h2>
         <div className="flex items-center gap-2 text-sm text-slate-400">
           <Clock size={16} />
-          <span>Last updated: {new Date().toLocaleTimeString()}</span>
+          <span>
+            Last updated:{' '}
+            {metrics.updatedAt ? new Date(metrics.updatedAt).toLocaleTimeString() : '—'}
+          </span>
         </div>
       </div>
 
+      {/* show runtime errors from the hook */}
+      {metrics.error && (
+        <div className="text-sm text-red-400 bg-red-900/10 p-3 rounded-md">
+          Error loading vault metrics: {metrics.error}
+        </div>
+      )}
+
+      {/* show loading indicator */}
+      {metrics.loading && (
+        <div className="text-sm text-slate-400">Loading vault metrics...</div>
+      )}
+
       <MetricGrid>
-        <MetricCard title="Total Value Locked" value="$1,234,567" tone="success" icon={<Lock />} />
-        <MetricCard title="Active Locks" value="4,321" tone="neutral" icon={<BarChart />} />
-        <MetricCard title="Average Lock Time" value="180 Days" tone="neutral" />
-        <MetricCard title="Current Yield Rate" value="8.75%" hint="APY" tone="success" icon={<Percent />} />
+        <MetricCard title="Total Value Locked" value={metrics.tvlUsd} tone="success" icon={<Lock />} />
+        <MetricCard
+          title="Active Locks (NFTs)"
+          value={String(metrics.activeLocks)}
+          tone="neutral"
+          icon={<Layers />}
+        />
+        <MetricCard
+          title="Unique Depositors"
+          value={String(metrics.uniqueDepositors)}
+          tone="neutral"
+          icon={<Users />}
+        />
+        <MetricCard
+          title="Auto-Return Success Rate"
+          value={`${metrics.autoReturnRatePct.toFixed(2)}%`}
+          hint="success rate"
+          tone={metrics.autoReturnRatePct >= 50 ? 'success' : 'danger'}
+          icon={<Repeat />}
+        />
       </MetricGrid>
 
-      <div className="bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-lg border border-slate-700/50 overflow-hidden">
-        <h3 className="text-lg font-semibold text-slate-200 p-6">Vault Operations</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="border-b-2 border-sky-700/40">
-              <tr className="text-sm text-slate-400">
-                <th className="p-4">Operation</th>
-                <th className="p-4">User</th>
-                <th className="p-4">Amount</th>
-                <th className="p-4">Timestamp</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="hover:bg-slate-800/40 transition-colors duration-300 border-t border-slate-800">
-                <td className="p-4 text-emerald-400">Lock</td>
-                <td className="p-4 font-mono">0xabc...123</td>
-                <td className="p-4 font-mono text-amber-300">1,000 SAG</td>
-                <td className="p-4">2023-10-27 10:30 AM</td>
-              </tr>
-              <tr className="bg-slate-900/20 hover:bg-slate-800/40 transition-colors duration-300 border-t border-slate-800">
-                <td className="p-4 text-sky-400">Extend Lock</td>
-                <td className="p-4 font-mono">0xdef...456</td>
-                <td className="p-4 font-mono text-amber-300">500 SAG</td>
-                <td className="p-4">2023-10-27 09:15 AM</td>
-              </tr>
-            </tbody>
-          </table>
+      <div className="bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-lg border border-slate-700/50 overflow-hidden p-6">
+        <h3 className="text-lg font-semibold text-slate-200 mb-4">Active vs Matured Deposits</h3>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="p-4 bg-slate-900/30 rounded-lg">
+            <div className="text-sm text-slate-400">Active Deposits</div>
+            <div className="mt-2 text-2xl font-mono text-amber-300">{metrics.activeCount}</div>
+            <div className="text-sm text-slate-300 mt-1">{metrics.activeUsd}</div>
+          </div>
+
+          <div className="p-4 bg-slate-900/30 rounded-lg">
+            <div className="text-sm text-slate-400">Matured Deposits</div>
+            <div className="mt-2 text-2xl font-mono text-sky-400">{metrics.maturedCount}</div>
+            <div className="text-sm text-slate-300 mt-1">{metrics.maturedUsd}</div>
+          </div>
         </div>
       </div>
     </div>

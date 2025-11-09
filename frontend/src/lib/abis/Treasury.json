@@ -2,207 +2,53 @@
   "abi": [
     {
       "inputs": [
-        {
-          "internalType": "contract IERC20",
-          "name": "_usdc",
-          "type": "address"
-        }
+        { "internalType": "address", "name": "_sag", "type": "address" },
+        { "internalType": "address", "name": "_usdc", "type": "address" },
+        { "internalType": "address", "name": "_gold", "type": "address" },
+        { "internalType": "address", "name": "_reserveAddress", "type": "address" },
+        { "internalType": "address", "name": "_vault", "type": "address" },
+        { "internalType": "address", "name": "_priceOracle", "type": "address" }
       ],
       "stateMutability": "nonpayable",
       "type": "constructor"
     },
-    {
-      "inputs": [],
-      "name": "usdc",
-      "outputs": [
-        {
-          "internalType": "contract IERC20",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
+    { "inputs": [], "name": "sag", "outputs": [{ "internalType": "contract IERC20", "name": "", "type": "address" }], "stateMutability": "view", "type": "function" },
+    { "inputs": [], "name": "usdc", "outputs": [{ "internalType": "contract IERC20", "name": "", "type": "address" }], "stateMutability": "view", "type": "function" },
+    { "inputs": [], "name": "gold", "outputs": [{ "internalType": "contract IERC20", "name": "", "type": "address" }], "stateMutability": "view", "type": "function" },
+    { "inputs": [], "name": "reserveAddress", "outputs": [{ "internalType": "address", "name": "", "type": "address" }], "stateMutability": "view", "type": "function" },
+    { "inputs": [], "name": "vault", "outputs": [{ "internalType": "address", "name": "", "type": "address" }], "stateMutability": "view", "type": "function" },
+    { "inputs": [], "name": "priceOracle", "outputs": [{ "internalType": "contract IPriceOracle", "name": "", "type": "address" }], "stateMutability": "view", "type": "function" },
+
+    { "inputs": [], "name": "sagOracle", "outputs": [{ "internalType": "contract IPriceOracle", "name": "", "type": "address" }], "stateMutability": "view", "type": "function" },
+    { "inputs": [], "name": "goldOracle", "outputs": [{ "internalType": "contract IPriceOracle", "name": "", "type": "address" }], "stateMutability": "view", "type": "function" },
+
+    { "inputs": [], "name": "totalCollateralUsd", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
+
+    { "inputs": [{ "internalType": "address", "name": "_vault", "type": "address" }], "name": "setVault", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+    { "inputs": [{ "internalType": "address", "name": "_reserve", "type": "address" }], "name": "setReserveAddress", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+    { "inputs": [{ "internalType": "address", "name": "_oracle", "type": "address" }], "name": "setPriceOracle", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+
+    { "inputs": [{ "internalType": "address", "name": "_oracle", "type": "address" }], "name": "setSagOracle", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+    { "inputs": [{ "internalType": "address", "name": "_oracle", "type": "address" }], "name": "setGoldOracle", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+
+    { "inputs": [], "name": "getTreasuryValueUsd", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
+    { "inputs": [], "name": "getReserveValueUsd", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
+    { "inputs": [], "name": "getTargetReserveUsd", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
+    { "inputs": [{ "internalType": "uint256", "name": "totalDepositsUsd", "type": "uint256" }], "name": "getCoverageRatio", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
+    { "inputs": [{ "internalType": "uint256", "name": "amountUsd6", "type": "uint256" }], "name": "canAdmit", "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }], "stateMutability": "view", "type": "function" },
+
+    { "inputs": [{ "internalType": "uint256", "name": "depositValueUsd", "type": "uint256" }], "name": "collateralize", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+    { "inputs": [], "name": "rebalanceReserve", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+
+    { "inputs": [], "name": "owner", "outputs": [{ "internalType": "address", "name": "", "type": "address" }], "stateMutability": "view", "type": "function" },
+
+    { "anonymous": false, "inputs": [{ "indexed": false, "internalType": "uint256", "name": "amountUsd", "type": "uint256" }], "name": "Collateralized", "type": "event" },
+    { "anonymous": false, "inputs": [
+        { "indexed": false, "internalType": "uint256", "name": "treasuryUsd", "type": "uint256" },
+        { "indexed": false, "internalType": "uint256", "name": "reserveUsd", "type": "uint256" }
+      ], "name": "Rebalanced", "type": "event"
     },
-    {
-      "inputs": [],
-      "name": "vault",
-      "outputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "reserveController",
-      "outputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "crMinBps",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "_vault",
-          "type": "address"
-        }
-      ],
-      "name": "setVault",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "_reserveController",
-          "type": "address"
-        }
-      ],
-      "name": "setReserveController",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "profit",
-          "type": "uint256"
-        }
-      ],
-      "name": "harvest",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        }
-      ],
-      "name": "completeBuyback",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "amountUsd6",
-          "type": "uint256"
-        }
-      ],
-      "name": "canAdmit",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "pure",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "owner",
-      "outputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "profit",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "toVault",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "toReserve",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "toBuyback",
-          "type": "uint256"
-        }
-      ],
-      "name": "Harvested",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        }
-      ],
-      "name": "BuybackStarted",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        }
-      ],
-      "name": "BuybackCompleted",
-      "type": "event"
-    }
+    { "anonymous": false, "inputs": [{ "indexed": false, "internalType": "uint256", "name": "usdAmount", "type": "uint256" }], "name": "GoldBought", "type": "event" },
+    { "anonymous": false, "inputs": [{ "indexed": false, "internalType": "uint256", "name": "usdAmount", "type": "uint256" }], "name": "GoldSold", "type": "event" }
   ]
 }

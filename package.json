@@ -14,26 +14,29 @@
     "ff:days": "hardhat run scripts/fastForward.ts --network localhost",
     "demo": "concurrently -k -n NODE,DEPLOY,WEB -c blue,magenta,green \"hardhat node\" \"sleep 2 && hardhat run scripts/deploy.ts --network localhost\" \"sleep 4 && pnpm --dir frontend dev\"",
     "prepare": "npm run compile",
-    "dev": "npm run compile && cd frontend && npm run dev"
+    "dev": "npm run compile && cd frontend && npm run dev",
+    "debugVaultDeposit": "ts-node scripts/debugVaultDeposit.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@openzeppelin/contracts": "^5.4.0",
+    "@scure/bip39": "^2.0.1",
     "@tanstack/react-query": "^5.90.6",
     "dotenv": "^16.4.5",
+    "ethers": "^6.15.0",
     "lucide-react": "^0.552.0",
     "next": "^16.0.1",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "react-hot-toast": "^2.6.0",
     "viem": "^2.38.6",
     "wagmi": "^2.19.2"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^2.0.7",
-    "@nomicfoundation/hardhat-ethers": "^3.0.6",
+    "@nomicfoundation/hardhat-ethers": "^3.1.2",
     "@nomicfoundation/hardhat-ignition": "^0.15.5",
     "@nomicfoundation/hardhat-ignition-ethers": "^0.15.5",
     "@nomicfoundation/hardhat-network-helpers": "^1.0.11",
@@ -49,10 +52,6 @@
     "autoprefixer": "^10.4.21",
     "chai": "^4.4.1",
     "concurrently": "^8.2.2",
-    "dotenv": "^16.3.1",
-    "ethers": "^6.13.2",
-    "hardhat": "^2.22.6",
-    "hardhat-gas-reporter": "^1.0.10",
     "postcss": "^8.5.6",
     "prettier": "^3.3.3",
     "solidity-coverage": "^0.8.12",
@@ -60,5 +59,6 @@
     "ts-node": "^10.9.2",
     "typechain": "^8.3.2",
     "typescript": "^5.5.3"
-  }
+  },
+  "type": "module"
 }

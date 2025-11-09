@@ -1,13 +1,7 @@
-/** @type {import('next').NextConfig} */
 const nextConfig = {
+  // ...your Next.js config options...
   reactStrictMode: true,
-  webpack: (config) => {
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      '@/lib': './frontend/lib',
-    };
-    return config;
-  },
+  // Add other config options as needed
 };
 
-module.exports = nextConfig;
+export default nextConfig;

@@ -8,6 +8,16 @@ contract MockOracle {
         price = _price;
     }
 
+    // Compatibility wrappers expected by Treasury
+    // Treasury expects getSagPriceUsd() and getGoldPriceUsd() returning price with 8 decimals
+    function getSagPriceUsd() external view returns (uint256) {
+        return price;
+    }
+
+    function getGoldPriceUsd() external view returns (uint256) {
+        return price;
+    }
+
     function getPrice() external view returns (uint256) {
         return price;
     }

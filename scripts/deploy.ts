@@ -1,8 +1,12 @@
-// scripts/deploy_full.ts
 import hre from "hardhat";
 const { ethers } = hre;
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+
+// Add these lines for ESM __dirname support:
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 async function wait(d: any) {
   if (d.waitForDeployment) return d.waitForDeployment();
@@ -74,23 +78,46 @@ async function main() {
   const vault = await deployAndVerify(Vault);
   console.log("Vault:", addr(vault));
 
-  console.log("\n=== Deploying Treasury ===");
-  const Treasury = await ethers.getContractFactory("Treasury");
-  const treasury = await deployAndVerify(Treasury, addr(usdc));
-  console.log("Treasury:", addr(treasury));
-
   console.log("\n=== Deploying ReserveController ===");
   const ReserveController = await ethers.getContractFactory("ReserveController");
-  const reserve = await deployAndVerify(ReserveController, addr(treasury));
+  const reserve = await deployAndVerify(ReserveController, addr(gold)); // or correct constructor arg
   console.log("ReserveController:", addr(reserve));
+
+  const MockOracle = await ethers.getContractFactory("MockOracle");
+  // Deploy three per-asset oracles (SAG, GOLD, DOT)
+  const oracleGold = await deployAndVerify(MockOracle);
+  const oracleSag = await deployAndVerify(MockOracle);
+  const oracleDot = await deployAndVerify(MockOracle);
+
+  console.log("\n=== Deploying Treasury ===");
+  const Treasury = await ethers.getContractFactory("Treasury");
+  // Pass one oracle into constructor for backward compatibility (we'll set per-asset oracles below)
+  const treasury = await deployAndVerify(
+    Treasury,
+    addr(sag),
+    addr(usdc),
+    addr(gold),
+    addr(reserve),
+    addr(vault),
+    addr(oracleGold) // initial priceOracle (legacy); we will set sag/gold oracles explicitly
+  );
+  console.log("Treasury:", addr(treasury));
 
   // 3) Oracle
   console.log("\n=== Deploying MockOracle ===");
-  const MockOracle = await ethers.getContractFactory("MockOracle");
-  const oracle = await deployAndVerify(MockOracle);
-  // Set price = $7.00 (8 decimals)
-  await (await oracle.setPrice(BigInt("700000000"))).wait();
-  console.log("MockOracle (GOLD/USD):", addr(oracle));
+  
+  // Set per-asset prices (8-decimals):
+  // SAG = $0.75 -> 0.75 * 1e8 = 75_000_000
+  await (await oracleSag.setPrice(BigInt("75000000"))).wait();
+  console.log("MockOracle SAG:", addr(oracleSag), "price=75000000 (0.75 USD)");
+
+  // GOLD = $4000 -> 4000 * 1e8 = 400_000_000_000
+  await (await oracleGold.setPrice(BigInt("400000000000"))).wait();
+  console.log("MockOracle GOLD:", addr(oracleGold), "price=400000000000 (4000 USD)");
+
+  // DOT = $10 -> 10 * 1e8 = 1_000_000_000
+  await (await oracleDot.setPrice(BigInt("1000000000"))).wait();
+  console.log("MockOracle DOT:", addr(oracleDot), "price=1000000000 (10 USD)");
 
   console.log("\n=== Deploying Receipt NFT ===");
   const Receipt = await ethers.getContractFactory("SagittaVaultReceipt");
@@ -115,9 +142,24 @@ async function main() {
 
   // 6) Wire relationships
   console.log("\n=== Configuring contracts ===");
-  try { await (await vault.setTreasury(addr(treasury))).wait(); } catch (e) { console.log("Skip vault.setTreasury"); }
-  try { await (await treasury.setVault(addr(vault))).wait(); } catch (e) { console.log("Skip treasury.setVault"); }
-  try { await (await treasury.setReserveController(addr(reserve))).wait(); } catch (e) { console.log("Skip treasury.setReserveController"); }
+  // Wire Vault <-> Treasury and verify. Throw on failure so mis-wiring is visible.
+  await (await vault.setTreasury(addr(treasury))).wait();
+  const wiredTreasury = await vault.treasury();
+  if (wiredTreasury.toLowerCase() !== addr(treasury).toLowerCase()) {
+    throw new Error(`Wiring failed: vault.treasury() = ${wiredTreasury}, expected ${addr(treasury)}`);
+  }
+  await (await treasury.setVault(addr(vault))).wait();
+  const wiredVault = await treasury.vault();
+  if (wiredVault.toLowerCase() !== addr(vault).toLowerCase()) {
+    throw new Error(`Wiring failed: treasury.vault() = ${wiredVault}, expected ${addr(vault)}`);
+  }
+  // Reserve controller wiring: Treasury exposes setReserveAddress(...)
+  await (await treasury.setReserveAddress(addr(reserve))).wait();
+  const wiredReserve = await treasury.reserveAddress();
+  if (wiredReserve.toLowerCase() !== addr(reserve).toLowerCase()) {
+    throw new Error(`Wiring failed: treasury.reserveAddress() = ${wiredReserve}, expected ${addr(reserve)}`);
+  }
+  console.log("Wired Vault <-> Treasury <-> ReserveController");
 
   // Wire receipt NFT
       try {
@@ -151,7 +193,7 @@ async function main() {
   // Enable SAGToken on Vault with its decimals and the MockOracle
   try {
     const sagDecimals = await sag.decimals();
-    await (await vault.setAsset(addr(sag), true, Number(sagDecimals), addr(oracle))).wait();
+    await (await vault.setAsset(addr(sag), true, Number(sagDecimals), addr(oracleSag))).wait();
     // Optional: shorten lock duration for local testing (e.g., 5 minutes)
     try { await (await vault.setLockDuration(60 * 5)).wait(); } catch (_) {}
     console.log("Vault asset configured:", { asset: addr(sag), decimals: sagDecimals.toString(), oracle: addr(oracle) });
@@ -163,7 +205,7 @@ async function main() {
   try {
     const mdotDecimals = await mdot.decimals();
     // Make sure 'oracle' here is the correct MockOracle address
-    await (await vault.setAsset(addr(mdot), true, Number(mdotDecimals), addr(oracle))).wait();
+    await (await vault.setAsset(addr(mdot), true, Number(mdotDecimals), addr(oracleDot))).wait();
     // Set 12 months lock (MVP)
     try { await (await vault.setLockDuration(365 * 24 * 60 * 60)).wait(); } catch (_) {}
     console.log("Vault asset configured:", { asset: addr(mdot), decimals: mdotDecimals.toString(), oracle: addr(oracle) });
@@ -171,64 +213,97 @@ async function main() {
     console.log("Skip vault.setAsset:", e);
   }
 
-  // Fund Treasury with USDC so canAdmit() passes
-    try {
-      const usdcToTreasury = BigInt("1000000000000"); // 1,000,000 USDC (6 decimals)
-      await (await usdc.mint(addr(treasury), usdcToTreasury)).wait();
-      console.log("Funded Treasury with USDC:", usdcToTreasury.toString());
-    } catch (e) {
-      console.log("Skip funding Treasury USDC:", e);
-    }
+  // Wire Treasury to use per-asset oracles (requires Treasury.setSagOracle/setGoldOracle implemented)
+  try {
+    await (await treasury.setSagOracle(addr(oracleSag))).wait();
+    await (await treasury.setGoldOracle(addr(oracleGold))).wait();
+    console.log("Treasury sagOracle ->", addr(oracleSag), "goldOracle ->", addr(oracleGold));
+  } catch (e) {
+    console.log("Failed to set per-asset oracles on Treasury:", e);
+  }
+
+  // 6) Mint initial tokens
+
+  // Mint 1M USD worth of SAG to the Treasury using the Oracle price of 0.75 per SAG to calculate
+  console.log("\n=== Minting initial SAG to Treasury ===");
+  const sagDecimalsRaw = await sag.decimals();
+  const sagDecimalsNum = Number(sagDecimalsRaw);
+  const sagPriceRaw = await oracleSag.getPrice();
+  const sagPriceBig = BigInt(sagPriceRaw.toString());
+  const ONE_MILLION_USD = 1_000_000n;
+  const sagToMint = (ONE_MILLION_USD * (10n ** BigInt(8 + sagDecimalsNum))) / sagPriceBig;
+  try {
+    await (await sag.mint(addr(treasury), sagToMint)).wait();
+    console.log(`Minted ${sagToMint.toString()} SAG to Treasury:`, addr(treasury));
+  } catch (e) {
+    console.log("Failed to mint SAG to Treasury:", e);
+  }
+  
+  // Mint 500k USD worth of GOLD to the ReserveController using the Oracle price of $4000 per GOLD to calculate
+  console.log("\n=== Minting initial GOLD to ReserveController ===");
+  const goldDecimalsRaw = await gold.decimals();
+  const goldDecimalsNum = Number(goldDecimalsRaw);
+  const goldPriceRaw = await oracleGold.getPrice();
+  const goldPriceBig = BigInt(goldPriceRaw.toString());
+  const FIVE_HUNDRED_K_USD = 500_000n;
+  const goldToMint = (FIVE_HUNDRED_K_USD * (10n ** BigInt(8 + goldDecimalsNum))) / goldPriceBig;
+  try {
+    await (await gold.mint(addr(reserve), goldToMint)).wait();
+    console.log(`Minted ${goldToMint.toString()} GOLD to ReserveController:`, addr(reserve));
+  } catch (e) {
+    console.log("Failed to mint GOLD to ReserveController:", e);
+  }
 
   // 6.5) Fund demo account
-    console.log("\n=== Funding demo account ===");
-    const demoAddress = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"; // Hardhat account #0
-    const fundAmount = BigInt("1000000000"); // 1000 USDC (6 decimals)
-    try {
-      await (await usdc.mint(demoAddress, fundAmount)).wait();
-      console.log(`Minted 1000 USDC to demo account:`, demoAddress);
-    } catch (e) {
-      console.log("Failed to fund demo account USDC:", e);
-    }
+  console.log("\n=== Funding demo account ===");
+  const demoAddress = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"; // Hardhat account #0
+  const fundAmount = BigInt("1000000000"); // 1000 USDC (6 decimals)
+  try {
+    await (await usdc.mint(demoAddress, fundAmount)).wait();
+    console.log(`Minted 1000 USDC to demo account:`, demoAddress);
+  } catch (e) {
+    console.log("Failed to fund demo account USDC:", e);
+  }
 
   // Fund demo with SAGToken for deposits
-    try {
-      const sagDecimals = await sag.decimals();
-      const sagToDemo = BigInt("100000") * BigInt(10) * sagDecimals; // 100k SAG
-      // mint(address,uint256) if available
-      if ("mint" in sag) {
-        await (await sag.mint(demoAddress, sagToDemo)).wait();
-        console.log(`Minted 100000 SAG to demo account`);
-      } else {
-        console.log("SAGToken.mint not available, skip funding demo SAG");
-      }
-    } catch (e) {
-      console.log("Failed to fund demo account SAG:", e);
+  try {
+    const sagDecimalsForDemo = Number(await sag.decimals());
+    // 100,000 SAG expressed with token decimals
+    const sagToDemo = 100_000n * (10n ** BigInt(sagDecimalsForDemo));
+    // mint(address,uint256) if available
+    if ("mint" in sag) {
+      await (await sag.mint(demoAddress, sagToDemo)).wait();
+      console.log(`Minted 100000 SAG to demo account`);
+    } else {
+      console.log("SAGToken.mint not available, skip funding demo SAG");
     }
+  } catch (e) {
+    console.log("Failed to fund demo account SAG:", e);
+  }
 
   // Fund demo with MockDOT for deposits
-    try {
-      const mdotDecimals = await mdot.decimals();
-      // Mint 1000 mDOT (or more) for testing
-      const mdotToDemo = BigInt("1000") * BigInt(10) ** BigInt(mdotDecimals); // 1000 mDOT
-      await (await mdot.mint(demoAddress, mdotToDemo)).wait();
-      console.log(`Minted 1000 mDOT to demo account`);
-    } catch (e) {
-      console.log("Failed to fund demo account mDOT:", e);
-    }
+  try {
+    const mdotDecimals = await mdot.decimals();
+    // Mint 1000 mDOT (or more) for testing
+    const mdotToDemo = BigInt("1000") * BigInt(10) ** BigInt(mdotDecimals); // 1000 mDOT
+    await (await mdot.mint(demoAddress, mdotToDemo)).wait();
+    console.log(`Minted 1000 mDOT to demo account`);
+  } catch (e) {
+    console.log("Failed to fund demo account mDOT:", e);
+  }
 
   // Fund demo account with ETH for gas
-    console.log("\n=== Funding demo account with ETH ===");
-    try {
-      // Send 10 ETH to demo account for testing
-      await deployer.sendTransaction({
-        to: demoAddress,
-        value: ethers.parseEther("10.0"),
-      });
-      console.log(`Sent 10 ETH to demo account: ${demoAddress}`);
-    } catch (e) {
-      console.log("Failed to fund demo account with ETH:", e);
-    }
+  console.log("\n=== Funding demo account with ETH ===");
+  try {
+    // Send 10 ETH to demo account for testing
+    await deployer.sendTransaction({
+      to: demoAddress,
+      value: ethers.parseEther("10.0"),
+    });
+    console.log(`Sent 10 ETH to demo account: ${demoAddress}`);
+  } catch (e) {
+    console.log("Failed to fund demo account with ETH:", e);
+  }
 
   // 7) Write deployment info
   const deployments = {
@@ -242,7 +317,9 @@ async function main() {
     Treasury: addr(treasury),
     ReserveController: addr(reserve),
     InvestmentEscrow: addr(escrow),
-    MockOracle: addr(oracle),
+    GoldOracle: addr(oracleGold),
+    SagOracle: addr(oracleSag),
+    DotOracle: addr(oracleDot),
     ReceiptNFT: addr(receiptNft),
     AmmSAGUSDC: addr(ammSAGUSDC),
     AmmUSDCGOLD: addr(ammUSDCGOLD),
@@ -259,11 +336,6 @@ async function main() {
     }
   }
 
-  fs.writeFileSync(
-    path.join(__dirname, "../deployments.json"),
-    JSON.stringify(deployments, null, 2)
-  );
-
   const content =
 `// AUTO-GENERATED. DO NOT EDIT.
 export const CONTRACT_ADDRESSES = ${JSON.stringify(deployments, null, 2)} as const;
@@ -276,7 +348,6 @@ export const CONTRACT_ADDRESSES = ${JSON.stringify(deployments, null, 2)} as con
   }
 
   console.log("\n✅ Deployment complete");
-  console.log("📝 Saved to deployments.json");
   console.log("📝 Saved to src/lib/addresses.ts");
   console.log("\n🎮 Demo Account:", demoAddress);
   console.log("💰 USDC Balance: 1000");

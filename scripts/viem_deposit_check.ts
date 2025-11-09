@@ -3,7 +3,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import type { Abi } from 'viem';
 import VaultABI from '../frontend/src/lib/abis/Vault.json';
 import MockDOTABI from '../frontend/src/lib/abis/MockDOT.json';
-import { CONTRACT_ADDRESSES } from '../frontend/src/lib/addresses';
+import { CONTRACT_ADDRESSES } from '../frontend/src/lib/addresses.ts';
 import dotenv from 'dotenv';
 
 dotenv.config();

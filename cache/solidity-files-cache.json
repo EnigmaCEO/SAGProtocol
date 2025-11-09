@@ -1,6 +1,42 @@
 {
   "_format": "hh-sol-cache-2",
   "files": {
+    "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\GoldOracle.sol": {
+      "lastModificationDate": 1762475985587,
+      "contentHash": "2cfa4d3e92e4bcd2e97714b231c09549",
+      "sourceName": "contracts/GoldOracle.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "GoldOracle"
+      ]
+    },
     "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\interfaces\\IERC20.sol": {
       "lastModificationDate": 1761978259954,
       "contentHash": "3f90e90965713c9eefaa9b00666fe2ff",
@@ -148,8 +184,8 @@
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\MockAmmPair.sol": {
-      "lastModificationDate": 1761971505947,
-      "contentHash": "fec5b93ed07a4b8b6d86357ca624fbca",
+      "lastModificationDate": 1762605588002,
+      "contentHash": "4f733e3499a3df3672ffed0fef33206b",
       "sourceName": "contracts/MockAmmPair.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -175,7 +211,10 @@
           }
         }
       },
-      "imports": [],
+      "imports": [
+        "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+        "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
+      ],
       "versionPragmas": [
         "^0.8.24"
       ],
@@ -183,87 +222,8 @@
         "MockAmmPair"
       ]
     },
-    "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\MockDOT.sol": {
-      "lastModificationDate": 1762413049710,
-      "contentHash": "120e9bb562aabf88c0d8779a354b7860",
-      "sourceName": "contracts/MockDOT.sol",
-      "solcConfig": {
-        "version": "0.8.24",
-        "settings": {
-          "optimizer": {
-            "enabled": true,
-            "runs": 200
-          },
-          "evmVersion": "paris",
-          "outputSelection": {
-            "*": {
-              "*": [
-                "abi",
-                "evm.bytecode",
-                "evm.deployedBytecode",
-                "evm.methodIdentifiers",
-                "metadata"
-              ],
-              "": [
-                "ast"
-              ]
-            }
-          }
-        }
-      },
-      "imports": [
-        "@openzeppelin/contracts/token/ERC20/ERC20.sol"
-      ],
-      "versionPragmas": [
-        "^0.8.24"
-      ],
-      "artifacts": [
-        "MockDOT"
-      ]
-    },
-    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\token\\ERC20\\ERC20.sol": {
-      "lastModificationDate": 1762049107463,
-      "contentHash": "59dfce11284f2636db261df9b6a18f81",
-      "sourceName": "@openzeppelin/contracts/token/ERC20/ERC20.sol",
-      "solcConfig": {
-        "version": "0.8.24",
-        "settings": {
-          "optimizer": {
-            "enabled": true,
-            "runs": 200
-          },
-          "evmVersion": "paris",
-          "outputSelection": {
-            "*": {
-              "*": [
-                "abi",
-                "evm.bytecode",
-                "evm.deployedBytecode",
-                "evm.methodIdentifiers",
-                "metadata"
-              ],
-              "": [
-                "ast"
-              ]
-            }
-          }
-        }
-      },
-      "imports": [
-        "./IERC20.sol",
-        "./extensions/IERC20Metadata.sol",
-        "../../utils/Context.sol",
-        "../../interfaces/draft-IERC6093.sol"
-      ],
-      "versionPragmas": [
-        "^0.8.20"
-      ],
-      "artifacts": [
-        "ERC20"
-      ]
-    },
     "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\token\\ERC20\\IERC20.sol": {
-      "lastModificationDate": 1762049107959,
+      "lastModificationDate": 1762597325157,
       "contentHash": "9261adf6457863de3e9892f51317ec89",
       "sourceName": "@openzeppelin/contracts/token/ERC20/IERC20.sol",
       "solcConfig": {
@@ -298,10 +258,10 @@
         "IERC20"
       ]
     },
-    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\interfaces\\draft-IERC6093.sol": {
-      "lastModificationDate": 1762049107360,
-      "contentHash": "5041977bbe908de2e6ed0270447f79ad",
-      "sourceName": "@openzeppelin/contracts/interfaces/draft-IERC6093.sol",
+    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\token\\ERC20\\utils\\SafeERC20.sol": {
+      "lastModificationDate": 1762597325392,
+      "contentHash": "1fb9edee1d763745a62d0b1954998792",
+      "sourceName": "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
       "solcConfig": {
         "version": "0.8.24",
         "settings": {
@@ -326,128 +286,19 @@
           }
         }
       },
-      "imports": [],
-      "versionPragmas": [
-        ">=0.8.4"
+      "imports": [
+        "../IERC20.sol",
+        "../../../interfaces/IERC1363.sol"
       ],
-      "artifacts": [
-        "IERC1155Errors",
-        "IERC20Errors",
-        "IERC721Errors"
-      ]
-    },
-    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\utils\\Context.sol": {
-      "lastModificationDate": 1762049107291,
-      "contentHash": "67bfbc07588eb8683b3fd8f6f909563e",
-      "sourceName": "@openzeppelin/contracts/utils/Context.sol",
-      "solcConfig": {
-        "version": "0.8.24",
-        "settings": {
-          "optimizer": {
-            "enabled": true,
-            "runs": 200
-          },
-          "evmVersion": "paris",
-          "outputSelection": {
-            "*": {
-              "*": [
-                "abi",
-                "evm.bytecode",
-                "evm.deployedBytecode",
-                "evm.methodIdentifiers",
-                "metadata"
-              ],
-              "": [
-                "ast"
-              ]
-            }
-          }
-        }
-      },
-      "imports": [],
       "versionPragmas": [
         "^0.8.20"
       ],
       "artifacts": [
-        "Context"
+        "SafeERC20"
       ]
-    },
-    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\token\\ERC20\\extensions\\IERC20Metadata.sol": {
-      "lastModificationDate": 1762049109320,
-      "contentHash": "513778b30d2750f5d2b9b19bbcf748a5",
-      "sourceName": "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol",
-      "solcConfig": {
-        "version": "0.8.24",
-        "settings": {
-          "optimizer": {
-            "enabled": true,
-            "runs": 200
-          },
-          "evmVersion": "paris",
-          "outputSelection": {
-            "*": {
-              "*": [
-                "abi",
-                "evm.bytecode",
-                "evm.deployedBytecode",
-                "evm.methodIdentifiers",
-                "metadata"
-              ],
-              "": [
-                "ast"
-              ]
-            }
-          }
-        }
-      },
-      "imports": [
-        "../IERC20.sol"
-      ],
-      "versionPragmas": [
-        ">=0.6.2"
-      ],
-      "artifacts": [
-        "IERC20Metadata"
-      ]
-    },
-    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\interfaces\\IERC20.sol": {
-      "lastModificationDate": 1762049107732,
-      "contentHash": "68620db2da7583d9a4919096ac77f577",
-      "sourceName": "@openzeppelin/contracts/interfaces/IERC20.sol",
-      "solcConfig": {
-        "version": "0.8.24",
-        "settings": {
-          "optimizer": {
-            "enabled": true,
-            "runs": 200
-          },
-          "evmVersion": "paris",
-          "outputSelection": {
-            "*": {
-              "*": [
-                "abi",
-                "evm.bytecode",
-                "evm.deployedBytecode",
-                "evm.methodIdentifiers",
-                "metadata"
-              ],
-              "": [
-                "ast"
-              ]
-            }
-          }
-        }
-      },
-      "imports": [
-        "../token/ERC20/IERC20.sol"
-      ],
-      "versionPragmas": [
-        ">=0.4.16"
-      ],
-      "artifacts": []
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\interfaces\\IERC1363.sol": {
-      "lastModificationDate": 1762049107713,
+      "lastModificationDate": 1762597325115,
       "contentHash": "a7fd0f05e36b0d0a21c75340c9c639ec",
       "sourceName": "@openzeppelin/contracts/interfaces/IERC1363.sol",
       "solcConfig": {
@@ -485,8 +336,44 @@
         "IERC1363"
       ]
     },
+    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\interfaces\\IERC20.sol": {
+      "lastModificationDate": 1762597325153,
+      "contentHash": "68620db2da7583d9a4919096ac77f577",
+      "sourceName": "@openzeppelin/contracts/interfaces/IERC20.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../token/ERC20/IERC20.sol"
+      ],
+      "versionPragmas": [
+        ">=0.4.16"
+      ],
+      "artifacts": []
+    },
     "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\interfaces\\IERC165.sol": {
-      "lastModificationDate": 1762049107719,
+      "lastModificationDate": 1762597325127,
       "contentHash": "947853028399b7de34bcc3704ee06e99",
       "sourceName": "@openzeppelin/contracts/interfaces/IERC165.sol",
       "solcConfig": {
@@ -522,7 +409,7 @@
       "artifacts": []
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\utils\\introspection\\IERC165.sol": {
-      "lastModificationDate": 1762049107722,
+      "lastModificationDate": 1762597325136,
       "contentHash": "7074c93b1ea0a122063f26ddd1db1032",
       "sourceName": "@openzeppelin/contracts/utils/introspection/IERC165.sol",
       "solcConfig": {
@@ -558,7 +445,7 @@
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\token\\ERC721\\IERC721.sol": {
-      "lastModificationDate": 1762049109836,
+      "lastModificationDate": 1762597325251,
       "contentHash": "f62e11dbd302e17a5621a1438f4e054c",
       "sourceName": "@openzeppelin/contracts/token/ERC721/IERC721.sol",
       "solcConfig": {
@@ -596,7 +483,7 @@
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\token\\ERC721\\extensions\\IERC721Metadata.sol": {
-      "lastModificationDate": 1762049109846,
+      "lastModificationDate": 1762597325273,
       "contentHash": "136c64eca25bcb8a68f43ac6605559f9",
       "sourceName": "@openzeppelin/contracts/token/ERC721/extensions/IERC721Metadata.sol",
       "solcConfig": {
@@ -634,7 +521,7 @@
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\token\\ERC721\\ERC721.sol": {
-      "lastModificationDate": 1762049107504,
+      "lastModificationDate": 1762597324889,
       "contentHash": "522ec023bce510c30dfbf61584f5a190",
       "sourceName": "@openzeppelin/contracts/token/ERC721/ERC721.sol",
       "solcConfig": {
@@ -677,8 +564,44 @@
         "ERC721"
       ]
     },
+    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\utils\\Context.sol": {
+      "lastModificationDate": 1762597324612,
+      "contentHash": "67bfbc07588eb8683b3fd8f6f909563e",
+      "sourceName": "@openzeppelin/contracts/utils/Context.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "Context"
+      ]
+    },
     "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\utils\\introspection\\ERC165.sol": {
-      "lastModificationDate": 1762049107447,
+      "lastModificationDate": 1762597324803,
       "contentHash": "0906d06dca25210d4696dcef6dad2909",
       "sourceName": "@openzeppelin/contracts/utils/introspection/ERC165.sol",
       "solcConfig": {
@@ -715,8 +638,46 @@
         "ERC165"
       ]
     },
+    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\interfaces\\draft-IERC6093.sol": {
+      "lastModificationDate": 1762597324708,
+      "contentHash": "5041977bbe908de2e6ed0270447f79ad",
+      "sourceName": "@openzeppelin/contracts/interfaces/draft-IERC6093.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        ">=0.8.4"
+      ],
+      "artifacts": [
+        "IERC1155Errors",
+        "IERC20Errors",
+        "IERC721Errors"
+      ]
+    },
     "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\utils\\Strings.sol": {
-      "lastModificationDate": 1762049109966,
+      "lastModificationDate": 1762597325459,
       "contentHash": "d8f70caf0e0c77dc908176ed44812fb7",
       "sourceName": "@openzeppelin/contracts/utils/Strings.sol",
       "solcConfig": {
@@ -756,7 +717,7 @@
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\token\\ERC721\\utils\\ERC721Utils.sol": {
-      "lastModificationDate": 1762049107535,
+      "lastModificationDate": 1762597324935,
       "contentHash": "4cefad279a37c895b709bce2b901816e",
       "sourceName": "@openzeppelin/contracts/token/ERC721/utils/ERC721Utils.sol",
       "solcConfig": {
@@ -795,7 +756,7 @@
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\utils\\math\\Math.sol": {
-      "lastModificationDate": 1762049109871,
+      "lastModificationDate": 1762597325307,
       "contentHash": "5ec781e33d3a9ac91ffdc83d94420412",
       "sourceName": "@openzeppelin/contracts/utils/math/Math.sol",
       "solcConfig": {
@@ -833,8 +794,44 @@
         "Math"
       ]
     },
+    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\utils\\math\\SafeCast.sol": {
+      "lastModificationDate": 1762597325386,
+      "contentHash": "2adca1150f58fc6f3d1f0a0f22ee7cca",
+      "sourceName": "@openzeppelin/contracts/utils/math/SafeCast.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "SafeCast"
+      ]
+    },
     "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\utils\\math\\SignedMath.sol": {
-      "lastModificationDate": 1762049109941,
+      "lastModificationDate": 1762597325429,
       "contentHash": "ae3528afb8bdb0a7dcfba5b115ee8074",
       "sourceName": "@openzeppelin/contracts/utils/math/SignedMath.sol",
       "solcConfig": {
@@ -871,44 +868,8 @@
         "SignedMath"
       ]
     },
-    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\utils\\math\\SafeCast.sol": {
-      "lastModificationDate": 1762049109929,
-      "contentHash": "2adca1150f58fc6f3d1f0a0f22ee7cca",
-      "sourceName": "@openzeppelin/contracts/utils/math/SafeCast.sol",
-      "solcConfig": {
-        "version": "0.8.24",
-        "settings": {
-          "optimizer": {
-            "enabled": true,
-            "runs": 200
-          },
-          "evmVersion": "paris",
-          "outputSelection": {
-            "*": {
-              "*": [
-                "abi",
-                "evm.bytecode",
-                "evm.deployedBytecode",
-                "evm.methodIdentifiers",
-                "metadata"
-              ],
-              "": [
-                "ast"
-              ]
-            }
-          }
-        }
-      },
-      "imports": [],
-      "versionPragmas": [
-        "^0.8.20"
-      ],
-      "artifacts": [
-        "SafeCast"
-      ]
-    },
     "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\utils\\Panic.sol": {
-      "lastModificationDate": 1762049109910,
+      "lastModificationDate": 1762597325360,
       "contentHash": "2133dc13536b4a6a98131e431fac59e1",
       "sourceName": "@openzeppelin/contracts/utils/Panic.sol",
       "solcConfig": {
@@ -944,7 +905,7 @@
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\token\\ERC721\\IERC721Receiver.sol": {
-      "lastModificationDate": 1762049109849,
+      "lastModificationDate": 1762597325279,
       "contentHash": "d61660a41ce200e99816e4734f7fd202",
       "sourceName": "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol",
       "solcConfig": {
@@ -979,10 +940,10 @@
         "IERC721Receiver"
       ]
     },
-    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\token\\ERC721\\extensions\\ERC721Enumerable.sol": {
-      "lastModificationDate": 1762049107515,
-      "contentHash": "1e4b432e9069bd6f5935e071b74d180c",
-      "sourceName": "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol",
+    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\token\\ERC20\\ERC20.sol": {
+      "lastModificationDate": 1762597324825,
+      "contentHash": "59dfce11284f2636db261df9b6a18f81",
+      "sourceName": "@openzeppelin/contracts/token/ERC20/ERC20.sol",
       "solcConfig": {
         "version": "0.8.24",
         "settings": {
@@ -1008,21 +969,22 @@
         }
       },
       "imports": [
-        "../ERC721.sol",
-        "./IERC721Enumerable.sol",
-        "../../../utils/introspection/ERC165.sol"
+        "./IERC20.sol",
+        "./extensions/IERC20Metadata.sol",
+        "../../utils/Context.sol",
+        "../../interfaces/draft-IERC6093.sol"
       ],
       "versionPragmas": [
         "^0.8.20"
       ],
       "artifacts": [
-        "ERC721Enumerable"
+        "ERC20"
       ]
     },
-    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\token\\ERC721\\extensions\\IERC721Enumerable.sol": {
-      "lastModificationDate": 1762049109841,
-      "contentHash": "09d80d577d5abfc679455e7b67c5b537",
-      "sourceName": "@openzeppelin/contracts/token/ERC721/extensions/IERC721Enumerable.sol",
+    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\token\\ERC20\\extensions\\IERC20Metadata.sol": {
+      "lastModificationDate": 1762597325169,
+      "contentHash": "513778b30d2750f5d2b9b19bbcf748a5",
+      "sourceName": "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol",
       "solcConfig": {
         "version": "0.8.24",
         "settings": {
@@ -1048,128 +1010,13 @@
         }
       },
       "imports": [
-        "../IERC721.sol"
+        "../IERC20.sol"
       ],
       "versionPragmas": [
         ">=0.6.2"
       ],
       "artifacts": [
-        "IERC721Enumerable"
-      ]
-    },
-    "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\SagittaVaultReceipt.sol": {
-      "lastModificationDate": 1762350008562,
-      "contentHash": "65190f8746d9f57ee3f929cc6ee808fc",
-      "sourceName": "contracts/SagittaVaultReceipt.sol",
-      "solcConfig": {
-        "version": "0.8.24",
-        "settings": {
-          "optimizer": {
-            "enabled": true,
-            "runs": 200
-          },
-          "evmVersion": "paris",
-          "outputSelection": {
-            "*": {
-              "*": [
-                "abi",
-                "evm.bytecode",
-                "evm.deployedBytecode",
-                "evm.methodIdentifiers",
-                "metadata"
-              ],
-              "": [
-                "ast"
-              ]
-            }
-          }
-        }
-      },
-      "imports": [
-        "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol",
-        "@openzeppelin/contracts/access/Ownable.sol"
-      ],
-      "versionPragmas": [
-        "^0.8.24"
-      ],
-      "artifacts": [
-        "SagittaVaultReceipt"
-      ]
-    },
-    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\access\\Ownable.sol": {
-      "lastModificationDate": 1762049109898,
-      "contentHash": "d3c790edc9ccf808a17c5a6cd13614fd",
-      "sourceName": "@openzeppelin/contracts/access/Ownable.sol",
-      "solcConfig": {
-        "version": "0.8.24",
-        "settings": {
-          "optimizer": {
-            "enabled": true,
-            "runs": 200
-          },
-          "evmVersion": "paris",
-          "outputSelection": {
-            "*": {
-              "*": [
-                "abi",
-                "evm.bytecode",
-                "evm.deployedBytecode",
-                "evm.methodIdentifiers",
-                "metadata"
-              ],
-              "": [
-                "ast"
-              ]
-            }
-          }
-        }
-      },
-      "imports": [
-        "../utils/Context.sol"
-      ],
-      "versionPragmas": [
-        "^0.8.20"
-      ],
-      "artifacts": [
-        "Ownable"
-      ]
-    },
-    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\utils\\Pausable.sol": {
-      "lastModificationDate": 1762049109912,
-      "contentHash": "0d47b53e10b1985efbb396f937626279",
-      "sourceName": "@openzeppelin/contracts/utils/Pausable.sol",
-      "solcConfig": {
-        "version": "0.8.24",
-        "settings": {
-          "optimizer": {
-            "enabled": true,
-            "runs": 200
-          },
-          "evmVersion": "paris",
-          "outputSelection": {
-            "*": {
-              "*": [
-                "abi",
-                "evm.bytecode",
-                "evm.deployedBytecode",
-                "evm.methodIdentifiers",
-                "metadata"
-              ],
-              "": [
-                "ast"
-              ]
-            }
-          }
-        }
-      },
-      "imports": [
-        "../utils/Context.sol"
-      ],
-      "versionPragmas": [
-        "^0.8.20"
-      ],
-      "artifacts": [
-        "Pausable"
+        "IERC20Metadata"
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\Vault.sol": {
@@ -1218,8 +1065,46 @@
         "Vault"
       ]
     },
+    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\access\\Ownable.sol": {
+      "lastModificationDate": 1762597325345,
+      "contentHash": "d3c790edc9ccf808a17c5a6cd13614fd",
+      "sourceName": "@openzeppelin/contracts/access/Ownable.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../utils/Context.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "Ownable"
+      ]
+    },
     "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\utils\\ReentrancyGuard.sol": {
-      "lastModificationDate": 1762049109920,
+      "lastModificationDate": 1762597325373,
       "contentHash": "190613e556d509d9e9a0ea43dc5d891d",
       "sourceName": "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
       "solcConfig": {
@@ -1254,10 +1139,10 @@
         "ReentrancyGuard"
       ]
     },
-    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\token\\ERC20\\utils\\SafeERC20.sol": {
-      "lastModificationDate": 1762049109934,
-      "contentHash": "1fb9edee1d763745a62d0b1954998792",
-      "sourceName": "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\utils\\Pausable.sol": {
+      "lastModificationDate": 1762597325364,
+      "contentHash": "0d47b53e10b1985efbb396f937626279",
+      "sourceName": "@openzeppelin/contracts/utils/Pausable.sol",
       "solcConfig": {
         "version": "0.8.24",
         "settings": {
@@ -1283,19 +1168,18 @@
         }
       },
       "imports": [
-        "../IERC20.sol",
-        "../../../interfaces/IERC1363.sol"
+        "../utils/Context.sol"
       ],
       "versionPragmas": [
         "^0.8.20"
       ],
       "artifacts": [
-        "SafeERC20"
+        "Pausable"
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\Treasury.sol": {
-      "lastModificationDate": 1762414202564,
-      "contentHash": "65305b6cfe81aba514b2a1c9c13ce06c",
+      "lastModificationDate": 1762609018489,
+      "contentHash": "4075d91ce4c976aff067a2c65eb0f4e2",
       "sourceName": "contracts/Treasury.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -1323,18 +1207,21 @@
       },
       "imports": [
         "@openzeppelin/contracts/token/ERC20/IERC20.sol",
-        "@openzeppelin/contracts/access/Ownable.sol"
+        "@openzeppelin/contracts/access/Ownable.sol",
+        "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
       ],
       "versionPragmas": [
         "^0.8.24"
       ],
       "artifacts": [
+        "IAMMPair",
+        "IPriceOracle",
         "Treasury"
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\SAGToken.sol": {
-      "lastModificationDate": 1761976849037,
-      "contentHash": "1c61df149fcd152b8f2282184e2c962e",
+      "lastModificationDate": 1762579825531,
+      "contentHash": "a0ef0978b75271071bade697253d1db2",
       "sourceName": "contracts/SAGToken.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -1371,9 +1258,126 @@
         "SAGToken"
       ]
     },
+    "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\SagittaVaultReceipt.sol": {
+      "lastModificationDate": 1762350008562,
+      "contentHash": "65190f8746d9f57ee3f929cc6ee808fc",
+      "sourceName": "contracts/SagittaVaultReceipt.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol",
+        "@openzeppelin/contracts/access/Ownable.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "SagittaVaultReceipt"
+      ]
+    },
+    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\token\\ERC721\\extensions\\ERC721Enumerable.sol": {
+      "lastModificationDate": 1762597324903,
+      "contentHash": "1e4b432e9069bd6f5935e071b74d180c",
+      "sourceName": "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../ERC721.sol",
+        "./IERC721Enumerable.sol",
+        "../../../utils/introspection/ERC165.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "ERC721Enumerable"
+      ]
+    },
+    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\token\\ERC721\\extensions\\IERC721Enumerable.sol": {
+      "lastModificationDate": 1762597325265,
+      "contentHash": "09d80d577d5abfc679455e7b67c5b537",
+      "sourceName": "@openzeppelin/contracts/token/ERC721/extensions/IERC721Enumerable.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../IERC721.sol"
+      ],
+      "versionPragmas": [
+        ">=0.6.2"
+      ],
+      "artifacts": [
+        "IERC721Enumerable"
+      ]
+    },
     "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\ReserveController.sol": {
-      "lastModificationDate": 1762059897180,
-      "contentHash": "6af33a1ca647728f1e343733d40060b1",
+      "lastModificationDate": 1762657603900,
+      "contentHash": "d2c39a0f722f5a2fde619b3d7e47d2b3",
       "sourceName": "contracts/ReserveController.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -1407,7 +1411,47 @@
         "^0.8.24"
       ],
       "artifacts": [
+        "IGoldOracle",
         "ReserveController"
+      ]
+    },
+    "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\MockGOLD.sol": {
+      "lastModificationDate": 1762580293524,
+      "contentHash": "b03ce05a05ec025337c3819c45c6dd93",
+      "sourceName": "contracts/MockGOLD.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+        "@openzeppelin/contracts/access/Ownable.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "MockGOLD"
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\mocks\\TreasuryPayMock.sol": {
@@ -1524,10 +1568,10 @@
         "ERC20Mock"
       ]
     },
-    "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\MockGOLD.sol": {
-      "lastModificationDate": 1761971495088,
-      "contentHash": "88b95baeecce628fd5ec28791fdb5ee1",
-      "sourceName": "contracts/MockGOLD.sol",
+    "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\MockDOT.sol": {
+      "lastModificationDate": 1762413049710,
+      "contentHash": "120e9bb562aabf88c0d8779a354b7860",
+      "sourceName": "contracts/MockDOT.sol",
       "solcConfig": {
         "version": "0.8.24",
         "settings": {
@@ -1559,12 +1603,12 @@
         "^0.8.24"
       ],
       "artifacts": [
-        "MockGOLD"
+        "MockDOT"
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\MockOracle.sol": {
-      "lastModificationDate": 1762413814230,
-      "contentHash": "53d3fa828c68aa9e09da5b385f3c80d2",
+      "lastModificationDate": 1762601402358,
+      "contentHash": "ce86e153ca57e2ec97e9b2b77fa062da",
       "sourceName": "contracts/MockOracle.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -1632,6 +1676,44 @@
       ],
       "artifacts": [
         "OracleMock"
+      ]
+    },
+    "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\PriceOracleRouter.sol": {
+      "lastModificationDate": 1762576408208,
+      "contentHash": "5ebc12f1e7851484a46384f82ec366ed",
+      "sourceName": "contracts/PriceOracleRouter.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "IGoldOracle",
+        "ISagOracle",
+        "PriceOracleRouter"
       ]
     }
   }

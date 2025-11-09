@@ -13,7 +13,6 @@ contract SAGToken is ERC20, Ownable {
 
     // Constructor to initialize the token name and symbol
     constructor() ERC20("SAG Token", "SAG") Ownable(msg.sender) {}
-    
 
     // Function to set the treasury address, callable only by the owner
     function setTreasury(address _treasury) external onlyOwner {
@@ -34,5 +33,10 @@ contract SAGToken is ERC20, Ownable {
         require(from != address(0), "Cannot burn from the zero address");
         require(amount > 0, "Burn amount must be greater than zero");
         _burn(from, amount);
+    }
+
+    // Function to mint tokens for testing or development purposes
+    function faucetMint(address to, uint256 amount) external {
+        _mint(to, amount);
     }
 }
