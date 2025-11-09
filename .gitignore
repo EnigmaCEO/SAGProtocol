@@ -3,3 +3,5 @@ artifacts/
 .env
 cache/
 frontend/.next/
+deployments.json
+frontend/src/lib/addresses.ts
