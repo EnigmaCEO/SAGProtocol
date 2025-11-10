@@ -71,15 +71,17 @@ It analyzes:
 Small deposit batches are directed into staking and node operations, while large institutional deposits are diversified across our registered investors.
 The system’s intelligence continuously rebalances exposure, ensuring that even in down markets, capital remains productive.
 
-## 📈 P&L & Profit Defense System
+## 📈 P&L & Stability Defense System
 
-Each NFT receipt transparently records on-chain performance data and historical allocation outcomes. When an investment cycle completes, the protocol automatically allocates 80% of realized gains to users and 20% to protocol reserves and DAO operations. In the event of unfavorable performance, the Reserve’s 3-Layer Stability System activates to mitigate impact and preserve overall protocol health:
+Each NFT receipt transparently records on-chain performance data and historical allocation outcomes. When an investment cycle completes, the protocol autonomously allocates 80 % of realized gains to users and 20 % to protocol reserves and DAO operations. In periods of adverse performance, the Reserve’s 3-Layer Stability System activates to mitigate volatility and support overall protocol equilibrium:
 
-1. Treasury-based profit smoothing
-2. Escrow recovery fund allocation
-3. Gold reserve yield compensation — using appreciation from the Reserve’s assets to partially restore user profit
+1. Treasury-based smoothing — gradual adjustment of Treasury allocations to maintain balanced performance metrics.
 
-This multi-layer system ensures users experience profit stability, not just capital preservation — setting a new standard for investor protection in DeFi.
+2. Escrow recovery fund routing — strategic redeployment of escrow reserves to offset underperforming cycles.
+
+3. Gold reserve rebalancing — utilization of asset appreciation within the Reserve to reinforce long-term stability.
+
+This multi-layer framework is designed to promote consistent outcomes and sustainable protocol health — establishing a new benchmark for resilience and user confidence in DeFi.
 
 ## 🔐 Technical Stack
 
