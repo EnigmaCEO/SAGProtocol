@@ -185,7 +185,7 @@ Pioneering self-regulated, AI-enhanced DeFi infrastructure for a decentralized g
 ## 🚀 What’s Next for Sagitta Protocol
 
 1. On-Chain Integration & Yield Activation
-The next stage is full Polkadot staking integration, connecting live yield APIs (targeting ~11% APY on DOT) directly to the Treasury dashboard. This will transition Sagitta from a demo environment into a functioning on-chain yield engine, capable of executing staking operations autonomously and tracking returns in real time.
+The next stage is full Polkadot staking integration, connecting the Treasury dashboard to leading staking and node infrastructure APIs such as Blockdaemon and similar providers. This phase will transition Sagitta from a demo environment into a fully operational on-chain yield engine, capable of autonomously executing staking strategies, aggregating validator performance data, and tracking portfolio returns in real time.
 
 2. Institutional Investor Onboarding
 Parallel to on-chain integration, Sagitta will begin onboarding professional and institutional investors with proven performance records across DeFi, staking, and yield management. These verified entities will operate as licensed investment nodes, bringing transparent, performance-based capital strategies into the protocol. Each approved investor’s history will be auditable, with compliance managed through the Escrow layer and NFT-linked verification data.
