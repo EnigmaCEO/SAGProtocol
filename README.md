@@ -73,9 +73,7 @@ The system’s intelligence continuously rebalances exposure, ensuring that even
 
 ## 📈 P&L & Profit Defense System
 
-Every NFT receipt maintains real-time Profit & Loss tracking and expected return timelines.
-Profits are split 80/20 — 80% to the user, 20% to protocol reserves and DAO operations.
-If investments underperform, the Reserve engages its 3-Layer Insurance System:
+Each NFT receipt transparently records on-chain performance data and historical allocation outcomes. When an investment cycle completes, the protocol automatically allocates 80% of realized gains to users and 20% to protocol reserves and DAO operations. In the event of unfavorable performance, the Reserve’s 3-Layer Stability System activates to mitigate impact and preserve overall protocol health:
 
 1. Treasury-based profit smoothing
 2. Escrow recovery fund allocation
