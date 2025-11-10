@@ -36,7 +36,7 @@ It manages liquidity flows, ensures 2:1 collateralization against the Reserve, a
 
 The Treasury continuously updates its P&L and interacts with the AI Allocation Layer, dynamically routing capital where it performs best while preserving safety ratios.
 
-## 🪙 The Reserve — Stability Engine
+## 🏆 The Reserve — Gold Stability Engine
 
 The Reserve is backed by tokenized gold assets (XAUT, PAXG) — serving as a final line of defense for investor capital.
 It performs three roles:
