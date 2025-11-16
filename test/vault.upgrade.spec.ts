@@ -30,7 +30,7 @@ describe("Vault Upgrades", function () {
     const OracleMock = await ethers.getContractFactory("contracts/mocks/OracleMock.sol:OracleMock");
     oracle = await OracleMock.deploy(100000000); // $1.00 with 8 decimals
 
-    // Deploy Vault
+    // Deploy Vault 
     const Vault = await ethers.getContractFactory("Vault");
     vault = await Vault.deploy();
 

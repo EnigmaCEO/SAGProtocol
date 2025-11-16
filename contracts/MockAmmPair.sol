@@ -16,7 +16,8 @@ contract MockAmmPair {
     uint256 public reserveB;
 
     event LiquidityAdded(address indexed provider, uint256 amountA, uint256 amountB);
-    event Swap(address indexed sender, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOut, address to);
+    // reduced event arguments to avoid "stack too deep" during emit
+    event Swap(address indexed sender, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOut);
 
     constructor(address _tokenA, address _tokenB) {
         require(_tokenA != address(0) && _tokenB != address(0) && _tokenA != _tokenB, "invalid tokens");
@@ -24,6 +25,15 @@ contract MockAmmPair {
         tokenB = _tokenB;
     }
 
+    // Compatibility: expose Uniswap-like token0/token1 for tooling that expects it
+    function token0() external view returns (address) {
+        return tokenA;
+    }
+
+    function token1() external view returns (address) {
+        return tokenB;
+    }
+    
     // Anyone can add liquidity by transferring tokens to the pair and calling this.
     function addLiquidity(uint256 amountA, uint256 amountB) external {
         require(amountA > 0 && amountB > 0, "zero amounts");
@@ -35,8 +45,12 @@ contract MockAmmPair {
     }
 
     // Read current reserves
-    function getReserves() external view returns (uint256, uint256) {
-        return (reserveA, reserveB);
+    // UniswapV2-compatible: returns (reserve0, reserve1, blockTimestampLast)
+    // Many tools expect getReserves() to have this signature.
+    function getReserves() external view returns (uint112, uint112, uint32) {
+        // cast down to uint112 for compatibility with UniswapV2 interface used by many probes/tools.
+        // For local/testing, reserves are expected to be small enough to fit in uint112.
+        return (uint112(reserveA), uint112(reserveB), uint32(block.timestamp % 2**32));
     }
 
     // Swap exact tokens: caller must have approved this contract to pull tokenIn.
@@ -56,29 +70,43 @@ contract MockAmmPair {
         uint256 reserveOut = aToB ? reserveB : reserveA;
         require(reserveIn > 0 && reserveOut > 0, "insufficient liquidity");
 
-        // Pull tokens in
-        IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
+        // Attempt to pull tokens in (router-style). If transferFrom reverts,
+        // accept the case where tokens were pre-transferred into the pair and validate balances.
+        bool pulled = false;
+        uint256 beforeBalance = IERC20(tokenIn).balanceOf(address(this));
+        // try transferFrom, but do not revert permanently: handle pre-funded case
+        try IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn) returns (bool ok) {
+            require(ok, "transferFrom failed");
+            pulled = true;
+        } catch {
+            // transferFrom reverted — check if tokens were already sent to this contract
+            uint256 afterBalance = IERC20(tokenIn).balanceOf(address(this));
+            // require that the pair's token balance increased by at least amountIn compared to reserves snapshot
+            // (use reserveIn as previous logical reserve; actual on-chain balance may already reflect pre-transfer)
+            if (afterBalance >= beforeBalance + amountIn) {
+                pulled = true;
+            } else {
+                revert("transferFrom failed and no pre-funded tokens");
+            }
+        }
 
-        // Compute amountOut using Uniswap-like formula with fee
-        uint256 amountInWithFee = amountIn * (10000 - SWAP_FEE_BPS);
-        uint256 numerator = amountInWithFee * reserveOut;
-        uint256 denominator = reserveIn * 10000 + amountInWithFee;
-        amountOut = numerator / denominator;
+        require(pulled, "token pull failed");
+
+        // Compute amountOut using Uniswap-like formula with fee (inline to reduce local temporaries)
+        {
+            uint256 amountInWithFee = amountIn * (10000 - SWAP_FEE_BPS);
+            amountOut = (amountInWithFee * reserveOut) / (reserveIn * 10000 + amountInWithFee);
+        }
         require(amountOut > 0, "zero output");
 
         // Transfer out to recipient
         IERC20(tokenOut).safeTransfer(to, amountOut);
 
-        // Update reserves
-        if (aToB) {
-            reserveA = IERC20(tokenA).balanceOf(address(this));
-            reserveB = IERC20(tokenB).balanceOf(address(this));
-        } else {
-            reserveB = IERC20(tokenB).balanceOf(address(this));
-            reserveA = IERC20(tokenA).balanceOf(address(this));
-        }
+        // Update reserves to actual token balances (sync)
+        reserveA = IERC20(tokenA).balanceOf(address(this));
+        reserveB = IERC20(tokenB).balanceOf(address(this));
 
-        emit Swap(msg.sender, tokenIn, tokenOut, amountIn, amountOut, to);
+        emit Swap(msg.sender, tokenIn, tokenOut, amountIn, amountOut);
     }
 
     // Convenience: allow anyone to skim contract balances into reserves (useful after external transfers)

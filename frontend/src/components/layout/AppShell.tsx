@@ -25,7 +25,7 @@ export default function AppShell({ sidebar, topbar, children }: AppShellProps) {
           
           <main className="flex-1 overflow-y-auto scrollbar-thin">
             <div className="p-8 h-full">
-              <div className="max-w-7xl mx-auto h-full">
+              <div className="w-full mx-auto h-full">
                 {children}
               </div>
             </div>

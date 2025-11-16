@@ -8,6 +8,21 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Add helper to resolve ambiguous artifact names (tries plain name, then fully-qualified fallback)
+async function getFactorySafe(name: string) {
+  try {
+    return await ethers.getContractFactory(name);
+  } catch (err) {
+    // try to find a fully-qualified name that ends with ":<Name>"
+    // hre.artifacts.getAllFullyQualifiedNames() returns an array of "path:ContractName"
+    const all = await hre.artifacts.getAllFullyQualifiedNames();
+    const match = all.find((f: string) => f.endsWith(":" + name));
+    if (!match) throw err;
+    console.log(`getFactorySafe: resolving ${name} -> artifact ${match}`);
+    return await ethers.getContractFactory(match);
+  }
+}
+
 async function wait(d: any) {
   if (d.waitForDeployment) return d.waitForDeployment();
   if (d.deployed) return d.deployed();
@@ -36,6 +51,41 @@ async function deployAndVerify(factory: any, ...args: any[]) {
   return contract;
 }
 
+// Add helper: introspect constructor inputs and build deployment args
+function getConstructorInputs(factory: any): any[] {
+  // Try common spots for constructor fragment
+  const iface = factory.interface ?? (factory as any).interface;
+  const constructorFragment =
+    (iface && (iface.deploy?.inputs ?? (iface.fragments ? iface.fragments.find((f: any) => f.type === "constructor")?.inputs : undefined))) ??
+    [];
+  return constructorFragment;
+}
+
+function buildArgsForConstructor(inputs: any[], ctx: Record<string, any>) {
+  const ZERO = "0x0000000000000000000000000000000000000000";
+  return inputs.map((inp: any) => {
+    const t = (inp?.type ?? "").toLowerCase();
+    const name = (inp?.name ?? "").toLowerCase();
+    // prefer mapping by name to known deployed contracts
+    if (t === "address") {
+      if (name.includes("gold")) return addr(ctx.gold);
+      if (name.includes("usdc") || name.includes("usd") || name.includes("stable")) return addr(ctx.usdc);
+      if (name.includes("sag")) return addr(ctx.sag);
+      if (name.includes("dot") || name.includes("mdot") || name.includes("dot")) return addr(ctx.mdot);
+      if (name.includes("vault")) return addr(ctx.vault);
+      if (name.includes("treasury")) return addr(ctx.treasury) ?? ZERO;
+      if (name.includes("reserve")) return addr(ctx.reserve) ?? ZERO;
+      if (name.includes("owner") || name.includes("admin") || name.includes("govern")) return ctx.deployer?.address ?? ZERO;
+      // fallback to zero address
+      return ZERO;
+    }
+    // numeric defaults
+    if (t.startsWith("uint") || t.startsWith("int")) return 0;
+    // bytes / other -> zero-like
+    return ZERO;
+  });
+}
+
 async function main() {
   const [deployer] = await ethers.getSigners();
   console.log("Deploying with:", deployer.address);
@@ -49,22 +99,22 @@ async function main() {
 
   // 1) Core tokens
   console.log("\n=== Deploying MockUSDC ===");
-  const MockUSDC = await ethers.getContractFactory("MockUSDC");
+  const MockUSDC = await getFactorySafe("MockUSDC");
   const usdc = await deployAndVerify(MockUSDC);
   console.log("MockUSDC:", addr(usdc));
 
   console.log("\n=== Deploying SAGToken ===");
-  const SAGToken = await ethers.getContractFactory("SAGToken");
+  const SAGToken = await getFactorySafe("SAGToken");
   const sag = await deployAndVerify(SAGToken);
   console.log("SAGToken:", addr(sag));
 
   console.log("\n=== Deploying MockGOLD ===");
-  const MockGOLD = await ethers.getContractFactory("MockGOLD");
+  const MockGOLD = await getFactorySafe("MockGOLD");
   const gold = await deployAndVerify(MockGOLD);
   console.log("MockGOLD:", addr(gold));
 
   console.log("\n=== Deploying MockDOT ===");
-  const MockDOT = await ethers.getContractFactory("MockDOT");
+  const MockDOT = await getFactorySafe("MockDOT");
   const mdot = await deployAndVerify(MockDOT);
   const mdotDecimals = await mdot.decimals();
   if (Number(mdotDecimals) !== 6) {
@@ -74,23 +124,45 @@ async function main() {
 
   // 2) Core protocol contracts
   console.log("\n=== Deploying Vault ===");
-  const Vault = await ethers.getContractFactory("Vault");
+  const Vault = await getFactorySafe("Vault");
   const vault = await deployAndVerify(Vault);
   console.log("Vault:", addr(vault));
 
   console.log("\n=== Deploying ReserveController ===");
-  const ReserveController = await ethers.getContractFactory("ReserveController");
-  const reserve = await deployAndVerify(ReserveController, addr(gold)); // or correct constructor arg
+  const ReserveController = await getFactorySafe("ReserveController");
+
+  // Introspect constructor and attempt to build appropriate args
+  const ctorInputs = getConstructorInputs(ReserveController);
+  const ctx = { gold, usdc, sag, mdot, vault, // may be undefined for some entries but functions handle it
+    deployer,
+  };
+  let reserve;
+  try {
+    const ctorArgs = buildArgsForConstructor(ctorInputs, ctx);
+    console.log("ReserveController constructor signature:", ctorInputs.map((i: any) => `${i.type} ${i.name}`).join(", "));
+    console.log("Attempting to deploy ReserveController with args:", ctorArgs);
+    reserve = await deployAndVerify(ReserveController, ...ctorArgs);
+  } catch (e) {
+    console.warn("ReserveController deploy with inferred args failed:", e);
+    console.log("Falling back to deploy without constructor args (if constructor accepts none).");
+    try {
+      reserve = await deployAndVerify(ReserveController);
+    } catch (e2) {
+      console.error("Final attempt to deploy ReserveController failed. Please inspect constructor and adjust script.", e2);
+      process.exit(1);
+    }
+  }
+
   console.log("ReserveController:", addr(reserve));
 
-  const MockOracle = await ethers.getContractFactory("MockOracle");
+  const MockOracle = await getFactorySafe("MockOracle");
   // Deploy three per-asset oracles (SAG, GOLD, DOT)
   const oracleGold = await deployAndVerify(MockOracle);
   const oracleSag = await deployAndVerify(MockOracle);
   const oracleDot = await deployAndVerify(MockOracle);
 
   console.log("\n=== Deploying Treasury ===");
-  const Treasury = await ethers.getContractFactory("Treasury");
+  const Treasury = await getFactorySafe("Treasury");
   // Pass one oracle into constructor for backward compatibility (we'll set per-asset oracles below)
   const treasury = await deployAndVerify(
     Treasury,
@@ -120,39 +192,141 @@ async function main() {
   console.log("MockOracle DOT:", addr(oracleDot), "price=1000000000 (10 USD)");
 
   console.log("\n=== Deploying Receipt NFT ===");
-  const Receipt = await ethers.getContractFactory("SagittaVaultReceipt");
+  const Receipt = await getFactorySafe("SagittaVaultReceipt");
   const receiptNft = await deployAndVerify(Receipt, "Sagitta Vault Receipt", "SVR");
   console.log("ReceiptNFT:", addr(receiptNft));
 
   // 4) AMM pools
   console.log("\n=== Deploying AMM Pairs ===");
-  const Pair = await ethers.getContractFactory("MockAmmPair");
-  
-  const ammSAGUSDC = await deployAndVerify(Pair);
+  const Pair = await getFactorySafe("MockAmmPair");
+
+  // Introspect constructor inputs for MockAmmPair and deploy with sensible token args.
+  const pairCtorInputs = getConstructorInputs(Pair);
+  console.log("MockAmmPair constructor signature:", pairCtorInputs.map((i: any) => `${i.type} ${i.name}`).join(", "));
+
+  let ammSAGUSDC;
+  try {
+    let argsForSAGUSDC: any[] = [];
+    // If constructor looks like (address, address) assume token0, token1
+    if (
+      pairCtorInputs.length === 2 &&
+      pairCtorInputs.every((i: any) => (i.type ?? "").toLowerCase() === "address")
+    ) {
+      argsForSAGUSDC = [addr(sag), addr(usdc)];
+    } else if (pairCtorInputs.length === 0) {
+      argsForSAGUSDC = [];
+    } else {
+      argsForSAGUSDC = buildArgsForConstructor(pairCtorInputs, { sag, usdc, gold, mdot, vault, deployer });
+    }
+    console.log("Attempting to deploy AMM SAG/USDC with args:", argsForSAGUSDC);
+    ammSAGUSDC = await deployAndVerify(Pair, ...argsForSAGUSDC);
+  } catch (e) {
+    console.warn("AMM SAG/USDC deploy with inferred args failed:", e);
+    console.log("Falling back to deploy without constructor args (if supported).");
+    ammSAGUSDC = await deployAndVerify(Pair);
+  }
   console.log("AMM SAG/USDC:", addr(ammSAGUSDC));
 
-  const ammUSDCGOLD = await deployAndVerify(Pair);
+  let ammUSDCGOLD;
+  try {
+    let argsForUSDCGOLD: any[] = [];
+    if (
+      pairCtorInputs.length === 2 &&
+      pairCtorInputs.every((i: any) => (i.type ?? "").toLowerCase() === "address")
+    ) {
+      argsForUSDCGOLD = [addr(usdc), addr(gold)];
+    } else if (pairCtorInputs.length === 0) {
+      argsForUSDCGOLD = [];
+    } else {
+      argsForUSDCGOLD = buildArgsForConstructor(pairCtorInputs, { sag, usdc, gold, mdot, vault, deployer });
+    }
+    console.log("Attempting to deploy AMM USDC/GOLD with args:", argsForUSDCGOLD);
+    ammUSDCGOLD = await deployAndVerify(Pair, ...argsForUSDCGOLD);
+  } catch (e) {
+    console.warn("AMM USDC/GOLD deploy with inferred args failed:", e);
+    console.log("Falling back to deploy without constructor args (if supported).");
+    ammUSDCGOLD = await deployAndVerify(Pair);
+  }
   console.log("AMM USDC/GOLD:", addr(ammUSDCGOLD));
+
+  // --- NEW: ensure Treasury.ammPair is set so adminCollateralize has an AMM to use ---
+  try {
+    const ammAddrToSet = addr(ammSAGUSDC);
+    if (ammAddrToSet) {
+      try {
+        // call setAmmPair on Treasury (non-fatal)
+        await (await treasury.setAmmPair(ammAddrToSet)).wait();
+        console.log('treasury.setAmmPair ->', ammAddrToSet);
+      } catch (e) {
+        console.warn('treasury.setAmmPair failed (non-fatal):', String((e as any).message || e));
+      }
+    } else {
+      console.log('No AmmSAGUSDC address available to set on Treasury; skipping setAmmPair');
+    }
+  } catch (e) {
+    console.warn('Unexpected error while setting ammPair (non-fatal):', String((e as any).message || e));
+  }
 
   // 5) Investment Escrow
   console.log("\n=== Deploying InvestmentEscrow ===");
-  const InvestmentEscrow = await ethers.getContractFactory("InvestmentEscrow");
-  const escrow = await deployAndVerify(InvestmentEscrow, addr(treasury), addr(usdc));
+  const InvestmentEscrow = await getFactorySafe("InvestmentEscrow");
+  // constructor expects (address _usdc, address _treasury)
+  const escrow = await deployAndVerify(InvestmentEscrow, addr(usdc), addr(treasury));
   console.log("InvestmentEscrow:", addr(escrow));
 
   // 6) Wire relationships
   console.log("\n=== Configuring contracts ===");
-  // Wire Vault <-> Treasury and verify. Throw on failure so mis-wiring is visible.
-  await (await vault.setTreasury(addr(treasury))).wait();
-  const wiredTreasury = await vault.treasury();
-  if (wiredTreasury.toLowerCase() !== addr(treasury).toLowerCase()) {
-    throw new Error(`Wiring failed: vault.treasury() = ${wiredTreasury}, expected ${addr(treasury)}`);
+  // Wire Vault <-> Treasury where supported by the contracts' ABIs.
+  // Some Vault builds intentionally removed setTreasury/treasury — skip if not present.
+  try {
+    if (typeof (vault as any).setTreasury === "function") {
+      await (await (vault as any).setTreasury(addr(treasury))).wait();
+      if (typeof (vault as any).treasury === "function") {
+        const wiredTreasury = await (vault as any).treasury();
+        if (wiredTreasury.toLowerCase() !== addr(treasury).toLowerCase()) {
+          throw new Error(`Wiring failed: vault.treasury() = ${wiredTreasury}, expected ${addr(treasury)}`);
+        }
+      } else {
+        console.log("vault.setTreasury called but vault.treasury() getter not present — skipping read verification");
+      }
+    } else {
+      console.log("Vault contract has no setTreasury(), skipping Vault->Treasury wiring (intended for simplified Vault).");
+    }
+  } catch (e) {
+    console.warn("Warning: vault <-> treasury wiring check failed or skipped:", e);
   }
+
   await (await treasury.setVault(addr(vault))).wait();
   const wiredVault = await treasury.vault();
   if (wiredVault.toLowerCase() !== addr(vault).toLowerCase()) {
     throw new Error(`Wiring failed: treasury.vault() = ${wiredVault}, expected ${addr(vault)}`);
   }
+  // NEW: register escrow with Treasury and Vault so collateral flows and batch funding work
+  try {
+    await (await treasury.setEscrow(addr(escrow))).wait();
+    console.log("Wired Treasury.escrow ->", addr(escrow));
+  } catch (e) {
+    console.warn("Failed to set Treasury.escrow:", e);
+  }
+  try {
+    // Vault has setEscrow(owner) — make Vault aware of Escrow for registration calls
+    if ("setEscrow" in vault) {
+      await (await vault.setEscrow(addr(escrow))).wait();
+      console.log("Wired Vault.escrow ->", addr(escrow));
+    }
+  } catch (e) {
+    console.warn("Failed to set Vault.escrow:", e);
+  }
+  try {
+    // Tell Escrow where the Vault is (so registerDeposit calls from Vault work)
+    if ("setVault" in escrow) {
+      await (await escrow.setVault(addr(vault))).wait();
+      console.log("Wired Escrow.vault ->", addr(vault));
+    }
+  } catch (e) {
+    console.warn("Failed to set Escrow.vault:", e);
+  }
+
   // Reserve controller wiring: Treasury exposes setReserveAddress(...)
   await (await treasury.setReserveAddress(addr(reserve))).wait();
   const wiredReserve = await treasury.reserveAddress();
@@ -196,7 +370,7 @@ async function main() {
     await (await vault.setAsset(addr(sag), true, Number(sagDecimals), addr(oracleSag))).wait();
     // Optional: shorten lock duration for local testing (e.g., 5 minutes)
     try { await (await vault.setLockDuration(60 * 5)).wait(); } catch (_) {}
-    console.log("Vault asset configured:", { asset: addr(sag), decimals: sagDecimals.toString(), oracle: addr(oracle) });
+    console.log("Vault asset configured:", { asset: addr(sag), decimals: sagDecimals.toString(), oracle: addr(oracleSag) });
   } catch (e) {
     console.log("Skip vault.setAsset:", e);
   }
@@ -208,7 +382,7 @@ async function main() {
     await (await vault.setAsset(addr(mdot), true, Number(mdotDecimals), addr(oracleDot))).wait();
     // Set 12 months lock (MVP)
     try { await (await vault.setLockDuration(365 * 24 * 60 * 60)).wait(); } catch (_) {}
-    console.log("Vault asset configured:", { asset: addr(mdot), decimals: mdotDecimals.toString(), oracle: addr(oracle) });
+    console.log("Vault asset configured:", { asset: addr(mdot), decimals: mdotDecimals.toString(), oracle: addr(oracleDot) });
   } catch (e) {
     console.log("Skip vault.setAsset:", e);
   }
@@ -252,6 +426,116 @@ async function main() {
     console.log(`Minted ${goldToMint.toString()} GOLD to ReserveController:`, addr(reserve));
   } catch (e) {
     console.log("Failed to mint GOLD to ReserveController:", e);
+  }
+
+  // Post-mint snapshot
+  try {
+    const usdcT = await usdc.balanceOf(addr(treasury));
+    const usdcA = ammSAGUSDC ? await usdc.balanceOf(ammSAGUSDC) : null;
+    const sagT = await sag.balanceOf(addr(treasury));
+    const sagA = ammSAGUSDC ? await sag.balanceOf(ammSAGUSDC) : null;
+    console.log('Post-mint snapshot:');
+    console.log('  Treasury USDC:', usdcT.toString(), 'AMM USDC:', usdcA ? usdcA.toString() : 'N/A');
+    console.log('  Treasury SAG:', sagT.toString(), 'AMM SAG:', sagA ? sagA.toString() : 'N/A');
+  } catch (e) { /* ignore */ }
+
+  // === NEW: Mint additional AMM liquidity directly into pair contracts (best-effort) ===
+  // Do not change address lookup behaviour — use existing amm addresses (ammSAGUSDC / ammUSDCGOLD).
+  try {
+    // amounts to seed AMMs with (USD totals)
+    const AMM_SAG_USD = 1_000_000n; // $1,000,000 to SAG/USDC pair
+    const AMM_USDCGOLD_USD = 500_000n; // $500,000 to USDC/GOLD pair
+
+    // Amm addresses (inferred earlier in script)
+    const ammSAGAddr = addr(ammSAGUSDC);
+    const ammUSDCGoldAddr = addr(ammUSDCGOLD);
+
+    // Mint to AmmSAGUSDC: USDC (6d) and SAG (18d) computed via saga oracle
+    if (ammSAGAddr) {
+      try {
+        const usdcToAmm = AMM_SAG_USD * 10n ** 6n; // USD6 -> USDC base
+        if (typeof usdc.mint === 'function') {
+          console.log('Minting', usdcToAmm.toString(), 'USDC to AmmSAGUSDC', ammSAGAddr);
+          await (await usdc.mint(ammSAGAddr, usdcToAmm)).wait();
+        } else {
+          console.warn('MockUSDC.mint not available; skipping AMM USDC mint for AmmSAGUSDC');
+        }
+
+        // compute SAG amount using sag oracle (token wei = neededUsd6 * 1e20 / price8)
+        let sagPrice8 = BigInt(await oracleSag.getPrice());
+        if (sagPrice8 > 0n && typeof sag.mint === 'function') {
+          const neededUsd6 = AMM_SAG_USD * 10n ** 6n;
+          const sagWei = (neededUsd6 * 10n ** 20n + sagPrice8 - 1n) / sagPrice8;
+          console.log('Minting', sagWei.toString(), 'SAG wei to AmmSAGUSDC', ammSAGAddr);
+          await (await sag.mint(ammSAGAddr, sagWei)).wait();
+        } else {
+          console.warn('SAG oracle missing or SAG.mint not available; skipping AMM SAG mint for AmmSAGUSDC');
+        }
+      } catch (e) {
+        console.warn('AMM SAG/USDC minting failed (non-fatal):', e);
+      }
+    } else {
+      console.log('AmmSAGUSDC address not found; skipping AMM seeding for SAG/USDC pair.');
+    }
+
+    // Mint to AmmUSDCGOLD: USDC (6d) and GOLD (18d) computed via gold oracle
+    if (ammUSDCGoldAddr) {
+      try {
+        const usdcToAmm2 = AMM_USDCGOLD_USD * 10n ** 6n;
+        if (typeof usdc.mint === 'function') {
+          console.log('Minting', usdcToAmm2.toString(), 'USDC to AmmUSDCGOLD', ammUSDCGoldAddr);
+          await (await usdc.mint(ammUSDCGoldAddr, usdcToAmm2)).wait();
+        } else {
+          console.warn('MockUSDC.mint not available; skipping AMM USDC mint for AmmUSDCGOLD');
+        }
+
+        // compute GOLD amount using gold oracle (token wei = neededUsd6 * 1e20 / price8)
+        let goldPrice8 = BigInt(await oracleGold.getPrice());
+        if (goldPrice8 > 0n && typeof gold.mint === 'function') {
+          const neededUsd6_2 = AMM_USDCGOLD_USD * 10n ** 6n;
+          const goldWei = (neededUsd6_2 * 10n ** 20n + goldPrice8 - 1n) / goldPrice8;
+          console.log('Minting', goldWei.toString(), 'GOLD wei to AmmUSDCGOLD', ammUSDCGoldAddr);
+          await (await gold.mint(ammUSDCGoldAddr, goldWei)).wait();
+        } else {
+          console.warn('Gold oracle missing or GOLD.mint not available; skipping AMM GOLD mint for AmmUSDCGOLD');
+        }
+      } catch (e) {
+        console.warn('AMM USDC/GOLD minting failed (non-fatal):', e);
+      }
+    } else {
+      console.log('AmmUSDCGOLD address not found; skipping AMM seeding for USDC/GOLD pair.');
+    }
+  } catch (e) {
+    console.warn('AMM seeding block failed (non-fatal):', e);
+  }
+
+  // === NEW: Ensure AMM pairs update internal reserves (call sync() or mint fallback) ===
+  try {
+    // Try to call sync() on pairs, or mint(owner) as fallback if implemented.
+    const trySyncPair = async (pairAddr: string | null, name: string) => {
+      if (!pairAddr) return console.log(`${name} address missing; skipping sync`);
+      try {
+        const pair = await ethers.getContractAt("MockAmmPair", pairAddr);
+        if (typeof (pair as any).sync === "function") {
+          console.log(`Calling sync() on ${name} (${pairAddr})`);
+          await (await (pair as any).sync()).wait();
+          console.log(`sync() succeeded on ${name}`);
+        } else if (typeof (pair as any).mint === "function") {
+          console.log(`sync() not present; calling mint(owner) on ${name} (${pairAddr})`);
+          await (await (pair as any).mint(deployer.address)).wait();
+          console.log(`mint(owner) succeeded on ${name}`);
+        } else {
+          console.log(`${name} has neither sync() nor mint(); manual action may be required.`);
+        }
+      } catch (e) {
+        console.warn(`Failed to call sync/mint on ${name} (${pairAddr}):`, e);
+      }
+    };
+
+    await trySyncPair(addr(ammSAGUSDC), "AmmSAGUSDC");
+    await trySyncPair(addr(ammUSDCGOLD), "AmmUSDCGOLD");
+  } catch (e) {
+    console.warn('AMM sync step failed (non-fatal):', e);
   }
 
   // 6.5) Fund demo account

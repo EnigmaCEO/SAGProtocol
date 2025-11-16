@@ -1,16 +1,42 @@
 import { createPublicClient, http } from 'viem';
 import type { Abi } from 'viem';
-import VaultABI from '../frontend/src/lib/abis/Vault.json';
-import { CONTRACT_ADDRESSES } from '../frontend/src/lib/addresses';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
+// ESM __dirname support
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 dotenv.config();
+
+// Load ABI JSON at runtime (avoid import assertions that some Node runtimes don't accept)
+const abiPath = path.resolve(__dirname, '../frontend/src/lib/abis/Vault.json');
+if (!fs.existsSync(abiPath)) throw new Error(`Vault ABI not found at ${abiPath}`);
+const VaultABI = JSON.parse(fs.readFileSync(abiPath, 'utf8'));
+
+// Load generated frontend addresses.ts by parsing the exported object literal
+const addrPath = path.resolve(__dirname, '../frontend/src/lib/addresses.ts');
+let CONTRACT_ADDRESSES: any = {};
+if (fs.existsSync(addrPath)) {
+  const txt = fs.readFileSync(addrPath, 'utf8');
+  const m = txt.match(/export\s+const\s+CONTRACT_ADDRESSES\s*=\s*(\{[\s\S]*\})/m);
+  if (m && m[1]) {
+    // eslint-disable-next-line no-eval
+    CONTRACT_ADDRESSES = eval('(' + m[1] + ')');
+  } else {
+    throw new Error(`CONTRACT_ADDRESSES not found or unparsable in ${addrPath}`);
+  }
+} else {
+  throw new Error(`addresses.ts not found at ${addrPath}`);
+}
 
 function getArgOrEnv(index: number, envName: string, defaultValue: string): string {
   return process.argv[index] || process.env[envName] || defaultValue;
 }
 
-const VAULT_ABI = VaultABI as Abi[];
+const VAULT_ABI = VaultABI as any[];
 const VAULT_ADDRESS = CONTRACT_ADDRESSES.Vault;
 const USER_ADDRESS = getArgOrEnv(2, 'USER_ADDRESS', '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266');
 const RPC_URL = getArgOrEnv(3, 'RPC_URL', 'http://127.0.0.1:8545');

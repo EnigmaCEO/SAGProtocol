@@ -6,12 +6,11 @@ import MetricCard from '../ui/MetricCard';
 import { Clock, ArrowDown, Lock, Unlock, Hash, DollarSign, Package, RefreshCw } from 'lucide-react';
 import VaultABI from '../../lib/abis/Vault.json';
 import MockDOTABI from '../../lib/abis/MockDOT.json';
-import { CONTRACTS } from '../../lib/contracts';
+import { CONTRACT_ADDRESSES } from '../../lib/addresses';
 import MockOracleABI from '../../lib/abis/MockOracle.json';
 import TreasuryABI from '../../lib/abis/Treasury.json';
 import { version } from 'viem/package.json';
 import useVaultMetrics from '../../hooks/useVaultMetrics';
-console.warn('viem version (frontend):', version);
 
 // Helper to cast ABI and normalize JSON shape { abi: [...] } vs [...]
 function normalizeAbi(x: any) {
@@ -23,10 +22,10 @@ const VAULT_ABI = normalizeAbi(VaultABI) as Abi[];
 const MOCK_ORACLE_ABI = normalizeAbi(MockOracleABI) as Abi[];
 const MOCK_DOT_ABI = normalizeAbi(MockDOTABI) as Abi[];
 
-const VAULT_ADDRESS = CONTRACTS.VAULT;
-const MOCK_DOT_ADDRESS = CONTRACTS.MOCK_DOT;
-const TREASURY_ADDRESS = CONTRACTS.TREASURY;
-const MOCK_ORACLE_ADDRESS = CONTRACTS.MOCK_ORACLE;
+const VAULT_ADDRESS = CONTRACT_ADDRESSES.Vault;
+const MOCK_DOT_ADDRESS = CONTRACT_ADDRESSES.MockDOT;
+const TREASURY_ADDRESS = CONTRACT_ADDRESSES.Treasury;
+const MOCK_ORACLE_ADDRESS = CONTRACT_ADDRESSES.DotOracle;
 
 // Localhost test account (Anvil/Hardhat default account #0)
 const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
@@ -67,6 +66,9 @@ interface DepositReceipt {
   lockUntil: number;
 }
 
+const DEMO_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+const LOCALHOST_RPC = "http://127.0.0.1:8545";
+
 export default function UserTab() {
   const [depositAmount, setDepositAmount] = useState('');
   const [deposits, setDeposits] = useState<DepositReceipt[]>([]);
@@ -76,8 +78,8 @@ export default function UserTab() {
   const [allowance, setAllowance] = useState<bigint>(BigInt(0));
   const [isLoading, setIsLoading] = useState(false);
   const [contractError, setContractError] = useState<string | null>(null);
-  const [tokenDecimals, setTokenDecimals] = useState<number>(10);
-  const [assetDecimals, setAssetDecimals] = useState<number>(18); // default to 18 for mDOT
+  const [tokenDecimals, setTokenDecimals] = useState<number>(6); // default to 6 for mDOT
+  const [assetDecimals, setAssetDecimals] = useState<number>(6); // default to 6 for mDOT
 
   // max deposit (USD6) and equivalent token amount
   const [maxDepositUsd6, setMaxDepositUsd6] = useState<bigint | null>(null);
@@ -91,11 +93,62 @@ export default function UserTab() {
   const address = account.address;
   const metrics = useVaultMetrics();
 
+  // Use viem publicClient for all balances to ensure consistency
+  useEffect(() => {
+    async function fetchBalances() {
+      try {
+        // mDOT balance
+        const mdotRaw = await publicClient.readContract({
+          address: MOCK_DOT_ADDRESS as `0x${string}`,
+          abi: MOCK_DOT_ABI,
+          functionName: 'balanceOf',
+          args: [address],
+        }) as bigint;
+        setDotBalance(mdotRaw);
+      } catch (e) {
+        setDotBalance(BigInt(0));
+      }
+    }
+    fetchBalances();
+  }, [address, tokenDecimals]);
+
+  // helper to compute and set maxDeposit token & usd values (moved to component scope)
+  const computeAndSetMax = (capacityUsd6: bigint, priceBn: bigint, aDecimals: number) => {
+    try {
+      if (!priceBn || priceBn === BigInt(0)) {
+        console.debug('computeAndSetMax: priceBn is zero or undefined', { priceBn, capacityUsd6, aDecimals });
+        setMaxDepositToken(null);
+        setMaxDepositUsd6(null);
+        return;
+      }
+      // capacityUsd6: USD scaled by 1e6
+      // priceBn: USD per token scaled by 1e8
+      // token base units = capacityUsd6 * 10^(aDecimals+2) / priceBn
+      const numerator = capacityUsd6 * (BigInt(10) ** BigInt(aDecimals + 2));
+      const maxToken = numerator / priceBn;
+      console.debug('computeAndSetMax calc', { capacityUsd6: capacityUsd6.toString(), priceBn: priceBn.toString(), aDecimals, numerator: numerator.toString(), maxToken: maxToken.toString() });
+
+      // Treat computed zero as "N/A" to avoid misleading tiny values displayed as 0.0000
+      if (!maxToken || maxToken === BigInt(0)) {
+        setMaxDepositToken(null);
+        setMaxDepositUsd6(null);
+        return;
+      }
+
+      setMaxDepositToken(maxToken);
+      setMaxDepositUsd6(capacityUsd6);
+    } catch (e) {
+      console.error('computeAndSetMax error', e);
+      setMaxDepositToken(null);
+      setMaxDepositUsd6(null);
+    }
+  };
+
   // Fetch balances and data
   const fetchData = async () => {
     try {
       // Verify contract is deployed and ABI-compatible
-      const code = await publicClient.getBytecode({ address: VAULT_ADDRESS });
+      const code = await publicClient.getCode({ address: VAULT_ADDRESS as `0x${string}` });
       if (!code || code === '0x') {
         setContractError('No contract found at VAULT_ADDRESS. Update CONTRACTS.VAULT to your deployed Vault address.');
         return;
@@ -103,7 +156,7 @@ export default function UserTab() {
       // Quick ABI compatibility probe
       try {
         await publicClient.readContract({
-          address: VAULT_ADDRESS,
+          address: VAULT_ADDRESS as `0x${string}`,
           abi: VAULT_ABI,
           functionName: 'owner',
         });
@@ -129,7 +182,7 @@ export default function UserTab() {
       // Detect token decimals once and cache
       try {
         const dec = await publicClient.readContract({
-          address: MOCK_DOT_ADDRESS,
+          address: MOCK_DOT_ADDRESS as `0x${string}`,
           abi: MOCK_DOT_ABI,
           functionName: 'decimals',
         }) as number | bigint;
@@ -142,7 +195,7 @@ export default function UserTab() {
 
       // Read DOT balance
       const balance = await publicClient.readContract({
-        address: MOCK_DOT_ADDRESS,
+        address: MOCK_DOT_ADDRESS as `0x${string}`,
         abi: MOCK_DOT_ABI,
         functionName: 'balanceOf',
         args: [address], 
@@ -151,7 +204,7 @@ export default function UserTab() {
 
       // Read receipt count (ABI: function receiptCount(address user) external view returns (uint256))
       const count = await publicClient.readContract({
-        address: VAULT_ADDRESS,
+        address: VAULT_ADDRESS as `0x${string}`,
         abi: VAULT_ABI,
         functionName: 'receiptCount',
         args: [address],
@@ -160,7 +213,7 @@ export default function UserTab() {
 
       // Read allowance
       const allow = await publicClient.readContract({
-        address: MOCK_DOT_ADDRESS,
+        address: MOCK_DOT_ADDRESS as `0x${string}`,
         abi: MOCK_DOT_ABI,
         functionName: 'allowance',
         args: [address, VAULT_ADDRESS],
@@ -169,231 +222,147 @@ export default function UserTab() {
 
       // --- Compute max deposit allowed by Treasury (USD6 and token amount) ---
       try {
-        // Probe candidate treasury addresses: first the on-chain Vault.treasury(), then configured CONTRACTS.TREASURY.
-        const candidates: string[] = [];
-        try {
-          const vaultTreasuryAddr = await publicClient.readContract({
-            address: VAULT_ADDRESS,
-            abi: VAULT_ABI,
-            functionName: 'treasury',
-          }) as string;
-          if (vaultTreasuryAddr && vaultTreasuryAddr !== '0x0000000000000000000000000000000000000000') {
-            candidates.push(vaultTreasuryAddr);
-          }
-        } catch (e) {
-          console.warn('Could not read vault.treasury(), will try configured CONTRACTS.TREASURY', e);
+        
+        const treasuryUsdVal = await publicClient.readContract({
+          address: TREASURY_ADDRESS as `0x${string}`,
+          abi: TreasuryABI,
+          functionName: 'getTreasuryValueUsd',
+        }) as bigint;
+
+        // update capacity only when read succeeds
+        setMaxDepositUsd6(treasuryUsdVal);
+        const treasuryUsd6 = treasuryUsdVal;
+
+        // Read Vault asset info for mDOT to determine decimals and oracle
+        const assetInfo = await publicClient.readContract({
+          address: VAULT_ADDRESS as `0x${string}`,
+          abi: VAULT_ABI,
+          functionName: 'assets',
+          args: [MOCK_DOT_ADDRESS],
+        }) as { enabled: boolean; decimals: number | bigint; oracle: string; };
+
+        const aDecimals = Number(assetInfo?.decimals ?? tokenDecimals);
+        setAssetDecimals(aDecimals);
+
+        // Resolve oracle address: prefer assetInfo.oracle, fall back to deployed per-asset oracles or generic mock oracle
+        
+        console.log("Front-end CONTRACTS oracle entries:", {
+          DotOracle: CONTRACT_ADDRESSES.DotOracle,
+          SagOracle: CONTRACT_ADDRESSES.SagOracle,
+          GoldOracle: CONTRACT_ADDRESSES.GoldOracle
+        });
+        const ZERO = '0x0000000000000000000000000000000000000000';
+        function validAddr(a: any) {
+          return typeof a === 'string' && /^0x[0-9a-fA-F]{40}$/.test(a) && a !== ZERO;
         }
-        if (!candidates.includes(TREASURY_ADDRESS)) candidates.push(TREASURY_ADDRESS);
+        // NOTE: do NOT include TREASURY_ADDRESS here — probing Treasury as an oracle produced large values
+        const candidates = [
+          assetInfo?.oracle,
+          CONTRACT_ADDRESSES.DotOracle,
+          CONTRACT_ADDRESSES.SagOracle,
+          CONTRACT_ADDRESSES.GoldOracle,
+          MOCK_ORACLE_ADDRESS
+        ].filter((c, i, arr) => c && validAddr(c) && arr.indexOf(c) === i) as string[];
 
-        let treasuryUsd6: bigint | null = null;
-        let usedTreasuryAddr: string | null = null;
-        const treasuryAbi = (TreasuryABI as any).abi ?? TreasuryABI;
+        console.log("Oracle probe candidates:", candidates);
 
-        for (const candidate of candidates) {
-          try {
-            const code = await publicClient.getBytecode({ address: candidate });
-            if (!code || code === '0x') {
-              console.warn(`No bytecode at candidate treasury address ${candidate}, skipping`);
-              continue;
-            }
-
-            // try to read getTreasuryValueUsd — if selector/ABI mismatch occurs this will throw
-            const val = await publicClient.readContract({
-              address: candidate,
-              abi: treasuryAbi,
-              functionName: 'getTreasuryValueUsd',
-            }) as bigint;
-            treasuryUsd6 = val;
-            usedTreasuryAddr = candidate;
-            break;
-          } catch (err: any) {
-            // If selector not recognized, continue to next candidate
-            const msg = String(err?.message || err);
-            console.warn(`Treasury probe failed for ${candidate}:`, msg);
-            continue;
-          }
+        if (candidates.length === 0) {
+          // keep previous maxDepositToken / oracleUsed and surface error
+          setContractError(`No oracle configured for mDOT. Update Vault.assets(mDOT) or frontend/src/lib/addresses.ts with a valid oracle address.`);
+          return;
         }
 
-        if (!treasuryUsd6 || !usedTreasuryAddr) {
-          const tried = candidates.join(', ');
-          // Collect bytecode info for each candidate to help debug
-          const bytecodes: Record<string, string> = {};
-          for (const c of candidates) {
+        // helper to compute and set maxDepositToken from capacityUsd6 and price and decimals
+        // use the shared helper defined in component scope
+        // (computeAndSetMax will set maxDepositToken and maxDepositUsd6)
+
+
+        // Read the asset oracle price (probe multiple methods on candidate addresses)
+        const triedAddrs: string[] = [];
+        let price: bigint | null = null;
+        // helpers: treat addresses known from frontend as MockOracle deployments
+        const knownOracleAddrs = [
+          CONTRACT_ADDRESSES.DotOracle,
+          CONTRACT_ADDRESSES.SagOracle,
+          CONTRACT_ADDRESSES.GoldOracle,
+          MOCK_ORACLE_ADDRESS
+        ].filter(Boolean) as string[];
+
+        const tryFns: { abi: any[]; fn: string }[] = [
+          { abi: ["function getPrice() view returns (uint256)"], fn: "getPrice" },
+          { abi: ["function getSagPriceUsd() view returns (uint256)"], fn: "getSagPriceUsd" },
+          { abi: ["function getGoldPriceUsd() view returns (uint256)"], fn: "getGoldPriceUsd" },
+          { abi: ["function price() view returns (uint256)"], fn: "price" },
+          { abi: ["function latestAnswer() view returns (int256)"], fn: "latestAnswer" },
+        ];
+
+        // Try known oracle addresses first using full MockOracle ABI (more robust)
+        for (const oracleAddrCandidate of candidates) {
+          triedAddrs.push(oracleAddrCandidate);
+
+          // if candidate matches a known mock oracle, try the full MockOracle ABI first
+          const useMockAbi = knownOracleAddrs.includes(oracleAddrCandidate);
+          if (useMockAbi) {
             try {
-              const bc = await publicClient.getBytecode({ address: c });
-              bytecodes[c] = bc ?? '0x';
-            } catch (bErr) {
-              bytecodes[c] = `error:${String((bErr as any)?.message || bErr)}`;
-            }
-          }
-
-          const hint = `Tried addresses: ${tried}. The treasury call failed (selector mismatch). Possible causes:\n` +
-            `- Vault.treasury() points to the wrong contract\n` +
-            `- CONTRACTS.TREASURY is stale/incorrect\n` +
-            `- ABI mismatch between front-end Treasury.json and deployed contract\n\n` +
-            `Bytecode (first 18 bytes) of candidates:\n` +
-            `${Object.entries(bytecodes).map(([a, bc]) => `${a}: ${String(bc).slice(0, 42)}`).join('\n')}\n\n` +
-            `Next steps: confirm Vault.treasury() on-chain, confirm the address in frontend/src/lib/addresses.ts, or redeploy Treasury and update addresses.ts.`;
-
-          console.warn('Treasury probe failure details:', { tried, bytecodes });
-          setContractError(`Failed to read Treasury.getTreasuryValueUsd. ${hint}`);
-          setMaxDepositUsd6(null);
-          setMaxDepositToken(null);
-          // Don't throw — bail out of the treasury probe gracefully
-        } else {
-          setMaxDepositUsd6(treasuryUsd6);
-          // Read Vault asset info for mDOT to determine decimals and oracle
-          const assetInfo = await publicClient.readContract({
-            address: VAULT_ADDRESS,
-            abi: VAULT_ABI,
-            functionName: 'assets',
-            args: [MOCK_DOT_ADDRESS],
-          }) as { enabled: boolean; decimals: number | bigint; oracle: string; };
-
-          const aDecimals = Number(assetInfo?.decimals ?? tokenDecimals);
-          setAssetDecimals(aDecimals);
-
-          // Resolve oracle address: prefer assetInfo.oracle, fall back to deployed per-asset oracles or generic mock oracle
-          console.log("Vault.assets(mDOT).oracle:", assetInfo?.oracle);
-          console.log("Front-end CONTRACTS oracle entries:", {
-            DotOracle: (CONTRACTS as any).DotOracle,
-            SagOracle: (CONTRACTS as any).SagOracle,
-            GoldOracle: (CONTRACTS as any).GoldOracle,
-            MockOracle: (CONTRACTS as any).MockOracle,
-          });
-          const ZERO = '0x0000000000000000000000000000000000000000';
-          function validAddr(a: any) {
-            return typeof a === 'string' && /^0x[0-9a-fA-F]{40}$/.test(a) && a !== ZERO;
-          }
-          // NOTE: do NOT include TREASURY_ADDRESS here — probing Treasury as an oracle produced large values
-          const candidates = [
-            assetInfo?.oracle,
-            (CONTRACTS as any).DotOracle,
-            (CONTRACTS as any).SagOracle,
-            (CONTRACTS as any).GoldOracle,
-            (CONTRACTS as any).MockOracle,
-            MOCK_ORACLE_ADDRESS
-          ].filter((c, i, arr) => c && validAddr(c) && arr.indexOf(c) === i) as string[];
-
-          console.log("Oracle probe candidates:", candidates);
-
-          if (candidates.length === 0) {
-            setMaxDepositToken(null);
-            setContractError(`No oracle configured for mDOT. Update Vault.assets(mDOT) or frontend/src/lib/addresses.ts with a valid oracle address.`);
-            return;
-          }
-
-          // helper to compute and set maxDepositToken from capacityUsd6 and price and decimals
-          const computeAndSetMax = (capacityUsd6: bigint, priceBn: bigint, aDecimals: number) => {
-            try {
-              if (!priceBn || priceBn === 0n) {
-                setMaxDepositToken(null);
-                return;
+              const v = await publicClient.readContract({
+                address: oracleAddrCandidate as `0x${string}`,
+                abi: MOCK_ORACLE_ABI,
+                functionName: 'getPrice',
+              });
+              if (v !== undefined && v !== null) {
+                price = BigInt(v.toString());
+                console.log(`Oracle ${oracleAddrCandidate} responded to getPrice() (mock-abi) ->`, price.toString());
+                setOracleUsed(oracleAddrCandidate);
+                break;
               }
-              const numerator = capacityUsd6 * (BigInt(10) ** BigInt(aDecimals + 2));
-              const maxToken = numerator / priceBn;
-              setMaxDepositToken(maxToken);
-              setMaxDepositUsd6(capacityUsd6);
             } catch (e) {
-              console.error('computeAndSetMax error', e);
+              // if mock-abi call fails, fall back to probing human-readable signatures below
+              console.warn(`Mock-ABI probe failed for ${oracleAddrCandidate}:`, String((e as any)?.message || e).split("\n")[0]);
             }
-          };
-
-          // Read the asset oracle price (probe multiple methods on candidate addresses)
-          const triedAddrs: string[] = [];
-          let price: bigint | null = null;
-          // helpers: treat addresses known from frontend as MockOracle deployments
-          const knownOracleAddrs = [
-            (CONTRACTS as any).DotOracle,
-            (CONTRACTS as any).SagOracle,
-            (CONTRACTS as any).GoldOracle,
-            (CONTRACTS as any).MockOracle,
-            MOCK_ORACLE_ADDRESS
-          ].filter(Boolean) as string[];
-
-          const tryFns: { abi: any[]; fn: string }[] = [
-            { abi: ["function getPrice() view returns (uint256)"], fn: "getPrice" },
-            { abi: ["function getSagPriceUsd() view returns (uint256)"], fn: "getSagPriceUsd" },
-            { abi: ["function getGoldPriceUsd() view returns (uint256)"], fn: "getGoldPriceUsd" },
-            { abi: ["function price() view returns (uint256)"], fn: "price" },
-            { abi: ["function latestAnswer() view returns (int256)"], fn: "latestAnswer" },
-          ];
-
-          // Try known oracle addresses first using full MockOracle ABI (more robust)
-          for (const oracleAddrCandidate of candidates) {
-            triedAddrs.push(oracleAddrCandidate);
-
-            // if candidate matches a known mock oracle, try the full MockOracle ABI first
-            const useMockAbi = knownOracleAddrs.includes(oracleAddrCandidate);
-            if (useMockAbi) {
-              try {
-                const v = await publicClient.readContract({
-                  address: oracleAddrCandidate,
-                  abi: MOCK_ORACLE_ABI,
-                  functionName: 'getPrice',
-                });
-                if (v !== undefined && v !== null) {
-                  price = BigInt(v.toString());
-                  console.log(`Oracle ${oracleAddrCandidate} responded to getPrice() (mock-abi) ->`, price.toString());
-                  setOracleUsed(oracleAddrCandidate);
-                  break;
-                }
-              } catch (e) {
-                // if mock-abi call fails, fall back to probing human-readable signatures below
-                console.warn(`Mock-ABI probe failed for ${oracleAddrCandidate}:`, String((e as any)?.message || e).split("\n")[0]);
-              }
-            }
-
-            // fallback: probe common function selectors one-by-one with small ABI shapes
-            for (const t of tryFns) {
-              try {
-                const v = await publicClient.readContract({
-                  address: oracleAddrCandidate,
-                  abi: t.abi,
-                  functionName: t.fn as any,
-                });
-                if (v !== undefined && v !== null) {
-                  price = BigInt(v.toString());
-                  console.log(`Oracle ${oracleAddrCandidate} responded to ${t.fn}() ->`, price.toString());
-                  setOracleUsed(oracleAddrCandidate);
-                  break;
-                }
-              } catch {
-                // ignore and try next method
-              }
-            }
-            if (price) break;
           }
 
-          if (!price || price === 0n) {
-            setMaxDepositToken(null);
-            setOracleUsed(null);
-            setContractError(`Failed to read price from any oracle candidates: ${triedAddrs.join(', ')}. Update Vault.assets or frontend addresses.`);
-          } else {
-            // persist probed oracle price and decimals so the UI can recompute when metrics change
-            setProbedOraclePrice(price);
-            setProbedAssetDecimals(aDecimals);
-
-            // compute and set max (use hook remaining capacity if available)
-            let capacityUsd6: bigint;
+          // fallback: probe common function selectors one-by-one with small ABI shapes
+          for (const t of tryFns) {
             try {
-              if (metrics && metrics.maxAvailableUsd6 && Number(metrics.maxAvailableUsd6) >= 0) {
-                capacityUsd6 = BigInt(metrics.maxAvailableUsd6);
-              } else {
-                capacityUsd6 = BigInt(treasuryUsd6);
+              const v = await publicClient.readContract({
+                address: oracleAddrCandidate as `0x${string}`,
+                abi: t.abi,
+                functionName: t.fn as any,
+              });
+              if (v !== undefined && v !== null) {
+                price = BigInt(v.toString());
+                console.log(`Oracle ${oracleAddrCandidate} responded to ${t.fn}() ->`, price.toString());
+                setOracleUsed(oracleAddrCandidate);
+                break;
               }
             } catch {
-              capacityUsd6 = BigInt(treasuryUsd6);
+              // ignore and try next method
             }
-            computeAndSetMax(capacityUsd6, price, aDecimals);
-            setContractError(null);
           }
+          if (price) break;
+        }
+
+        if (!price || price === BigInt(0)) {
+          // keep previous max values on oracle probe failures; just report error
+          setContractError(`Failed to read price from any oracle candidates: ${triedAddrs.join(', ')}. Update Vault.assets or frontend addresses.`);
+        } else {
+          // persist probed oracle price and decimals so the UI can recompute when metrics change
+          setProbedOraclePrice(price);
+          setProbedAssetDecimals(aDecimals);
+
+          // compute and set max (use metrics.maxAvailableUsd6 if available, otherwise the configured Treasury capacity)
+          const capacityUsd6 = (metrics && metrics.maxAvailableUsd6 && Number(metrics.maxAvailableUsd6) >= 0)
+            ? BigInt(metrics.maxAvailableUsd6)
+            : BigInt(treasuryUsd6);
+          computeAndSetMax(capacityUsd6, price, aDecimals);
+          // clear previous contract error on success
+          setContractError(null);
         }
       } catch (err) {
-        // don't break main fetch on probe failure
-        console.error("Failed to compute max deposit from Treasury (unexpected):", err);
-        setMaxDepositUsd6(null);
-        setMaxDepositToken(null);
+        // transient failure reading Treasury / oracle — preserve existing max values and surface error
+        console.error("Failed to compute max deposit from Treasury (direct read):", err);
+        setContractError(`Failed to read getTreasuryValueUsd from configured Treasury (${TREASURY_ADDRESS}): ${String((err as any)?.message || err)}`);
+        // keep prior maxDepositUsd6 / maxDepositToken to avoid UI flipping to N/A on transient probe errors
       }
     } catch (error: any) {
       // If selector not recognized, surface actionable hint
@@ -434,7 +403,7 @@ export default function UserTab() {
     for (let i = 0; i < count; i++) {
       try {
         const receipt = await publicClient.readContract({
-          address: VAULT_ADDRESS,
+          address: VAULT_ADDRESS as `0x${string}`,
           abi: VAULT_ABI,
           functionName: 'receipts',
           args: [address, i],
@@ -489,8 +458,8 @@ export default function UserTab() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 5000); // Refresh every 5 seconds
-    return () => clearInterval(interval);
+    //const interval = setInterval(fetchData, 5000); // Refresh every 5 seconds
+    //return () => clearInterval(interval);
   }, [address]); // Add address dependency
 
   useEffect(() => {
@@ -502,7 +471,7 @@ export default function UserTab() {
       setIsLoading(true);
       const hash = await walletClient.writeContract({
         account: account,
-        address: MOCK_DOT_ADDRESS,
+        address: MOCK_DOT_ADDRESS as `0x${string}`,
         abi: MOCK_DOT_ABI,
         functionName: 'mint',
         args: [address, parseUnits('1000', tokenDecimals)],
@@ -526,7 +495,7 @@ export default function UserTab() {
       setIsLoading(true);
       const hash = await walletClient.writeContract({
         account: account,
-        address: MOCK_DOT_ADDRESS,
+        address: MOCK_DOT_ADDRESS as `0x${string}`,
         abi: MOCK_DOT_ABI,
         functionName: 'approve',
         args: [VAULT_ADDRESS, parseUnits(depositAmount, tokenDecimals)],
@@ -552,7 +521,7 @@ export default function UserTab() {
       setIsLoading(true);
       const hash = await walletClient.writeContract({
         account: account,
-        address: MOCK_DOT_ADDRESS,
+        address: MOCK_DOT_ADDRESS as `0x${string}`,
         abi: MOCK_DOT_ABI,
         functionName: 'approve',
         args: [VAULT_ADDRESS, MAX_UINT256],
@@ -588,7 +557,7 @@ export default function UserTab() {
       setIsLoading(true);
       const hash = await walletClient.writeContract({
         account: account,
-        address: VAULT_ADDRESS,
+        address: VAULT_ADDRESS as `0x${string}`,
         abi: VAULT_ABI,
         functionName: 'deposit',
         args: [assetArg, amountArg],
@@ -596,11 +565,49 @@ export default function UserTab() {
       });
       
       await publicClient.waitForTransactionReceipt({ hash });
-      
-      await publicClient.waitForTransactionReceipt({ hash });
+      // refresh vault UI first
       await fetchData();
-      setDepositAmount('');
-      alert('Deposit successful!');
+      // --- NEW: attempt to call Treasury.collateralize(amountUsd6) from UI ---
+      try {
+        // read asset info to locate oracle and decimals
+        const assetInfo = await publicClient.readContract({
+          address: VAULT_ADDRESS as `0x${string}`,
+          abi: VAULT_ABI,
+          functionName: 'assets',
+          args: [MOCK_DOT_ADDRESS],
+        }) as { enabled: boolean; decimals: number | bigint; oracle: string; };
+
+        const aDecimals = Number(assetInfo?.decimals ?? tokenDecimals);
+        const oracleAddr = (assetInfo && assetInfo.oracle && assetInfo.oracle !== '0x0000000000000000000000000000000000000000') 
+          ? assetInfo.oracle 
+          : MOCK_ORACLE_ADDRESS;
+
+        // read price (8-decimals) from oracle
+        const priceBn = await publicClient.readContract({
+          address: oracleAddr as `0x${string}`,
+          abi: MOCK_ORACLE_ABI,
+          functionName: 'getPrice',
+        }) as bigint;
+
+        // compute USD6: (amount * price) / (10^(decimals + 2))
+        const numerator = BigInt(amountArg as bigint) * BigInt(priceBn);
+        const denom = BigInt(10) ** BigInt(aDecimals + 2);
+        const amountUsd6 = numerator / denom;
+
+        console.log('Computed deposit USD6 for collateralize:', {
+          amountArg: amountArg.toString(),
+          priceBn: priceBn.toString(),
+          aDecimals,
+          numerator: numerator.toString(),
+          denom: denom.toString(),
+          amountUsd6: amountUsd6.toString(),
+        });
+      } catch (computeErr) {
+        console.warn('Failed to compute or call collateralize after deposit:', computeErr);
+      }
+
+      await fetchReceipts();
+      console.log('Deposit successful!');
     } catch (error: any) {
       // Add actionable error for selector not recognized
       if (
@@ -612,7 +619,6 @@ export default function UserTab() {
         );
       }
       console.error('Error depositing:', error);
-      alert('Failed to deposit');
     } finally {
       setIsLoading(false);
     }
@@ -628,11 +634,6 @@ export default function UserTab() {
 
   return (
     <div className="space-y-8 animate-fadeIn">
-      {contractError && (
-        <div className="p-3 rounded-lg bg-amber-900/30 border border-amber-700 text-amber-200 text-sm">
-          {contractError}
-        </div>
-      )}
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
         <h2 className="text-3xl font-bold bg-gradient-to-r from-sky-400 via-indigo-500 to-violet-500 bg-clip-text text-transparent">
           User Vault
@@ -645,7 +646,7 @@ export default function UserTab() {
           >
             Mint 1000 mDOT
           </button>
-          <span>Balance: {Number(formatUnits(dotBalance, tokenDecimals)).toFixed(2)} mDOT</span>
+          <span>Balance: {Number(formatUnits(dotBalance, assetDecimals)).toFixed(2)} mDOT</span>
           <span className="text-xs">({address.slice(0, 6)}...{address.slice(-4)})</span>
         </div>
       </div>
@@ -677,7 +678,7 @@ export default function UserTab() {
           <div className="w-full sm:w-auto text-sm text-slate-400">
             {maxDepositToken !== null ? (
               <div>
-                Max deposit: <span className="font-mono text-slate-200">{Number(formatUnits(maxDepositToken, tokenDecimals)).toFixed(4)} mDOT</span>
+                Max deposit: <span className="font-mono text-slate-200">{Number(formatUnits(maxDepositToken, assetDecimals)).toFixed(4)} mDOT</span>
                 {' '}(~${maxDepositUsd6 ? Number(formatUnits(maxDepositUsd6, 6)).toFixed(2) : 'N/A'})
                 {oracleUsed && (
                   <div className="text-xs text-slate-500 mt-1">Oracle used: {oracleUsed.slice(0,8)}...{oracleUsed.slice(-6)}</div>

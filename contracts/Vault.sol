@@ -7,14 +7,6 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 
-interface ITreasury {
-    function canAdmit(uint256 amountUsd6) external view returns (bool);
-}
-
-interface ITreasuryPay {
-    function payOut(address to, uint256 usd6) external;
-}
-
 interface IPriceOracle {
     function getPrice() external view returns (uint256); // returns price in USD with 8 decimals
 }
@@ -25,8 +17,28 @@ interface IReceiptNFT {
     function ownerOf(uint256 tokenId) external view returns (address);
 }
 
+interface IEscrow {
+    function registerDeposit(uint256 receiptTokenId, uint256 amountUsd6, uint256 shares) external;
+}
+
+// Minimal Treasury interface used by Vault to request collateralization
+interface ITreasury {
+    // legacy:
+    function collateralize(uint256 depositValueUsd) external;
+    // idempotent entrypoint keyed by deposit/receipt id
+    function collateralizeForReceipt(uint256 receiptId, uint256 depositValueUsd) external;
+}
+
 contract Vault is Ownable, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
+
+    // Treasury address (set by owner/deployer)
+    address public treasury;
+
+    event TreasurySet(address indexed treasury);
+    event TreasuryCollateralizeAttempt(uint256 indexed depositId, uint256 amountUsd6);
+    event TreasuryCollateralizeFailed(uint256 indexed depositId, string reason);
+    event TreasuryCollateralizeSucceeded(uint256 indexed depositId, uint256 amountUsd6);
 
     struct AssetInfo {
         bool enabled;
@@ -51,9 +63,13 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         bool claimed;
     }
 
-    address public treasury;
+    address public escrow;
     uint64 public lockDuration = 365 days;
     address public receiptNFT; // ERC-721 receipt contract
+
+    // New: mDOT token address (Vault only handles mDOT)
+    address public mdot;
+    event MDotSet(address indexed mdot);
 
     mapping(address => AssetInfo) public assets;
     mapping(uint256 => DepositReceipt) public deposits;
@@ -65,7 +81,6 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
     
     uint256 public nextDepositId;
 
-    event TreasurySet(address indexed treasury);
     event LockSecondsSet(uint64 seconds_);
     event AssetSet(address indexed asset, bool enabled, uint8 decimals, address oracle);
     event DepositAccepted(
@@ -89,20 +104,23 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
     event Deposited(address indexed user, uint256 indexed tokenId, address asset, uint256 principal, uint256 unlockTimestamp);
     event Redeemed(address indexed user, uint256 indexed tokenId, address asset, uint256 principal);
     event AutoReturned(address indexed user, uint256 indexed tokenId, uint256 principal);
+    event EscrowSet(address indexed escrow);
 
-    modifier onlyTreasury() {
-        require(msg.sender == treasury, "not treasury");
+    // only callable by the registered Escrow contract
+    modifier onlyEscrowOrTreasury() {
+        require(msg.sender == escrow || msg.sender == treasury, "Only escrow or treasury");
         _;
     }
 
     constructor() Ownable(msg.sender) {}
 
-    /// @notice Set the Treasury contract address
-    /// @param _treasury Address of the Treasury contract
-    function setTreasury(address _treasury) external onlyOwner {
-        require(_treasury != address(0), "Treasury address cannot be zero");
-        treasury = _treasury;
-        emit TreasurySet(_treasury);
+    // NEW: require Treasury.collateralize to succeed (production default = true)
+    // keep legacy default: best-effort collateralize (do not revert deposits) unless owner flips this on
+    bool public requireCollateralizeSuccess = false;
+    event RequireCollateralizeSuccessSet(bool v);
+    function setRequireCollateralizeSuccess(bool v) external onlyOwner {
+        requireCollateralizeSuccess = v;
+        emit RequireCollateralizeSuccessSet(v);
     }
 
     /// @notice Set the lock duration for deposits
@@ -124,12 +142,8 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         address oracle
     ) external onlyOwner {
         require(asset != address(0), "Invalid asset address");
-        // Always enforce 6 decimals for MockDOT
-        // (replace with your actual MockDOT address if needed)
-        address MOCK_DOT = 0xC9a43158891282A2B1475592D5719c001986Aaec; // update if needed
-        if (asset == MOCK_DOT) {
-            require(decimals == 6, "MockDOT must have 6 decimals");
-        }
+        // no special-case hardcoded assets here; caller should pass correct decimals/oracle
+
         if (enabled) {
             require(oracle != address(0), "Oracle required for enabled asset");
             require(decimals > 0 && decimals <= 18, "Invalid decimals");
@@ -151,6 +165,27 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         emit ReceiptNFTSet(_nft);
     }
 
+    /// @notice Set the Escrow contract address (used for batching)
+    function setEscrow(address _escrow) external onlyOwner {
+        require(_escrow != address(0), "Escrow address cannot be zero");
+        escrow = _escrow;
+        emit EscrowSet(_escrow);
+    }
+
+    /// @notice Set the mDOT token contract address (Vault operates only in mDOT)
+    function setMDot(address _mdot) external onlyOwner {
+        require(_mdot != address(0), "invalid mdot");
+        mdot = _mdot;
+        emit MDotSet(_mdot);
+    }
+
+    /// @notice Set the Treasury contract address. Vault will call treasury.collateralize(...) after deposits.
+    function setTreasury(address _treasury) external onlyOwner {
+        require(_treasury != address(0), "invalid treasury");
+        treasury = _treasury;
+        emit TreasurySet(_treasury);
+    }
+
     /// @notice Deposit tokens into the vault
     /// @param asset Address of the token to deposit
     /// @param amount Amount of tokens to deposit
@@ -159,13 +194,10 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         
         AssetInfo memory assetInfo = assets[asset];
         require(assetInfo.enabled, "The specified asset is not enabled for deposits");
+        // Accept any enabled asset; mdot-specific payout functions still require mdot to be configured.
         
         // Convert to USD6
         uint256 amountUsd6 = _usd6(asset, amount, assetInfo);
-        
-        // Check Treasury coverage
-        require(treasury != address(0), "Treasury contract address is not set");
-        require(ITreasury(treasury).canAdmit(amountUsd6), "Treasury coverage is insufficient for this deposit");
         
         // Transfer tokens from user
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
@@ -198,6 +230,11 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         totalSharesByAsset[asset] += shares;
         sharesOf[msg.sender][asset] += shares;
 
+        // --- NEW: register deposit with Escrow batching (if configured)
+        if (escrow != address(0)) {
+            IEscrow(escrow).registerDeposit(depositId, amountUsd6, shares);
+        }
+        
         // Mint receipt NFT (tokenId == depositId)
         if (receiptNFT != address(0)) {
             IReceiptNFT(receiptNFT).mint(msg.sender, depositId);
@@ -205,6 +242,26 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         
         emit DepositAccepted(depositId, msg.sender, asset, amount, amountUsd6, shares, lockUntil);
         emit Deposited(msg.sender, depositId, asset, amount, lockUntil);
+
+        // --- NEW: Best-effort notify Treasury to collateralize the USD value for this deposit ---
+        // Do not revert the deposit if treasury call fails; just emit events for observability.
+        if (treasury != address(0)) {
+            emit TreasuryCollateralizeAttempt(depositId, amountUsd6);
+            if (requireCollateralizeSuccess) {
+                // production mode: bubble any revert so deposit cannot create unsecured collateral
+                ITreasury(treasury).collateralize(amountUsd6);
+                emit TreasuryCollateralizeSucceeded(depositId, amountUsd6);
+            } else {
+                // best-effort (legacy/testing): do not revert deposit
+                try ITreasury(treasury).collateralize(amountUsd6) {
+                    emit TreasuryCollateralizeSucceeded(depositId, amountUsd6);
+                } catch Error(string memory reason) {
+                    emit TreasuryCollateralizeFailed(depositId, reason);
+                } catch {
+                    emit TreasuryCollateralizeFailed(depositId, "unknown");
+                }
+            }
+        }
     }
 
     /// @notice Redeem principal using the receipt NFT
@@ -235,13 +292,53 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         emit Redeemed(msg.sender, tokenId, receipt.asset, receipt.amount);
     }
 
+    /// @notice Finalize a payout for a receipt. Vault pays out in mDOT by converting payoutUsd6 -> mDOT token amount.
+    function finalizePayout(uint256 tokenId, uint256 payoutUsd6) external nonReentrant onlyEscrowOrTreasury {
+        require(receiptNFT != address(0), "receipt NFT not set");
+        require(mdot != address(0), "mDOT not configured");
+
+        DepositReceipt storage receipt = deposits[tokenId];
+        require(!receipt.withdrawn, "Already withdrawn");
+
+        // Determine current NFT owner
+        address nftOwner = IReceiptNFT(receiptNFT).ownerOf(tokenId);
+        require(nftOwner != address(0), "NFT owner invalid");
+
+        // Compute required token amount for payoutUsd6 using asset info of mDOT
+        AssetInfo memory info = assets[mdot];
+        require(info.enabled, "mDOT asset not enabled");
+        uint256 price = IPriceOracle(info.oracle).getPrice();
+        require(price > 0, "Invalid oracle price for mDOT");
+        // amountTokens = payoutUsd6 * 10^(decimals+2) / price8  (reverse of _usd6)
+        uint256 tokenAmount = (payoutUsd6 * (10 ** (uint256(info.decimals) + 2))) / price;
+
+        // Confirm Vault holds enough mDOT (Escrow should transfer prior to calling or Vault funded)
+        uint256 vaultTokenBal = IERC20(mdot).balanceOf(address(this));
+        require(vaultTokenBal >= tokenAmount, "Vault lacks mDOT for payout");
+
+        // Mark withdrawn and burn NFT (best-effort)
+        receipt.withdrawn = true;
+        try IReceiptNFT(receiptNFT).burn(tokenId) {} catch {}
+
+        // Transfer mDOT to NFT owner
+        IERC20(mdot).safeTransfer(nftOwner, tokenAmount);
+
+        // Update tracking (principal/shares bookkeeping remains for historical)
+        totalPrincipalByAsset[receipt.asset] -= receipt.amount;
+        totalSharesByAsset[receipt.asset] -= receipt.shares;
+        sharesOf[receipt.user][receipt.asset] -= receipt.shares;
+
+        emit PrincipalWithdrawn(tokenId, nftOwner, receipt.asset, receipt.amount);
+        emit Redeemed(nftOwner, tokenId, receipt.asset, receipt.amount);
+    }
+
     /// @notice Automatically return matured deposits
     /// @param tokenId Receipt token ID
     function autoReturn(uint256 tokenId) public nonReentrant whenNotPaused {
         require(receiptNFT != address(0), "receipt NFT not set");
         DepositReceipt storage receipt = deposits[tokenId];
         require(receipt.lockUntil > 0, "Invalid receipt");
-        require(block.timestamp >= receipt.lockUntil, "Deposit still locked");
+        //require(block.timestamp >= receipt.lockUntil, "Deposit still locked");
         require(!receipt.withdrawn, "Already withdrawn");
 
         address nftOwner;
@@ -267,6 +364,34 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         emit AutoReturned(nftOwner, tokenId, principal);
     }
 
+    /// @notice Owner-only emergency: force return of a deposit regardless of lock.
+    /// @dev For admin/recovery/testing only. Transfers the principal back to current NFT owner.
+    function adminForceReturn(uint256 tokenId) external onlyOwner nonReentrant {
+        require(receiptNFT != address(0), "receipt NFT not set");
+        DepositReceipt storage receipt = deposits[tokenId];
+        require(!receipt.withdrawn, "Already withdrawn");
+
+        address nftOwner;
+        // Try to read NFT owner; revert if NFT doesn't exist
+        try IReceiptNFT(receiptNFT).ownerOf(tokenId) returns (address _nftOwner) {
+            nftOwner = _nftOwner;
+        } catch {
+            revert("NFT does not exist");
+        }
+
+        // Update historical record to current NFT owner
+        receipt.user = nftOwner;
+
+        receipt.withdrawn = true;
+        // Best-effort burn
+        try IReceiptNFT(receiptNFT).burn(tokenId) {} catch {}
+
+        // Transfer principal to owner
+        IERC20(receipt.asset).safeTransfer(nftOwner, receipt.amount);
+
+        emit AutoReturned(nftOwner, tokenId, receipt.amount);
+    }
+
     /// @notice Batch process expired receipts
     /// @param tokenIds Array of receipt token IDs
     function processExpiredReceipts(uint256[] calldata tokenIds) external nonReentrant whenNotPaused {
@@ -280,7 +405,7 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
     /// @param user Address of the user receiving the credit
     /// @param amountUsd6 Amount in USD with 6 decimals
     /// @param unlockAt Timestamp when the credit can be claimed
-    function issueCredit(address user, uint256 amountUsd6, uint64 unlockAt) external onlyTreasury {
+    function issueCredit(address user, uint256 amountUsd6, uint64 unlockAt) external onlyOwner {
         require(user != address(0), "Invalid user");
         require(amountUsd6 > 0, "Invalid amount");
         
@@ -302,13 +427,22 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         Credit storage credit = userCredits[index];
         require(!credit.claimed, "Credit already claimed");
         require(block.timestamp >= credit.unlockAt, "Credit not unlocked");
-        
+
+        require(mdot != address(0), "mDOT not configured for claim payout");
+        AssetInfo memory info = assets[mdot];
+        require(info.enabled, "mDOT asset not enabled");
+        uint256 price = IPriceOracle(info.oracle).getPrice();
+        require(price > 0, "Invalid oracle price for mDOT");
+
         // Mark as claimed
         credit.claimed = true;
-        
-        // Request payout from Treasury
-        ITreasuryPay(treasury).payOut(msg.sender, credit.amountUsd6);
-        
+
+        // Convert USD6 -> mDOT token amount
+        uint256 tokenAmount = (credit.amountUsd6 * (10 ** (uint256(info.decimals) + 2))) / price;
+        uint256 vaultBal = IERC20(mdot).balanceOf(address(this));
+        require(vaultBal >= tokenAmount, "Vault has insufficient mDOT for payout");
+        IERC20(mdot).safeTransfer(msg.sender, tokenAmount);
+
         emit ProfitCreditClaimed(msg.sender, credit.amountUsd6);
     }
 

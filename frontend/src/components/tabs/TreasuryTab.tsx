@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { JsonRpcProvider, Contract, Wallet } from 'ethers';
 
 import MetricGrid from '../ui/MetricGrid';
@@ -19,7 +19,6 @@ const VAULT_ADDRESS = CONTRACT_ADDRESSES.Vault;
 const LOCALHOST_RPC = "http://localhost:8545";
 // Local test private key (Hardhat/Anvil default account #0)
 const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
-const MOCK_TOTAL_DEPOSITS_USD = 1_000_000 * 1e6; // 1M USDC, 6 decimals
 
 function formatUsd(val: number | string, decimals = 6) {
   if (!val) return '$0';
@@ -48,9 +47,20 @@ export default function TreasuryTab() {
   const [log, setLog] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // NEW: asset-level metrics
+  const [sagValueUsd6, setSagValueUsd6] = useState<number>(0); // USD6
+  const [usdcBalance, setUsdcBalance] = useState<number>(0);   // USDC raw (6 decimals)
+  const [collateralizedUsd, setCollateralizedUsd] = useState<number>(0); // USD6 recorded collateralized amount;
+  // Escrow info
+  const [escrowAddress, setEscrowAddress] = useState<string | null>(null);
+  const [escrowUsdcBalance, setEscrowUsdcBalance] = useState<number>(0);
+
   // Dev controls
   const [sagPriceInput, setSagPriceInput] = useState('');
   const [goldPriceInput, setGoldPriceInput] = useState('');
+  // NEW: distribute batch UI state
+  const [distributeBatchId, setDistributeBatchId] = useState('');
+  const [distributeTokenIds, setDistributeTokenIds] = useState(''); // comma-separated token ids
 
   // Providers and contracts
   const [provider, setProvider] = useState<JsonRpcProvider>();
@@ -59,13 +69,16 @@ export default function TreasuryTab() {
   const [goldOracle, setGoldOracle] = useState<Contract>();
   const [signer, setSigner] = useState<any>(); // Wallet signer for write txs
 
+  // NEW: show configured vault address and helper formatting
+  const [vaultAddress, setVaultAddress] = useState<string | null>(null);
+
   // On mount: setup provider and contracts
   useEffect(() => {
     const rp = new JsonRpcProvider(LOCALHOST_RPC);
     // create local contract instances immediately for initial fetch
-    const localTreasury = new Contract(TREASURY_ADDRESS, TREASURY_ABI.abi, rp);
-    const localSagOracle = new Contract(SAG_ORACLE_ADDRESS, SAG_ORACLE_ABI.abi, rp);
-    const localGoldOracle = new Contract(GOLD_ORACLE_ADDRESS, GOLD_ORACLE_ABI.abi, rp);
+    const localTreasury = new Contract(TREASURY_ADDRESS, TREASURY_ABI, rp);
+    const localSagOracle = new Contract(SAG_ORACLE_ADDRESS, SAG_ORACLE_ABI, rp);
+    const localGoldOracle = new Contract(GOLD_ORACLE_ADDRESS, GOLD_ORACLE_ABI, rp);
     const localVault = new Contract(VAULT_ADDRESS, VAULT_ABI, rp);
     const w = new Wallet(TEST_PRIVATE_KEY, rp);
 
@@ -75,6 +88,22 @@ export default function TreasuryTab() {
     setSagOracle(localSagOracle);
     setGoldOracle(localGoldOracle);
     setSigner(w);
+
+    // read and surface vault address (if set)
+    (async () => {
+      try {
+        const v = await localTreasury.vault();
+        setVaultAddress(v && v !== '0x0000000000000000000000000000000000000000' ? v : null);
+        if (!v || v === '0x0000000000000000000000000000000000000000') {
+          setLog(l => [`[init] Treasury.vault is not set — collateralize() will revert`, ...l]);
+        }
+        // read escrow address (if set)
+        try {
+          const e = await localTreasury.escrow();
+          setEscrowAddress(e && e !== '0x0000000000000000000000000000000000000000' ? e : null);
+        } catch { /* ignore */ }
+      } catch { /* ignore */ }
+    })();
 
     // initial load: fetch totals + treasury/oracle values so UI is populated on first render
     (async () => {
@@ -115,6 +144,43 @@ export default function TreasuryTab() {
         setReserveUsd(Number(reserveUsdRaw));
         setTargetReserveUsd(Number(targetReserveUsdRaw));
         setCoverageRatio((Number(treasuryUsdRaw) + Number(reserveUsdRaw)) / Math.max(totalDeposits, 1));
+
+        // NEW: fetch token balances and collateralized total
+        try {
+          const sagAddr = await localTreasury.sag();
+          const usdcAddr = await localTreasury.usdc();
+          const ercBalanceAbi = ['function balanceOf(address) view returns (uint256)'];
+          const sagToken = new Contract(sagAddr, ercBalanceAbi, rp);
+          const usdcToken = new Contract(usdcAddr, ercBalanceAbi, rp);
+          const sagBalRaw = await sagToken.balanceOf(TREASURY_ADDRESS);
+          const usdcBalRaw = await usdcToken.balanceOf(TREASURY_ADDRESS);
+          // sagValueUsd6 = (sagBal * sagPrice8) / 1e20  (matches on-chain calc)
+          const sagValue = Number(sagBalRaw) * Number(sagPriceRaw) / 1e20;
+          setSagValueUsd6(sagValue);
+          setUsdcBalance(Number(usdcBalRaw));
+          try {
+            const collUsd = await localTreasury.totalCollateralUsd();
+            setCollateralizedUsd(Number(collUsd));
+          } catch {
+            setCollateralizedUsd(0);
+          }
+          // fetch escrow USDC balance if escrow set
+          try {
+            const escrowAddrLocal = await localTreasury.escrow().catch(()=>null);
+            if (escrowAddrLocal && escrowAddrLocal !== '0x0000000000000000000000000000000000000000') {
+              setEscrowAddress(escrowAddrLocal);
+              const escrowUsdcBal = await usdcToken.balanceOf(escrowAddrLocal).catch(()=>0);
+              setEscrowUsdcBalance(Number(escrowUsdcBal));
+            } else {
+              setEscrowUsdcBalance(0);
+            }
+          } catch { setEscrowUsdcBalance(0); }
+        } catch {
+          setSagValueUsd6(0);
+          setUsdcBalance(0);
+          setCollateralizedUsd(0);
+        }
+
       } catch (e) {
         console.error(e);
         setLog(l => [`[${new Date().toLocaleTimeString()}] Error fetching initial state: ${e}`, ...l]);
@@ -123,6 +189,87 @@ export default function TreasuryTab() {
       }
     })();
   }, []);
+
+  // Helper: format USD6 BigNumber or numeric into $ string
+  function fmtUsd6FromAny(x: any) {
+    try {
+      const s = x?.toString?.() ?? String(x ?? '0');
+      return '$' + (Number(s) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    } catch {
+      return '$0';
+    }
+  }
+
+  // subscribe to new blocks and refresh Treasury state immediately
+  useEffect(() => {
+    if (!provider) return;
+    const onBlock = async (_blockNumber: number) => {
+      try { await refreshTreasuryState(); } catch (_) {}
+    };
+    provider.on('block', onBlock);
+    return () => { provider.off('block', onBlock); };
+  }, [provider, treasury, sagOracle, goldOracle]);
+
+  // Subscribe to treasury events for Engine Log
+  useEffect(() => {
+    if (!provider || !treasury) return;
+
+    // Ensure ABI exposes event fragments before subscribing (prevents "unknown fragment" runtime error)
+    let supportsEvents = true;
+    try {
+      // will throw if event fragment not present
+      treasury.interface.getEvent('CollateralizeAttempt');
+    } catch {
+      supportsEvents = false;
+    }
+    if (!supportsEvents) {
+      setLog(l => [`[events] Treasury ABI missing event fragments, skipping subscriptions`, ...l]);
+      return;
+    }
+
+    const onAttempt = (requestedUsd: any, usdcBefore: any, sagBefore: any, sagNeeded: any, event: any) => {
+      setLog(l => [`[CollateralizeAttempt] request=${fmtUsd6FromAny(requestedUsd)} usdcBefore=${fmtUsd6FromAny(usdcBefore)} sagBefore=${sagBefore.toString()} sagNeeded=${sagNeeded.toString()}`, ...l]);
+    };
+    const onInsufficient = (requestedUsd: any, sagBefore: any, sagNeeded: any, event: any) => {
+      setLog(l => [`[CollateralizeInsufficientSAG] request=${fmtUsd6FromAny(requestedUsd)} sagBefore=${sagBefore.toString()} sagNeeded=${sagNeeded.toString()}`, ...l]);
+    };
+    const onSucceeded = (requestedUsd: any, usdcAfter: any, event: any) => {
+      setLog(l => [`[CollateralizeSucceeded] request=${fmtUsd6FromAny(requestedUsd)} usdcAfter=${fmtUsd6FromAny(usdcAfter)}`, ...l]);
+    };
+    const onCollateralized = (amountUsd: any, event: any) => {
+      setLog(l => [`[Collateralized] ${fmtUsd6FromAny(amountUsd)} recorded`, ...l]);
+    };
+    const onBatchFunded = (batchId: any, amountUsd: any, event: any) => {
+      setLog(l => [`[BatchFunded] batch=${batchId.toString()} amount=${fmtUsd6FromAny(amountUsd)} (funds moved to Escrow)`, ...l]);
+      // refresh balances so Escrow USDC shows up immediately
+      try { refreshTreasuryState(); } catch {}
+    };
+    const onBatchResult = (batchId: any, principalUsd: any, userProfitUsd: any, feeUsd: any, event: any) => {
+      setLog(l => [`[BatchResult] batch=${batchId.toString()} principal=${fmtUsd6FromAny(principalUsd)} userProfit=${fmtUsd6FromAny(userProfitUsd)} fee=${fmtUsd6FromAny(feeUsd)}`, ...l]);
+    };
+
+    // safe to attach since ABI has fragments
+    treasury.on('CollateralizeAttempt', onAttempt);
+    treasury.on('CollateralizeInsufficientSAG', onInsufficient);
+    treasury.on('CollateralizeSucceeded', onSucceeded);
+    treasury.on('Collateralized', onCollateralized);
+    treasury.on('BatchFunded', onBatchFunded);
+    treasury.on('BatchResult', onBatchResult);
+
+    return () => {
+      // remove listeners only if ABI supports events
+      try {
+        treasury.off('CollateralizeAttempt', onAttempt);
+        treasury.off('CollateralizeInsufficientSAG', onInsufficient);
+        treasury.off('CollateralizeSucceeded', onSucceeded);
+        treasury.off('Collateralized', onCollateralized);
+        treasury.off('BatchFunded', onBatchFunded);
+        treasury.off('BatchResult', onBatchResult);
+      } catch {
+        // ignore cleanup errors
+      }
+    };
+  }, [provider, treasury]);
 
   // Fetch all metrics
   async function refreshTreasuryState() {
@@ -167,6 +314,38 @@ export default function TreasuryTab() {
           setTotalDepositsUsd(0);
         }
       }
+
+      // NEW: update asset balances and collateralized amount
+      try {
+        const sagAddr = await treasury.sag();
+        const usdcAddr = await treasury.usdc();
+        const ercBalanceAbi = ['function balanceOf(address) view returns (uint256)'];
+        const sagToken = new Contract(sagAddr, ercBalanceAbi, provider);
+        const usdcToken = new Contract(usdcAddr, ercBalanceAbi, provider);
+        const [sagBalRaw, usdcBalRaw, collUsdRaw] = await Promise.all([
+          sagToken.balanceOf(TREASURY_ADDRESS),
+          usdcToken.balanceOf(TREASURY_ADDRESS),
+          treasury.totalCollateralUsd()
+        ]);
+        const sagValue = Number(sagBalRaw) * Number(sagPriceRaw) / 1e20;
+        setSagValueUsd6(sagValue);
+        setUsdcBalance(Number(usdcBalRaw));
+        setCollateralizedUsd(Number(collUsdRaw));
+        // update escrow USDC balance
+        try {
+          const escrowAddrLocal = await treasury.escrow().catch(()=>null);
+          if (escrowAddrLocal && escrowAddrLocal !== '0x0000000000000000000000000000000000000000') {
+            setEscrowAddress(escrowAddrLocal);
+            const escrowUsdcRaw = await usdcToken.balanceOf(escrowAddrLocal).catch(()=>0);
+            setEscrowUsdcBalance(Number(escrowUsdcRaw));
+          } else {
+            setEscrowUsdcBalance(0);
+          }
+        } catch { setEscrowUsdcBalance(0); }
+      } catch {
+        // ignore and keep previous values
+      }
+
     } catch (e) {
       console.error(e);
       setLog(l => [`[${new Date().toLocaleTimeString()}] Error fetching state: ${e}`, ...l]);
@@ -181,7 +360,7 @@ export default function TreasuryTab() {
     if (!provider) return;
     try {
       if (!signer) throw new Error('Signer not initialized');
-      const sagOracleWrite = new Contract(SAG_ORACLE_ADDRESS, SAG_ORACLE_ABI.abi, signer);
+      const sagOracleWrite = new Contract(SAG_ORACLE_ADDRESS, SAG_ORACLE_ABI, signer);
       // scale to 8-decimals expected by MockOracle
       const price8 = Math.round(Number(sagPriceInput) * 1e8).toString();
       const tx = await sagOracleWrite.setPrice(price8);
@@ -198,7 +377,7 @@ export default function TreasuryTab() {
     if (!provider) return;
     try {
       if (!signer) throw new Error('Signer not initialized');
-      const goldOracleWrite = new Contract(GOLD_ORACLE_ADDRESS, GOLD_ORACLE_ABI.abi, signer);
+      const goldOracleWrite = new Contract(GOLD_ORACLE_ADDRESS, GOLD_ORACLE_ABI, signer);
       const price8 = Math.round(Number(goldPriceInput) * 1e8).toString();
       const tx = await goldOracleWrite.setPrice(price8);
       await tx.wait();
@@ -215,7 +394,7 @@ export default function TreasuryTab() {
     try {
       setLoading(true);
       if (!signer) throw new Error('Signer not initialized');
-      const treasuryWrite = new Contract(TREASURY_ADDRESS, TREASURY_ABI.abi, signer);
+      const treasuryWrite = new Contract(TREASURY_ADDRESS, TREASURY_ABI, signer);
       const tx = await treasuryWrite.rebalanceReserve();
       await tx.wait();
       setLog(l => [
@@ -230,9 +409,35 @@ export default function TreasuryTab() {
     }
   }
 
+  // NEW: call Treasury.distributeBatchToVault(batchId, tokenIds[])
+  async function handleDistributeBatchToVault() {
+    if (!provider || !signer) return;
+    if (!distributeBatchId) return setLog(l => ['[treasury] provide batch id', ...l]);
+    try {
+      const treasuryWrite = new Contract(TREASURY_ADDRESS, TREASURY_ABI, signer);
+      const batchIdNum = Number(distributeBatchId);
+      if (!Number.isFinite(batchIdNum) || batchIdNum <= 0) { setLog(l => ['[treasury] invalid batch id', ...l]); return; }
+      // parse comma-separated token ids
+      const tokenIds = distributeTokenIds.split(',')
+        .map(s => s.trim())
+        .filter(s => s.length > 0)
+        .map(s => BigInt(s));
+      setLoading(true);
+      const tx = await treasuryWrite.distributeBatchToVault(batchIdNum, tokenIds);
+      await tx.wait();
+      setLog(l => [`[${new Date().toLocaleTimeString()}] distributeBatchToVault(${batchIdNum}, [${tokenIds.join(',')}]) tx=${tx.hash}`, ...l]);
+      // refresh after distribution
+      await refreshTreasuryState();
+    } catch (e:any) {
+      setLog(l => [`[distribute ERROR] ${String(e?.message || e)}`, ...l]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   // --- Render ---
   return (
-    <div className="space-y-8 animate-fadeIn p-4 sm:p-8">
+    <div className="space-y-8 animate-fadeIn p-6 lg:p-12">
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
         <div>
           <h2 className="text-3xl font-bold bg-gradient-to-r from-sky-400 via-indigo-500 to-violet-500 bg-clip-text text-transparent">
@@ -256,35 +461,67 @@ export default function TreasuryTab() {
       {/* Metrics */}
       <div className="mb-6">
         <MetricGrid>
-          {/* Market Inputs */}
-          <MetricCard title="SAG Price (USD)" value={sagPrice ? `$${(sagPrice).toFixed(3)}` : '–'} tone="neutral" />
-          <MetricCard title="Gold Price (USD)" value={goldPrice ? `$${(goldPrice).toFixed(2)}` : '–'} tone="neutral" />
-          {/* Capital */}
-          <MetricCard title="Treasury Value" value={formatUsd(treasuryUsd)} tone="success" />
-          <MetricCard title="Reserve Value" value={formatUsd(reserveUsd)} tone="neutral" />
-          <MetricCard title="Target Reserve" value={formatUsd(targetReserveUsd)} tone="neutral" />
-          <MetricCard title="Total Deposits" value={formatUsd(totalDepositsUsd)} tone="neutral" />
-          {/* Safety */}
-          <MetricCard
-            title="Treasury : Reserve Ratio"
-            value={formatRatio(treasuryUsd, reserveUsd)}
-            tone="neutral"
-          />
-          <MetricCard
-            title="Reserve / Treasury %"
-            value={formatPercent(reserveUsd, treasuryUsd)}
-            tone={reserveUsd * 100 / (treasuryUsd || 1) > 50 ? 'danger' : 'success'}
-          />
-          <MetricCard
-            title="Coverage Ratio"
-            value={coverageRatio ? `${coverageRatio.toFixed(2)}×` : '–'}
-            tone="success"
-          />
-          <MetricCard
-            title="Deposit Capacity Remaining"
-            value={formatUsd(treasuryUsd - totalDepositsUsd)}
-            tone="neutral"
-          />
+          {/* Row 1: compact market / capital metrics */}
+          <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
+            Treasury Oracle Price
+          </h3>
+          <div className="col-span-1"><MetricCard title="SAG Price (USD)" value={sagPrice ? `$${(sagPrice).toFixed(3)}` : '–'} tone="neutral" /></div>
+          <div className="col-span-1"><MetricCard title="Gold Price (USD)" value={goldPrice ? `$${(goldPrice).toFixed(2)}` : '–'} tone="neutral" /></div>
+          
+          <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
+            Treasury Value
+          </h3>
+          <div className="col-span-1"><MetricCard title="SAG Value (Treasury)" value={formatUsd(sagValueUsd6)} tone="neutral" /></div>
+          <div className="col-span-1"><MetricCard title="USDC Balance (Treasury)" value={formatUsd(usdcBalance)} tone="neutral" /></div>
+          <div className="col-span-1 md:col-span-1"><MetricCard title="Treasury Value" value={formatUsd(treasuryUsd)} tone="success" /></div>
+          
+          {/* Row 2: target & totals */}
+          <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
+            Escrow
+          </h3>
+          <div className="col-span-1"><MetricCard title="Escrow USDC Balance" value={formatUsd(escrowUsdcBalance)} tone="neutral" /></div>
+          <div className="col-span-1 md:col-span-1"><MetricCard title="Collateralized USDC" value={formatUsd(collateralizedUsd)} tone="success" /></div>
+          
+          <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
+            Reserves
+          </h3>
+          <div className="col-span-1 md:col-span-1"><MetricCard title="Reserve Value" value={formatUsd(reserveUsd)} tone="neutral" /></div>
+          <div className="col-span-1 md:col-span-1"><MetricCard title="Target Reserve" value={formatUsd(targetReserveUsd)} tone="neutral" /></div>
+          
+          {/* Row 3: safety visuals - make these wider on md+ */}
+          <div className="col-span-1 md:col-span-2 lg:col-span-2">
+            <MetricCard
+              title="Treasury : Reserve Ratio"
+              value={formatRatio(treasuryUsd, reserveUsd)}
+              tone="neutral"
+            />
+          </div>
+          <div className="col-span-1 md:col-span-2 lg:col-span-2">
+            <MetricCard
+              title="Reserve / Treasury %"
+              value={formatPercent(reserveUsd, treasuryUsd)}
+              tone={reserveUsd * 100 / (treasuryUsd || 1) > 50 ? 'danger' : 'success'}
+            />
+          </div>
+
+          <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
+            Deposits
+          </h3>
+          {/* Row 4 */}
+          <div className="col-span-1 md:col-span-2">
+            <MetricCard
+              title="Coverage Ratio"
+              value={coverageRatio ? `${coverageRatio.toFixed(2)}×` : '–'}
+              tone="success"
+            />
+          </div>
+          <div className="col-span-1 md:col-span-2">
+            <MetricCard
+              title="Deposit Capacity Remaining"
+              value={formatUsd(treasuryUsd - totalDepositsUsd)}
+              tone="neutral"
+            />
+          </div>
         </MetricGrid>
       </div>
       {/* Controls */}
@@ -345,11 +582,15 @@ export default function TreasuryTab() {
               <span>Run Rebalance Engine</span>
             </button>
           </div>
+
         </div>
       </div>
       {/* Engine Log */}
       <div className="bg-slate-900/80 rounded-xl p-4 border border-slate-700/50 max-h-56 overflow-y-auto text-xs text-slate-300 font-mono">
-        <div className="mb-2 font-bold text-slate-400">Engine Log</div>
+        
+        <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
+          Engine Log
+        </h3>
         {log.length === 0 && <div className="text-slate-500">No actions yet.</div>}
         {log.map((entry, i) => (
           <div key={i} className="mb-1">{entry}</div>
