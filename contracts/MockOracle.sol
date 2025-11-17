@@ -21,4 +21,14 @@ contract MockOracle {
     function getPrice() external view returns (uint256) {
         return price;
     }
+
+    // Added wrappers for different oracle interfaces used in tests/contracts
+    // PriceOracleRouter expects ISagOracle.getSagPrice() and IGoldOracle.getGoldPrice()
+    function getSagPrice() external view returns (uint256) {
+        return price;
+    }
+
+    function getGoldPrice() external view returns (uint256) {
+        return price;
+    }
 }

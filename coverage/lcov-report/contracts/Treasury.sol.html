@@ -1,0 +1,2291 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>Code coverage report for contracts\Treasury.sol</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../prettify.css" />
+    <link rel="stylesheet" href="../base.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+<body>
+<div class='wrapper'>
+  <div class='pad1'>
+    <h1>
+      <a href="../index.html">all files</a> / <a href="index.html">contracts/</a> Treasury.sol
+    </h1>
+    <div class='clearfix'>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">0% </span>
+        <span class="quiet">Statements</span>
+        <span class='fraction'>0/224</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">0% </span>
+        <span class="quiet">Branches</span>
+        <span class='fraction'>0/188</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">0% </span>
+        <span class="quiet">Functions</span>
+        <span class='fraction'>0/36</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">0% </span>
+        <span class="quiet">Lines</span>
+        <span class='fraction'>0/282</span>
+      </div>
+    </div>
+  </div>
+  <div class='status-line low'></div>
+<pre><table class="coverage">
+<tr><td class="line-count quiet">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75
+76
+77
+78
+79
+80
+81
+82
+83
+84
+85
+86
+87
+88
+89
+90
+91
+92
+93
+94
+95
+96
+97
+98
+99
+100
+101
+102
+103
+104
+105
+106
+107
+108
+109
+110
+111
+112
+113
+114
+115
+116
+117
+118
+119
+120
+121
+122
+123
+124
+125
+126
+127
+128
+129
+130
+131
+132
+133
+134
+135
+136
+137
+138
+139
+140
+141
+142
+143
+144
+145
+146
+147
+148
+149
+150
+151
+152
+153
+154
+155
+156
+157
+158
+159
+160
+161
+162
+163
+164
+165
+166
+167
+168
+169
+170
+171
+172
+173
+174
+175
+176
+177
+178
+179
+180
+181
+182
+183
+184
+185
+186
+187
+188
+189
+190
+191
+192
+193
+194
+195
+196
+197
+198
+199
+200
+201
+202
+203
+204
+205
+206
+207
+208
+209
+210
+211
+212
+213
+214
+215
+216
+217
+218
+219
+220
+221
+222
+223
+224
+225
+226
+227
+228
+229
+230
+231
+232
+233
+234
+235
+236
+237
+238
+239
+240
+241
+242
+243
+244
+245
+246
+247
+248
+249
+250
+251
+252
+253
+254
+255
+256
+257
+258
+259
+260
+261
+262
+263
+264
+265
+266
+267
+268
+269
+270
+271
+272
+273
+274
+275
+276
+277
+278
+279
+280
+281
+282
+283
+284
+285
+286
+287
+288
+289
+290
+291
+292
+293
+294
+295
+296
+297
+298
+299
+300
+301
+302
+303
+304
+305
+306
+307
+308
+309
+310
+311
+312
+313
+314
+315
+316
+317
+318
+319
+320
+321
+322
+323
+324
+325
+326
+327
+328
+329
+330
+331
+332
+333
+334
+335
+336
+337
+338
+339
+340
+341
+342
+343
+344
+345
+346
+347
+348
+349
+350
+351
+352
+353
+354
+355
+356
+357
+358
+359
+360
+361
+362
+363
+364
+365
+366
+367
+368
+369
+370
+371
+372
+373
+374
+375
+376
+377
+378
+379
+380
+381
+382
+383
+384
+385
+386
+387
+388
+389
+390
+391
+392
+393
+394
+395
+396
+397
+398
+399
+400
+401
+402
+403
+404
+405
+406
+407
+408
+409
+410
+411
+412
+413
+414
+415
+416
+417
+418
+419
+420
+421
+422
+423
+424
+425
+426
+427
+428
+429
+430
+431
+432
+433
+434
+435
+436
+437
+438
+439
+440
+441
+442
+443
+444
+445
+446
+447
+448
+449
+450
+451
+452
+453
+454
+455
+456
+457
+458
+459
+460
+461
+462
+463
+464
+465
+466
+467
+468
+469
+470
+471
+472
+473
+474
+475
+476
+477
+478
+479
+480
+481
+482
+483
+484
+485
+486
+487
+488
+489
+490
+491
+492
+493
+494
+495
+496
+497
+498
+499
+500
+501
+502
+503
+504
+505
+506
+507
+508
+509
+510
+511
+512
+513
+514
+515
+516
+517
+518
+519
+520
+521
+522
+523
+524
+525
+526
+527
+528
+529
+530
+531
+532
+533
+534
+535
+536
+537
+538
+539
+540
+541
+542
+543
+544
+545
+546
+547
+548
+549
+550
+551
+552
+553
+554
+555
+556
+557
+558
+559
+560
+561
+562
+563
+564
+565
+566
+567
+568
+569
+570
+571
+572
+573
+574
+575
+576
+577
+578
+579
+580
+581
+582
+583
+584
+585
+586
+587
+588
+589
+590
+591
+592
+593
+594
+595
+596
+597
+598
+599
+600
+601
+602
+603
+604
+605
+606
+607
+608
+609
+610
+611
+612
+613
+614
+615
+616
+617
+618
+619
+620
+621
+622
+623
+624
+625
+626
+627
+628
+629
+630
+631
+632
+633
+634
+635
+636
+637
+638
+639
+640
+641
+642
+643
+644
+645
+646
+647
+648
+649
+650
+651
+652
+653
+654
+655
+656
+657
+658
+659
+660
+661
+662
+663
+664
+665
+666
+667
+668
+669
+670
+671
+672
+673
+674
+675
+676
+677
+678
+679
+680
+681
+682
+683
+684
+685
+686
+687
+688
+689
+690
+691
+692
+693
+694
+695
+696
+697
+698
+699
+700
+701
+702
+703
+704
+705
+706
+707
+708
+709
+710
+711
+712
+713
+714
+715
+716
+717
+718
+719
+720
+721
+722
+723
+724
+725
+726
+727
+728
+729
+730
+731
+732
+733
+734
+735
+736
+737
+738
+739
+740
+741
+742
+743</td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+&nbsp;
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+&nbsp;
+// Replace previous IPriceOracle interface that expected 1e18 getters
+interface IPriceOracle {
+    // Use existing MockOracle.getPrice() which returns price in USD with 8 decimals
+    function getPrice() external view returns (uint256); // 8-decimals (e.g. 700000000 =&gt; $7.00)
+}
+&nbsp;
+/// Add the AMM interface at file scope (interfaces cannot be declared inside a contract)
+interface IAMMPair {
+    function swapExactTokensForTokens(
+        uint256 amountIn,
+        address tokenIn,
+        address tokenOut,
+        address to
+    ) external returns (uint256 amountOut);
+&nbsp;
+    function getReserves() external view returns (uint256, uint256);
+}
+&nbsp;
+// Minimal Vault interface used by Treasury to compute payouts &amp; instruct Vault to finalize (burn NFT + send to owner)
+interface IVaultForTreasury {
+    function depositInfo(uint256 id) external view returns (
+        address user,
+        address asset,
+        uint256 amount,
+        uint256 amountUsd6,
+        uint256 shares,
+        uint64 createdAt,
+        uint64 lockUntil,
+        bool withdrawn
+    );
+    function finalizePayout(uint256 tokenId, uint256 payoutUsd6) external;
+}
+&nbsp;
+// NEW: Minimal Escrow interface so Treasury can validate which batch a receipt belongs to (best-effort)
+interface IEscrowForTreasury {
+    function receiptBatchId(uint256 tokenId) external view returns (uint256);
+}
+&nbsp;
+contract Treasury is Ownable {
+    using SafeERC20 for IERC20;
+    // AMM pair used for swapping tokens (e.g. SAG &lt;-&gt; USDC or SAG &lt;-&gt; GOLD)
+    address public ammPair;
+&nbsp;
+    IERC20 public immutable sag;
+    IERC20 public immutable usdc;
+    IERC20 public immutable gold;
+&nbsp;
+    address public reserveAddress;
+    address public vault;
+    IPriceOracle public priceOracle;
+&nbsp;
+    // Per-asset oracles so Treasury can read SAG and GOLD prices separately
+    IPriceOracle public sagOracle;
+    IPriceOracle public goldOracle;
+&nbsp;
+    uint256 public totalCollateralUsd;
+&nbsp;
+    // ------------------ NEW STATE ------------------
+    // Escrow contract address (set by owner)
+    address public escrow;
+    // protocol-level profit accrued (USD with 6 decimals)
+    uint256 public protocolProfitUsd;
+    // per-batch user profit record (optional)
+    mapping(uint256 =&gt; uint256) public batchProfitUsd;
+    // per-batch stored final NAV (1e18)
+    mapping(uint256 =&gt; uint256) public batchFinalNavPerShare;
+    // Track processed deposit/receipt IDs to make collateralizeForReceipt idempotent
+    mapping(uint256 =&gt; bool) public processedReceipts;
+    // ------------------ END NEW STATE ------------------
+&nbsp;
+    // NEW: allow automatic mint fallback (dev/test only). Default false.
+    bool public allowAutoMintCollateralize;
+&nbsp;
+    // NEW: slippage tolerance for AMM swaps (basis points). Default 50 = 0.5%.
+    uint16 public slippageBps = 50;
+    event SlippageBpsUpdated(uint16 bps);
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function setSlippageBps(uint16 bps) external onlyOwner {</span>
+<span class="cstat-no" title="statement not covered" >        require(bps &lt;= 1000, "slippage too large")</span>; // max 10%
+        slippageBps = bps;
+<span class="cstat-no" title="statement not covered" >        emit SlippageBpsUpdated(bps);</span>
+    }
+&nbsp;
+    // EVENTS
+    event Collateralized(uint256 amountUsd);
+    event CollateralizeAttempt(uint256 requestedUsd, uint256 usdcBefore, uint256 sagBefore, uint256 sagNeeded);
+    event CollateralizeInsufficientSAG(uint256 requestedUsd, uint256 sagBefore, uint256 sagNeeded);
+    // include sagAfter so callers can observe token changes post-swap
+    event CollateralizeSucceeded(uint256 requestedUsd, uint256 usdcAfter, uint256 sagAfter);
+    // Diagnostic: indicates we auto-minted USDC to cover a shortfall in test environments
+    event CollateralizeMintFallback(uint256 mintedUsd);
+&nbsp;
+    event Rebalanced(uint256 treasuryUsd, uint256 reserveUsd);
+    event GoldBought(uint256 usdAmount);
+    event GoldSold(uint256 usdAmount);
+&nbsp;
+    // NEW EVENTS
+    event BatchFunded(uint256 indexed batchId, uint256 amountUsd);
+    event BatchResult(uint256 indexed batchId, uint256 principalUsd, uint256 userProfitUsd, uint256 feeUsd);
+&nbsp;
+<span class="fstat-no" title="function not covered" >    modifier onlyVault() {</span>
+<span class="cstat-no" title="statement not covered" >        require(msg.sender == vault, "Only vault")</span>;
+        _;
+    }
+&nbsp;
+    // Allow owner OR vault to invoke certain helper entrypoints (dev/admin convenience)
+<span class="fstat-no" title="function not covered" >    modifier onlyVaultOrOwner() {</span>
+<span class="cstat-no" title="statement not covered" >        require(msg.sender == vault || msg.sender == owner(), "Only vault or owner")</span>;
+        _;
+    }
+&nbsp;
+    // NEW modifier: only calls originating from the Escrow contract
+<span class="fstat-no" title="function not covered" >    modifier onlyEscrow() {</span>
+<span class="cstat-no" title="statement not covered" >        require(msg.sender == escrow, "Only escrow")</span>;
+        _;
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    constructor(</span>
+        IERC20 _sag,
+        IERC20 _usdc,
+        IERC20 _gold,
+        address _reserveAddress,
+        address _vault,
+        IPriceOracle _priceOracle
+    ) Ownable(msg.sender) {
+        sag = _sag;
+        usdc = _usdc;
+        gold = _gold;
+        reserveAddress = _reserveAddress;
+        vault = _vault;
+        priceOracle = _priceOracle;
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function setVault(address _vault) external onlyOwner {</span>
+<span class="cstat-no" title="statement not covered" >        require(_vault != address(0), "Vault address cannot be zero")</span>;
+        vault = _vault;
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function setReserveAddress(address _reserve) external onlyOwner {</span>
+<span class="cstat-no" title="statement not covered" >        require(_reserve != address(0), "Reserve address cannot be zero")</span>;
+        reserveAddress = _reserve;
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function setPriceOracle(address _oracle) external onlyOwner {</span>
+<span class="cstat-no" title="statement not covered" >        require(_oracle != address(0), "Oracle address cannot be zero")</span>;
+        priceOracle = IPriceOracle(_oracle);
+    }
+&nbsp;
+    // New setters for per-asset oracles
+<span class="fstat-no" title="function not covered" >    function setSagOracle(address _oracle) external onlyOwner {</span>
+<span class="cstat-no" title="statement not covered" >        require(_oracle != address(0), "Oracle address cannot be zero")</span>;
+        sagOracle = IPriceOracle(_oracle);
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function setGoldOracle(address _oracle) external onlyOwner {</span>
+<span class="cstat-no" title="statement not covered" >        require(_oracle != address(0), "Oracle address cannot be zero")</span>;
+        goldOracle = IPriceOracle(_oracle);
+    }
+&nbsp;
+    /// @notice Set the AMM pair contract address (owner)
+<span class="fstat-no" title="function not covered" >    function setAmmPair(address _pair) external onlyOwner {</span>
+        ammPair = _pair;
+    }
+&nbsp;
+    // NEW: register escrow contract
+<span class="fstat-no" title="function not covered" >    function setEscrow(address _escrow) external onlyOwner {</span>
+<span class="cstat-no" title="statement not covered" >        require(_escrow != address(0), "Escrow cannot be zero")</span>;
+        escrow = _escrow;
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function setAllowAutoMintCollateralize(bool v) external onlyOwner {</span>
+        allowAutoMintCollateralize = v;
+    }
+&nbsp;
+    // --- View functions ---
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function getTreasuryValueUsd() public view returns (uint256) {</span>
+<span class="cstat-no" title="statement not covered" >        uint256 sagBal = sag.balanceOf(address(this));</span> // 18 decimals
+<span class="cstat-no" title="statement not covered" >        uint256 usdcBal = usdc.balanceOf(address(this));</span> // 6 decimals
+<span class="cstat-no" title="statement not covered" >        require(address(sagOracle) != address(0), "sagOracle not set")</span>;
+<span class="cstat-no" title="statement not covered" >        uint256 sagPrice8 = sagOracle.getPrice();</span> // price * 1e8
+        // sagValueUsd6 = (sagBal * sagPrice8) / 1e20
+<span class="cstat-no" title="statement not covered" >        uint256 sagValueUsd6 = (sagBal * sagPrice8) / (10 ** 20);</span>
+<span class="cstat-no" title="statement not covered" >        return sagValueUsd6 + usdcBal;</span>
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function getReserveValueUsd() public view returns (uint256) {</span>
+<span class="cstat-no" title="statement not covered" >        require(address(goldOracle) != address(0), "goldOracle not set")</span>;
+<span class="cstat-no" title="statement not covered" >        uint256 goldBal = gold.balanceOf(reserveAddress);</span> // 18 decimals
+<span class="cstat-no" title="statement not covered" >        uint256 goldPrice8 = goldOracle.getPrice();</span> // price in 8-decimals
+<span class="cstat-no" title="statement not covered" >        uint256 goldValueUsd6 = (goldBal * goldPrice8) / (10 ** 20);</span>
+<span class="cstat-no" title="statement not covered" >        return goldValueUsd6;</span>
+    }
+&nbsp;
+    /// @notice Get the "safe backing" used for coverage calculations (Treasury + Reserve)
+<span class="fstat-no" title="function not covered" >    function getSafeBackingUsd() external view returns (uint256) {</span>
+<span class="cstat-no" title="statement not covered" >        return getTreasuryValueUsd() + getReserveValueUsd();</span>
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function getTargetReserveUsd() public view returns (uint256) {</span>
+<span class="cstat-no" title="statement not covered" >        return getTreasuryValueUsd() / 2;</span>
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function getCoverageRatio(uint256 totalDepositsUsd) public view returns (uint256) {</span>
+<span class="cstat-no" title="statement not covered" >        uint256 treasuryUsd = getTreasuryValueUsd();</span>
+<span class="cstat-no" title="statement not covered" >        uint256 reserveUsd = getReserveValueUsd();</span>
+<span class="cstat-no" title="statement not covered" >        if (totalDepositsUsd == 0) <span class="cstat-no" title="statement not covered" >return 0;</span></span>
+<span class="cstat-no" title="statement not covered" >        return (treasuryUsd + reserveUsd) * 1e18 / totalDepositsUsd;</span>
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function canAdmit(uint256 amountUsd6) external view returns (bool) {</span>
+        // Example logic: admit if Treasury Value &gt;= amountUsd6
+<span class="cstat-no" title="statement not covered" >        return getTreasuryValueUsd() &gt;= amountUsd6;</span>
+    }
+&nbsp;
+    // --- Collateralization ---
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function collateralize(uint256 depositValueUsd) external onlyVault {</span>
+<span class="cstat-no" title="statement not covered" >        _doCollateralize(depositValueUsd)</span>;
+    }
+&nbsp;
+    /// @notice Collateralize a specific deposit/receipt id (idempotent).
+    /// @dev Called by Vault after a user deposit. Treasury will attempt to obtain USDC (swap SAG via AMM if needed)
+    ///      and update bookkeeping. Multiple calls for the same receiptId are safe (no double-counting).
+    /// @dev allow owner to call this for testing/manual recovery as well
+<span class="fstat-no" title="function not covered" >    function collateralizeForReceipt(uint256 receiptId, uint256 depositValueUsd) external onlyVaultOrOwner {</span>
+        // If already processed, do nothing (idempotent)
+<span class="cstat-no" title="statement not covered" >        if (processedReceipts[receiptId]) {</span>
+<span class="cstat-no" title="statement not covered" >            return;</span>
+        }
+        // attempt to collateralize (will revert on fatal errors)
+<span class="cstat-no" title="statement not covered" >        _doCollateralize(depositValueUsd)</span>;
+        // mark processed to avoid duplicate accounting
+        processedReceipts[receiptId] = true;
+        // emit a lightweight event for observability (Collateralized is emitted inside _doCollateralize)
+        // but keep explicit trace linking to receiptId using an indexed event via CollateralizeAttempt/Collateralized logs
+    }
+&nbsp;
+    /// @notice Owner-only helper to run collateralization for an amount (useful for admins/keepers)
+<span class="fstat-no" title="function not covered" >    function adminCollateralize(uint256 depositValueUsd) external onlyOwner {</span>
+<span class="cstat-no" title="statement not covered" >        _doCollateralize(depositValueUsd)</span>;
+    }
+&nbsp;
+    /// @dev shared implementation used by vault and admin entrypoints
+<span class="fstat-no" title="function not covered" >    function _doCollateralize(uint256 depositValueUsd) internal {</span>
+<span class="cstat-no" title="statement not covered" >        uint256 usdcBal = usdc.balanceOf(address(this));</span>
+&nbsp;
+        // If we don't have enough USDC, attempt to convert SAG -&gt; USDC via AMM
+<span class="cstat-no" title="statement not covered" >        if (usdcBal &lt; depositValueUsd) {</span>
+<span class="cstat-no" title="statement not covered" >            _ensureUsdc(depositValueUsd)</span>;
+        } else {
+<span class="cstat-no" title="statement not covered" >            emit CollateralizeAttempt(depositValueUsd, usdcBal, sag.balanceOf(address(this)), 0);</span>
+<span class="cstat-no" title="statement not covered" >            emit CollateralizeSucceeded(depositValueUsd, usdcBal, sag.balanceOf(address(this)));</span>
+        }
+&nbsp;
+        // Record collateral (single accounting spot to avoid double-counting in collateralizeForReceipt fast-path)
+        totalCollateralUsd += depositValueUsd;
+<span class="cstat-no" title="statement not covered" >        emit Collateralized(depositValueUsd);</span>
+    }
+&nbsp;
+    // Heavy work moved to helper to avoid "stack too deep" in caller.
+<span class="fstat-no" title="function not covered" >    function _ensureUsdc(uint256 depositValueUsd) internal {</span>
+<span class="cstat-no" title="statement not covered" >        uint256 usdcBal = usdc.balanceOf(address(this));</span>
+<span class="cstat-no" title="statement not covered" >        uint256 needed = depositValueUsd &gt; usdcBal ? depositValueUsd - usdcBal : 0;</span>
+<span class="cstat-no" title="statement not covered" >        require(ammPair != address(0), "No AMM available")</span>;
+<span class="cstat-no" title="statement not covered" >        require(address(sagOracle) != address(0), "sagOracle not set")</span>;
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        uint256 usdcAfterFinal;</span>
+<span class="cstat-no" title="statement not covered" >        uint256 sagAmount;</span>
+        (usdcAfterFinal, sagAmount) = _performAmmSwap(depositValueUsd, needed);
+&nbsp;
+        // Move final checks/emits into a tiny helper to reduce _ensureUsdc locals.
+<span class="cstat-no" title="statement not covered" >        _finalizeCollateralize(depositValueUsd, true, 0, usdcBal, usdcAfterFinal, sagAmount)</span>;
+    }
+&nbsp;
+    // Extracted AMM probe, sagAmount calc, and swap into a helper to reduce _ensureUsdc locals.
+<span class="fstat-no" title="function not covered" >    function _performAmmSwap(uint256 depositValueUsd, uint256 needed) internal returns (uint256 usdcAfterFinal, uint256 sagAmount) {</span>
+<span class="cstat-no" title="statement not covered" >        uint256 usdcBal = usdc.balanceOf(address(this));</span>
+<span class="cstat-no" title="statement not covered" >        bool ammProbeOk = false;</span>
+<span class="cstat-no" title="statement not covered" >        address token0Addr;</span>
+<span class="cstat-no" title="statement not covered" >        address token1Addr;</span>
+<span class="cstat-no" title="statement not covered" >        uint256 reserve0 = 0;</span>
+<span class="cstat-no" title="statement not covered" >        uint256 reserve1 = 0;</span>
+<span class="cstat-no" title="statement not covered" >        uint256 ammFeeBps = 30;</span>
+<span class="cstat-no" title="statement not covered" >        uint256 reserveIn;</span>
+<span class="cstat-no" title="statement not covered" >        uint256 reserveOut;</span>
+&nbsp;
+        (token0Addr, token1Addr, reserve0, reserve1, ammFeeBps, ammProbeOk) = _probeAmm(ammPair);
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        if (reserve0 &gt; 0 &amp;&amp; reserve1 &gt; 0 &amp;&amp; (token0Addr != address(0) || token1Addr != address(0))) {</span>
+            
+<span class="cstat-no" title="statement not covered" >            if (token0Addr == address(sag)) { reserveIn = reserve0; reserveOut = reserve1; }</span>
+            else <span class="cstat-no" title="statement not covered" >if (token1Addr == address(sag)) { reserveIn = reserve1; reserveOut = reserve0; }</span>
+            else { reserveIn = 0; reserveOut = 0; }
+<span class="cstat-no" title="statement not covered" >            if (reserveOut &gt; needed &amp;&amp; reserveIn &gt; 0) {</span>
+<span class="cstat-no" title="statement not covered" >                uint256 num = reserveIn * needed * 10000;</span>
+<span class="cstat-no" title="statement not covered" >                uint256 denom = (reserveOut - needed) * (10000 - ammFeeBps);</span>
+<span class="cstat-no" title="statement not covered" >                if (denom &gt; 0) {</span>
+                    sagAmount = (num + denom - 1) / denom;
+                    ammProbeOk = true;
+                }
+            }
+        }
+<span class="cstat-no" title="statement not covered" >        if (!ammProbeOk) {</span>
+<span class="cstat-no" title="statement not covered" >            uint256 sagPrice8 = sagOracle.getPrice();</span>
+<span class="cstat-no" title="statement not covered" >            require(sagPrice8 &gt; 0, "Invalid SAG price")</span>;
+            sagAmount = (needed * (10 ** 20) + sagPrice8 - 1) / sagPrice8;
+        }
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        uint256 sagBal = sag.balanceOf(address(this));</span>
+<span class="cstat-no" title="statement not covered" >        emit CollateralizeAttempt(depositValueUsd, usdcBal, sagBal, sagAmount);</span>
+<span class="cstat-no" title="statement not covered" >        if (sagBal == 0) {</span>
+<span class="cstat-no" title="statement not covered" >            emit CollateralizeInsufficientSAG(depositValueUsd, sagBal, sagAmount);</span>
+<span class="cstat-no" title="statement not covered" >            revert("Collateralize: no SAG available to buy USDC")</span>;
+        }
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        uint256 amountToSwap = sagAmount;</span>
+<span class="cstat-no" title="statement not covered" >        if (sagBal &lt; sagAmount) {</span>
+            amountToSwap = sagBal;
+<span class="cstat-no" title="statement not covered" >            emit CollateralizeInsufficientSAG(depositValueUsd, sagBal, sagAmount);</span>
+        }
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        uint256 expectedUsdc6;</span>
+<span class="cstat-no" title="statement not covered" >        if (ammProbeOk) {</span>
+<span class="cstat-no" title="statement not covered" >            uint256 amountInWithFee = amountToSwap * (10000 - ammFeeBps);</span>
+            expectedUsdc6 = (amountInWithFee * reserveOut) / (reserveIn * 10000 + amountInWithFee);
+        } else {
+<span class="cstat-no" title="statement not covered" >            uint256 sagPrice8 = sagOracle.getPrice();</span>
+            expectedUsdc6 = (amountToSwap * sagPrice8) / (10 ** 20);
+        }
+<span class="cstat-no" title="statement not covered" >        uint256 minExpectedUsdc6 = (expectedUsdc6 * (10000 - slippageBps)) / 10000;</span>
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        try sag.approve(ammPair, 0) {} catch {}</span>
+<span class="cstat-no" title="statement not covered" >        try sag.approve(ammPair, amountToSwap) {} catch {}</span>
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        bool swapped;</span>
+        (swapped, usdcAfterFinal) = _doSwapAttempt(amountToSwap, minExpectedUsdc6);
+&nbsp;
+        // Removed final checks here to reduce locals; handled in _ensureUsdc via _finalizeCollateralize.
+    }
+&nbsp;
+    // Extracted swap attempt to reduce _performAmmSwap locals.
+<span class="fstat-no" title="function not covered" >    function _doSwapAttempt(uint256 amountToSwap, uint256 minExpectedUsdc6) internal returns (bool swapped, uint256 usdcAfterFinal) {</span>
+<span class="cstat-no" title="statement not covered" >        uint256 before = usdc.balanceOf(address(this));</span>
+        // 1) Router: swapExactTokensForTokens(amountIn, amountOutMin, path, to)
+        {
+<span class="cstat-no" title="statement not covered" >            address[] memory path = new address[](2);</span>
+            path[0] = address(sag);
+            path[1] = address(usdc);
+<span class="cstat-no" title="statement not covered" >            (bool ok, ) = ammPair.call(abi.encodeWithSignature(</span>
+                "swapExactTokensForTokens(uint256,uint256,address[],address)",
+                amountToSwap, minExpectedUsdc6, path, address(this)
+            ));
+<span class="cstat-no" title="statement not covered" >            if (ok &amp;&amp; usdc.balanceOf(address(this)) &gt; before) {</span>
+<span class="cstat-no" title="statement not covered" >                return (true, usdc.balanceOf(address(this)));</span>
+            }
+        }
+        // 2) Router variant: swapExactTokensForTokens(amountIn, tokenIn, tokenOut, to)
+        {
+<span class="cstat-no" title="statement not covered" >            (bool ok, ) = ammPair.call(abi.encodeWithSignature(</span>
+                "swapExactTokensForTokens(uint256,address,address,address)",
+                amountToSwap, address(sag), address(usdc), address(this)
+            ));
+<span class="cstat-no" title="statement not covered" >            if (ok &amp;&amp; usdc.balanceOf(address(this)) &gt; before) {</span>
+<span class="cstat-no" title="statement not covered" >                return (true, usdc.balanceOf(address(this)));</span>
+            }
+        }
+        // 3) Pair.swap(amount, to)
+        {
+<span class="cstat-no" title="statement not covered" >            (bool ok, ) = ammPair.call(abi.encodeWithSignature("swap(uint256,address)", amountToSwap, address(this)));</span>
+<span class="cstat-no" title="statement not covered" >            if (ok &amp;&amp; usdc.balanceOf(address(this)) &gt; before) {</span>
+<span class="cstat-no" title="statement not covered" >                return (true, usdc.balanceOf(address(this)));</span>
+            }
+        }
+        // 4) transfer then sync/mint fallback
+<span class="cstat-no" title="statement not covered" >        try sag.transfer(ammPair, amountToSwap) {</span>
+<span class="cstat-no" title="statement not covered" >            (bool okSync, ) = ammPair.call(abi.encodeWithSignature("sync()"));</span>
+<span class="cstat-no" title="statement not covered" >            if (okSync &amp;&amp; usdc.balanceOf(address(this)) &gt; before) <span class="cstat-no" title="statement not covered" >return (true, usdc.balanceOf(address(this)));</span></span>
+<span class="cstat-no" title="statement not covered" >            (bool okMint, ) = ammPair.call(abi.encodeWithSignature("mint(address)", address(this)));</span>
+<span class="cstat-no" title="statement not covered" >            if (okMint &amp;&amp; usdc.balanceOf(address(this)) &gt; before) <span class="cstat-no" title="statement not covered" >return (true, usdc.balanceOf(address(this)));</span></span>
+        } catch {}
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        return (false, usdc.balanceOf(address(this)));</span>
+    }
+&nbsp;
+    // Small helper extracted from _ensureUsdc to reduce its stack usage.
+    // Performs final verification and emits success/failure events (may revert).
+<span class="fstat-no" title="function not covered" >    function _finalizeCollateralize(</span>
+        uint256 depositValueUsd,
+        bool swapped,
+        uint256 minExpectedUsdc6,
+        uint256 usdcBefore,
+        uint256 usdcAfterFinal,
+        uint256 sagAmount
+    ) internal {
+<span class="cstat-no" title="statement not covered" >        uint256 usdcReceived = usdcAfterFinal &gt; usdcBefore ? usdcAfterFinal - usdcBefore : 0;</span>
+<span class="cstat-no" title="statement not covered" >        if (!swapped || usdcReceived &lt; minExpectedUsdc6) {</span>
+<span class="cstat-no" title="statement not covered" >            revert("Collateralize failed to obtain enough USDC")</span>;
+        }
+<span class="cstat-no" title="statement not covered" >        uint256 sagAfterBal = sag.balanceOf(address(this));</span>
+<span class="cstat-no" title="statement not covered" >        if (usdcAfterFinal &lt; depositValueUsd) {</span>
+<span class="cstat-no" title="statement not covered" >            emit CollateralizeInsufficientSAG(depositValueUsd, sagAfterBal, sagAmount);</span>
+<span class="cstat-no" title="statement not covered" >            revert("Collateralize failed to obtain enough USDC")</span>;
+        }
+<span class="cstat-no" title="statement not covered" >        emit CollateralizeSucceeded(depositValueUsd, usdcAfterFinal, sagAfterBal);</span>
+    }
+&nbsp;
+    // Probe AMM pair safely; returns defaults when probe fails.
+<span class="fstat-no" title="function not covered" >    function _probeAmm(address pair) internal view returns (</span>
+        address token0Addr,
+        address token1Addr,
+        uint256 reserve0,
+        uint256 reserve1,
+        uint256 ammFeeBps,
+        bool ammProbeOk
+    ) {
+        ammFeeBps = 30;
+<span class="cstat-no" title="statement not covered" >        (bool ok0, bytes memory d0) = pair.staticcall(abi.encodeWithSignature("token0()"));</span>
+<span class="cstat-no" title="statement not covered" >        if (ok0 &amp;&amp; d0.length &gt;= 32) token0Addr = abi.decode(d0, (address));</span>
+<span class="cstat-no" title="statement not covered" >        (bool ok1, bytes memory d1) = pair.staticcall(abi.encodeWithSignature("token1()"));</span>
+<span class="cstat-no" title="statement not covered" >        if (ok1 &amp;&amp; d1.length &gt;= 32) token1Addr = abi.decode(d1, (address));</span>
+<span class="cstat-no" title="statement not covered" >        (bool okR, bytes memory dR) = pair.staticcall(abi.encodeWithSignature("getReserves()"));</span>
+<span class="cstat-no" title="statement not covered" >        if (okR &amp;&amp; dR.length &gt;= 96) {</span>
+<span class="cstat-no" title="statement not covered" >            (uint256 r0, uint256 r1) = abi.decode(dR, (uint256, uint256));</span>
+            reserve0 = r0;
+            reserve1 = r1;
+        }
+<span class="cstat-no" title="statement not covered" >        (bool okFee, bytes memory dF) = pair.staticcall(abi.encodeWithSignature("SWAP_FEE_BPS()"));</span>
+<span class="cstat-no" title="statement not covered" >        if (okFee &amp;&amp; dF.length &gt;= 32) ammFeeBps = abi.decode(dF, (uint256));</span>
+        ammProbeOk = (reserve0 &gt; 0 &amp;&amp; reserve1 &gt; 0) &amp;&amp; (token0Addr != address(0) || token1Addr != address(0));
+    }
+&nbsp;
+    // Try common swap entrypoints; returns (swapped, usdcBalanceAfter)
+<span class="fstat-no" title="function not covered" >    function _attemptSwap(address pair, uint256 amountToSwap, uint256 minExpectedUsdc6) internal returns (bool swapped, uint256 usdcAfter) {</span>
+<span class="cstat-no" title="statement not covered" >        try sag.approve(pair, 0) {} catch {}</span>
+<span class="cstat-no" title="statement not covered" >        try sag.approve(pair, amountToSwap) {} catch {}</span>
+<span class="cstat-no" title="statement not covered" >        uint256 before = usdc.balanceOf(address(this));</span>
+&nbsp;
+        // 1) Router: swapExactTokensForTokens(amountIn, amountOutMin, path, to)
+        {
+<span class="cstat-no" title="statement not covered" >            address[] memory path = new address[](2);</span>
+            path[0] = address(sag);
+            path[1] = address(usdc);
+<span class="cstat-no" title="statement not covered" >            (bool ok, ) = pair.call(abi.encodeWithSignature(</span>
+                "swapExactTokensForTokens(uint256,uint256,address[],address)",
+                amountToSwap, minExpectedUsdc6, path, address(this)
+            ));
+<span class="cstat-no" title="statement not covered" >            if (ok &amp;&amp; usdc.balanceOf(address(this)) &gt; before) {</span>
+<span class="cstat-no" title="statement not covered" >                return (true, usdc.balanceOf(address(this)));</span>
+            }
+        }
+        // 2) Router variant: swapExactTokensForTokens(amountIn, tokenIn, tokenOut, to)
+        {
+<span class="cstat-no" title="statement not covered" >            (bool ok, ) = pair.call(abi.encodeWithSignature(</span>
+                "swapExactTokensForTokens(uint256,address,address,address)",
+                amountToSwap, address(sag), address(usdc), address(this)
+            ));
+<span class="cstat-no" title="statement not covered" >            if (ok &amp;&amp; usdc.balanceOf(address(this)) &gt; before) {</span>
+<span class="cstat-no" title="statement not covered" >                return (true, usdc.balanceOf(address(this)));</span>
+            }
+        }
+        // 3) Pair.swap(amount, to)
+        {
+<span class="cstat-no" title="statement not covered" >            (bool ok, ) = pair.call(abi.encodeWithSignature("swap(uint256,address)", amountToSwap, address(this)));</span>
+<span class="cstat-no" title="statement not covered" >            if (ok &amp;&amp; usdc.balanceOf(address(this)) &gt; before) {</span>
+<span class="cstat-no" title="statement not covered" >                return (true, usdc.balanceOf(address(this)));</span>
+            }
+        }
+        // 4) transfer then sync/mint fallback
+<span class="cstat-no" title="statement not covered" >        try sag.transfer(pair, amountToSwap) {</span>
+<span class="cstat-no" title="statement not covered" >            (bool okSync, ) = pair.call(abi.encodeWithSignature("sync()"));</span>
+<span class="cstat-no" title="statement not covered" >            if (okSync &amp;&amp; usdc.balanceOf(address(this)) &gt; before) <span class="cstat-no" title="statement not covered" >return (true, usdc.balanceOf(address(this)));</span></span>
+<span class="cstat-no" title="statement not covered" >            (bool okMint, ) = pair.call(abi.encodeWithSignature("mint(address)", address(this)));</span>
+<span class="cstat-no" title="statement not covered" >            if (okMint &amp;&amp; usdc.balanceOf(address(this)) &gt; before) <span class="cstat-no" title="statement not covered" >return (true, usdc.balanceOf(address(this)));</span></span>
+        } catch {}
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        return (false, usdc.balanceOf(address(this)));</span>
+    }
+&nbsp;
+    // --- Reserve Rebalancing ---
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function rebalanceReserve() external {</span>
+<span class="cstat-no" title="statement not covered" >        require(address(sagOracle) != address(0) &amp;&amp; address(goldOracle) != address(0), "oracles not set")</span>;
+<span class="cstat-no" title="statement not covered" >        uint256 sagBal = sag.balanceOf(address(this));</span> // 18 decimals
+<span class="cstat-no" title="statement not covered" >        uint256 sagPrice8 = sagOracle.getPrice();</span> // 8-decimals
+<span class="cstat-no" title="statement not covered" >        uint256 sagValueUsd6 = (sagBal * sagPrice8) / (10 ** 20);</span>
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        uint256 goldBal = gold.balanceOf(reserveAddress);</span> // 18 decimals
+<span class="cstat-no" title="statement not covered" >        uint256 goldPrice8 = goldOracle.getPrice();</span> // 8-decimals
+<span class="cstat-no" title="statement not covered" >        uint256 goldValueUsd6 = (goldBal * goldPrice8) / (10 ** 20);</span>
+&nbsp;
+        // Target SAG:GOLD ratio is 2:1
+        // If ratio &gt; 2.05:1, buy GOLD; if ratio &lt; 1.95:1, sell GOLD
+<span class="cstat-no" title="statement not covered" >        uint256 ratio = goldValueUsd6 == 0 ? type(uint256).max : (sagValueUsd6 * 1e6) / goldValueUsd6;</span> // scaled by 1e6
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        uint256 targetRatio = 2 * 1e6;</span> // 2.00 scaled by 1e6
+<span class="cstat-no" title="statement not covered" >        uint256 lower = targetRatio * 195 / 200;</span> // 1.95
+<span class="cstat-no" title="statement not covered" >        uint256 upper = targetRatio * 205 / 200;</span> // 2.05
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        if (ratio &gt; upper) {</span>
+            // Too much SAG, need more GOLD: buy GOLD
+            // Calculate USD amount of GOLD to buy to reach target ratio
+            // Let x = new goldValueUsd6, solve (sagValueUsd6 / x) = 2
+            // x = sagValueUsd6 / 2
+<span class="cstat-no" title="statement not covered" >            uint256 desiredGoldValueUsd6 = sagValueUsd6 / 2;</span>
+<span class="cstat-no" title="statement not covered" >            uint256 goldToBuyUsd = desiredGoldValueUsd6 &gt; goldValueUsd6 ? desiredGoldValueUsd6 - goldValueUsd6 : 0;</span>
+<span class="cstat-no" title="statement not covered" >            if (goldToBuyUsd &gt; 0) {</span>
+<span class="cstat-no" title="statement not covered" >                _buyGoldWithUsdc(goldToBuyUsd)</span>;
+            }
+        } else <span class="cstat-no" title="statement not covered" >if (ratio &lt; lower) {</span>
+            // Too much GOLD, need less GOLD: sell GOLD
+            // Let x = new goldValueUsd6, solve (sagValueUsd6 / x) = 2
+            // x = sagValueUsd6 / 2
+<span class="cstat-no" title="statement not covered" >            uint256 desiredGoldValueUsd6 = sagValueUsd6 / 2;</span>
+<span class="cstat-no" title="statement not covered" >            uint256 goldToSellUsd = goldValueUsd6 &gt; desiredGoldValueUsd6 ? goldValueUsd6 - desiredGoldValueUsd6 : 0;</span>
+<span class="cstat-no" title="statement not covered" >            if (goldToSellUsd &gt; 0) {</span>
+<span class="cstat-no" title="statement not covered" >                _sellGoldForUsdc(goldToSellUsd)</span>;
+            }
+        }
+<span class="cstat-no" title="statement not covered" >        emit Rebalanced(sagValueUsd6, goldValueUsd6);</span>
+    }
+&nbsp;
+    // --- Internal book-keeping for MVP ---
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function _buyGoldWithUsdc(uint256 usdAmount) internal {</span>
+<span class="cstat-no" title="statement not covered" >        uint256 usdcBal = usdc.balanceOf(address(this));</span>
+&nbsp;
+        // If we don't have enough USDC, try selling SAG via AMM to obtain USDC
+<span class="cstat-no" title="statement not covered" >        if (usdcBal &lt; usdAmount &amp;&amp; ammPair != address(0)) {</span>
+<span class="cstat-no" title="statement not covered" >            uint256 sagBal = sag.balanceOf(address(this));</span>
+<span class="cstat-no" title="statement not covered" >            if (sagBal &gt; 0) {</span>
+                // Approve AMM to pull SAG
+                // call SafeERC20 library explicitly to avoid ADL lookup issues
+<span class="cstat-no" title="statement not covered" >                sag.approve(ammPair, 0)</span>;
+<span class="cstat-no" title="statement not covered" >                sag.approve(ammPair, sagBal)</span>;
+                // swap SAG -&gt; USDC, receive USDC back into this contract
+<span class="cstat-no" title="statement not covered" >                uint256 obtainedUsdc = IAMMPair(ammPair).swapExactTokensForTokens(sagBal, address(sag), address(usdc), address(this));</span>
+                usdcBal += obtainedUsdc;
+            }
+        }
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        require(usdcBal &gt;= usdAmount, "Not enough USDC")</span>;
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        uint256 goldPrice = goldOracle.getPrice();</span> // 8-decimals
+        // token wei conversion (USD6 -&gt; token wei): goldWei = usd6 * 1e20 / price8
+<span class="cstat-no" title="statement not covered" >        uint256 goldAmount = (usdAmount * (10 ** 20)) / goldPrice;</span>
+        // Transfer gold to reserve
+<span class="cstat-no" title="statement not covered" >        require(gold.transfer(reserveAddress, goldAmount), "Gold transfer failed")</span>;
+        // Burn/spend USDC (MVP simulation)
+<span class="cstat-no" title="statement not covered" >        require(usdc.transfer(address(0xdead), usdAmount), "USDC burned for MVP")</span>;
+<span class="cstat-no" title="statement not covered" >        emit GoldBought(usdAmount);</span>
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function _sellGoldForUsdc(uint256 usdAmount) internal {</span>
+<span class="cstat-no" title="statement not covered" >        uint256 goldPrice = goldOracle.getPrice();</span> // 8-decimals
+<span class="cstat-no" title="statement not covered" >        uint256 goldAmount = (usdAmount * (10 ** 20)) / goldPrice;</span>
+<span class="cstat-no" title="statement not covered" >        require(gold.balanceOf(reserveAddress) &gt;= goldAmount, "Not enough GOLD at reserve")</span>;
+        // For MVP: pull GOLD from reserve back to treasury and emit event.
+        // In a more advanced flow you may swap GOLD-&gt;USDC via AMM; keep existing transfer logic here.
+<span class="cstat-no" title="statement not covered" >        require(gold.transferFrom(reserveAddress, address(this), goldAmount), "Gold transferFrom failed")</span>;
+<span class="cstat-no" title="statement not covered" >        emit GoldSold(usdAmount);</span>
+    }
+&nbsp;
+    // NEW: fund an escrow batch (called by Escrow contract)
+    // Transfers USDC from Treasury to msg.sender (the escrow contract)
+<span class="fstat-no" title="function not covered" >    function fundEscrowBatch(uint256 batchId, uint256 amountUsd) external onlyEscrow {</span>
+<span class="cstat-no" title="statement not covered" >        require(usdc.balanceOf(address(this)) &gt;= amountUsd, "Not enough USDC")</span>;
+        // Transfer USDC to escrow (msg.sender)
+<span class="cstat-no" title="statement not covered" >        usdc.safeTransfer(msg.sender, amountUsd)</span>;
+<span class="cstat-no" title="statement not covered" >        emit BatchFunded(batchId, amountUsd);</span>
+    }
+&nbsp;
+    // NEW: Escrow reports back results for a closed batch and distributes user profits to batch participants
+<span class="fstat-no" title="function not covered" >    function reportBatchResult(</span>
+        uint256 batchId,
+        uint256 principalUsd,
+        uint256 userProfitUsd,
+        uint256 feeUsd,
+        uint256 finalNavPerShare
+    ) external onlyEscrow {
+        // Record protocol profit
+        protocolProfitUsd += feeUsd;
+        // Record batch profit
+        batchProfitUsd[batchId] = userProfitUsd;
+        // Record final NAV per share
+        batchFinalNavPerShare[batchId] = finalNavPerShare;
+        // Close Treasury collateral for this batch
+<span class="cstat-no" title="statement not covered" >        if (totalCollateralUsd &gt;= principalUsd) {</span>
+            totalCollateralUsd -= principalUsd;
+        } else {
+            totalCollateralUsd = 0;
+        }
+<span class="cstat-no" title="statement not covered" >        emit BatchResult(batchId, principalUsd, userProfitUsd, feeUsd);</span>
+    }
+&nbsp;
+    // Overloaded: reportBatchResult + immediate distribution to Vault per-token (by share).
+    // Called by Escrow when it knows the list of receipts (tokenIds) that belong to this batch.
+<span class="fstat-no" title="function not covered" >    function reportBatchResult(</span>
+        uint256 batchId,
+        uint256 principalUsd,
+        uint256 userProfitUsd,
+        uint256 feeUsd,
+        uint256 finalNavPerShare,
+        uint256[] calldata tokenIds
+    ) external onlyEscrow {
+        // Bookkeeping: fees/nav/profit &amp; close collateral
+        protocolProfitUsd += feeUsd;
+        batchProfitUsd[batchId] = userProfitUsd;
+        batchFinalNavPerShare[batchId] = finalNavPerShare;
+<span class="cstat-no" title="statement not covered" >        if (totalCollateralUsd &gt;= principalUsd) {</span>
+            totalCollateralUsd -= principalUsd;
+        } else {
+            totalCollateralUsd = 0;
+        }
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        emit BatchResult(batchId, principalUsd, userProfitUsd, feeUsd);</span>
+&nbsp;
+        // If there's no user profit or no receipts, nothing to distribute
+<span class="cstat-no" title="statement not covered" >        if (userProfitUsd == 0 || tokenIds.length == 0) {</span>
+<span class="cstat-no" title="statement not covered" >            return;</span>
+        }
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        IVaultForTreasury vaultContract = IVaultForTreasury(vault);</span>
+<span class="cstat-no" title="statement not covered" >        IEscrowForTreasury escrowContract = IEscrowForTreasury(escrow);</span>
+&nbsp;
+        // 1) Sum total shares for provided receipts that belong to this batch.
+<span class="cstat-no" title="statement not covered" >        uint256 totalShares = 0;</span>
+<span class="cstat-no" title="statement not covered" >        uint256 n = tokenIds.length;</span>
+<span class="cstat-no" title="statement not covered" >        uint256[] memory shares = new uint256[](n);</span>
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        for (uint256 i = 0; i &lt; n; i++) {</span>
+<span class="cstat-no" title="statement not covered" >            uint256 tid = tokenIds[i];</span>
+            // Best-effort: skip receipts that don't map to this batch (protects callers passing mixed lists)
+<span class="cstat-no" title="statement not covered" >            bool belongs = true;</span>
+<span class="cstat-no" title="statement not covered" >            try escrowContract.receiptBatchId(tid) returns (uint256 bid) {</span>
+<span class="cstat-no" title="statement not covered" >                if (bid != batchId) belongs = false;</span>
+            } catch {
+                belongs = false;
+            }
+<span class="cstat-no" title="statement not covered" >            if (!belongs) {</span>
+                shares[i] = 0;
+                continue;
+            }
+&nbsp;
+<span class="cstat-no" title="statement not covered" >            try vaultContract.depositInfo(tid) returns (</span>
+                address /*user*/,
+                address /*asset*/,
+                uint256 /*amount*/,
+                uint256 /*amountUsd6*/,
+                uint256 s,
+                uint64 /*createdAt*/,
+                uint64 /*lockUntil*/,
+                bool /*withdrawn*/
+            ) {
+                shares[i] = s;
+                totalShares += s;
+            } catch {
+                // If depositInfo fails for a token, treat it as zero share and continue
+                shares[i] = 0;
+                continue;
+            }
+        }
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        if (totalShares == 0) {</span>
+            // Nothing to distribute (no valid shares among provided tokenIds)
+<span class="cstat-no" title="statement not covered" >            return;</span>
+        }
+&nbsp;
+        // 2) Allocate userProfitUsd pro-rata by shares.
+        // Move heavy per-token work into an internal helper to avoid "stack too deep".
+        // Copy calldata arrays into memory and call helper.
+<span class="cstat-no" title="statement not covered" >        require(usdc.balanceOf(address(this)) &gt;= userProfitUsd, "Treasury lacks USDC for payouts")</span>;
+<span class="cstat-no" title="statement not covered" >        uint256[] memory tokenIdsMem = new uint256[](n);</span>
+<span class="cstat-no" title="statement not covered" >        for (uint256 i = 0; i &lt; n; i++) tokenIdsMem[i] = tokenIds[i];</span>
+<span class="cstat-no" title="statement not covered" >        _distributeUserProfit(userProfitUsd, tokenIdsMem, shares, totalShares)</span>;
+    }
+&nbsp;
+    // Internal helper to distribute userProfitUsd pro-rata by shares to receipt owners.
+    // Keeps distribution logic isolated and reduces caller stack usage.
+<span class="fstat-no" title="function not covered" >    function _distributeUserProfit(</span>
+        uint256 userProfitUsd,
+        uint256[] memory tokenIdsMem,
+        uint256[] memory shares,
+        uint256 totalShares
+    ) internal {
+<span class="cstat-no" title="statement not covered" >        IVaultForTreasury vaultContract = IVaultForTreasury(vault);</span>
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        uint256 n = tokenIdsMem.length;</span>
+        // Find last non-zero share index to allocate remainder there
+<span class="cstat-no" title="statement not covered" >        int256 lastNonZero = -1;</span>
+<span class="cstat-no" title="statement not covered" >        for (uint256 i = 0; i &lt; n; i++) {</span>
+<span class="cstat-no" title="statement not covered" >            if (shares[i] &gt; 0) lastNonZero = int256(i);</span>
+        }
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        uint256 distributed = 0;</span>
+<span class="cstat-no" title="statement not covered" >        for (uint256 i = 0; i &lt; n; i++) {</span>
+<span class="cstat-no" title="statement not covered" >            uint256 tid = tokenIdsMem[i];</span>
+<span class="cstat-no" title="statement not covered" >            uint256 s = shares[i];</span>
+<span class="cstat-no" title="statement not covered" >            if (s == 0) continue;</span>
+&nbsp;
+<span class="cstat-no" title="statement not covered" >            uint256 payout = (userProfitUsd * s) / totalShares;</span>
+            // if this is the last non-zero slot, give remainder
+<span class="cstat-no" title="statement not covered" >            if (int256(i) == lastNonZero) {</span>
+<span class="cstat-no" title="statement not covered" >                if (distributed &lt; userProfitUsd) {</span>
+                    payout = userProfitUsd - distributed;
+                }
+            }
+            distributed += payout;
+&nbsp;
+            // Resolve recipient and transfer USDC (best-effort)
+<span class="cstat-no" title="statement not covered" >            try vaultContract.depositInfo(tid) returns (</span>
+                address user,
+                address /*asset*/,
+                uint256 /*amount*/,
+                uint256 /*amountUsd6*/,
+                uint256 /*shares*/,
+                uint64 /*createdAt*/,
+                uint64 /*lockUntil*/,
+                bool /*withdrawn*/
+            ) {
+<span class="cstat-no" title="statement not covered" >                if (user == address(0) || payout == 0) continue;</span>
+                // Best-effort low-level transfer, skip on failure
+<span class="cstat-no" title="statement not covered" >                (bool ok, ) = address(usdc).call(abi.encodeWithSelector(IERC20.transfer.selector, user, payout));</span>
+<span class="cstat-no" title="statement not covered" >                if (!ok) {</span>
+                    // skip failing recipient; funds remain in Treasury
+                    continue;
+                }
+            } catch {
+                // skip receipts that fail to read
+                continue;
+            }
+        }
+    }
+&nbsp;
+}
+&nbsp;</pre></td></tr>
+</table></pre>
+<div class='push'></div><!-- for sticky footer -->
+</div><!-- /wrapper -->
+<div class='footer quiet pad2 space-top1 center small'>
+  Code coverage
+  generated by <a href="http://istanbul-js.org/" target="_blank">istanbul</a> at Sun Nov 16 2025 07:32:03 GMT-0500 (Colombia Standard Time)
+</div>
+</div>
+<script src="../prettify.js"></script>
+<script>
+window.onload = function () {
+        if (typeof prettyPrint === 'function') {
+            prettyPrint();
+        }
+};
+</script>
+<script src="../sorter.js"></script>
+</body>
+</html>

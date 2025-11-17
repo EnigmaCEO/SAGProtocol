@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>Code coverage report for contracts\SagittaVaultReceipt.sol</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../prettify.css" />
+    <link rel="stylesheet" href="../base.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+<body>
+<div class='wrapper'>
+  <div class='pad1'>
+    <h1>
+      <a href="../index.html">all files</a> / <a href="index.html">contracts/</a> SagittaVaultReceipt.sol
+    </h1>
+    <div class='clearfix'>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">81.25% </span>
+        <span class="quiet">Statements</span>
+        <span class='fraction'>13/16</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">50% </span>
+        <span class="quiet">Branches</span>
+        <span class='fraction'>10/20</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">100% </span>
+        <span class="quiet">Functions</span>
+        <span class='fraction'>10/10</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">85% </span>
+        <span class="quiet">Lines</span>
+        <span class='fraction'>17/20</span>
+      </div>
+    </div>
+  </div>
+  <div class='status-line high'></div>
+<pre><table class="coverage">
+<tr><td class="line-count quiet">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75
+76
+77
+78
+79
+80
+81
+82
+83
+84
+85
+86
+87
+88
+89
+90
+91
+92
+93
+94
+95
+96
+97
+98
+99</td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">18×</span>
+<span class="cline-any cline-yes">8×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+&nbsp;
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+&nbsp;
+contract SagittaVaultReceipt is ERC721Enumerable, Ownable {
+    // --- NEW state: batch + metadata support ---
+    // tokenId -&gt; batchId (0 = none)
+    mapping(uint256 =&gt; uint256) public tokenBatchId;
+    // tokenId -&gt; arbitrary metadata (freeform JSON / string)
+    mapping(uint256 =&gt; string) private _tokenMetadata;
+    // minter address (Vault typically set as minter)
+    address public minter;
+&nbsp;
+    // NEW events
+    event ReceiptBatchSet(uint256 indexed tokenId, uint256 indexed batchId);
+    event ReceiptMetadataUpdated(uint256 indexed tokenId, string metadata);
+    event MinterSet(address indexed minter);
+&nbsp;
+    constructor(string memory name_, string memory symbol_)
+        ERC721(name_, symbol_)
+        Ownable(msg.sender)
+    {
+        // owner is set via Ownable(msg.sender)
+    }
+&nbsp;
+    // NEW modifier: only minter or owner
+    modifier onlyMinterOrOwner() {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(<span class="branch-0 cbranch-no" title="branch not covered" >msg.sender == owner()</span> || msg.sender == minter, "Only owner or minter");
+        _;
+    }
+&nbsp;
+    function setMinter(address _minter) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyOwner {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_minter != address(0), "invalid minter");
+        minter = _minter;
+        emit MinterSet(_minter);
+    }
+&nbsp;
+    // Keep mint function compatible with existing Vault calls (onlyMinterOrOwner)
+    function mint(address to, uint256 tokenId) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyMinterOrOwner {
+        // defer to ERC721 mint implementation
+        _safeMint(to, tokenId);
+    }
+&nbsp;
+    // Keep burn if present (owner/minter control) — preserve if already implemented
+    function burn(uint256 tokenId) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyMinterOrOwner {
+        _burn(tokenId);
+    }
+&nbsp;
+    // --- NEW: batch setters (aliases) ---
+    // setBatch(uint256 tokenId, uint256 batchId)
+    function setBatch(uint256 tokenId, uint256 batchId) public <span class="missing-if-branch" title="else path not taken" >E</span>onlyMinterOrOwner {
+        // Use external ownerOf check to ensure token exists (ownerOf reverts if not)
+        try this.ownerOf(tokenId) returns (address) {
+            // exists
+        } catch {
+<span class="cstat-no" title="statement not covered" >            revert("nonexistent token")</span>;
+        }
+        tokenBatchId[tokenId] = batchId;
+        emit ReceiptBatchSet(tokenId, batchId);
+    }
+&nbsp;
+    // setTokenBatch(uint256 tokenId, uint256 batchId) alias
+    function setTokenBatch(uint256 tokenId, uint256 batchId) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyMinterOrOwner {
+        setBatch(tokenId, batchId);
+    }
+&nbsp;
+    // setReceiptBatch(uint256 tokenId, uint256 batchId) alias
+    function setReceiptBatch(uint256 tokenId, uint256 batchId) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyMinterOrOwner {
+        setBatch(tokenId, batchId);
+    }
+&nbsp;
+    // --- NEW: metadata updater ---
+    // updateMetadata(uint256 tokenId, string metadata) - stores arbitrary metadata (e.g. '{"batch":123}')
+    function updateMetadata(uint256 tokenId, string calldata metadata) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyMinterOrOwner {
+        try this.ownerOf(tokenId) returns (address) {
+            // exists
+        } catch {
+<span class="cstat-no" title="statement not covered" >            revert("nonexistent token")</span>;
+        }
+        _tokenMetadata[tokenId] = metadata;
+        emit ReceiptMetadataUpdated(tokenId, metadata);
+    }
+&nbsp;
+    // view helper for metadata
+    function tokenMetadata(uint256 tokenId) external view returns (string memory) {
+        // ownerOf will revert if token doesn't exist; propagate that revert to caller
+        try this.ownerOf(tokenId) returns (address) {
+            return _tokenMetadata[tokenId];
+        } catch {
+<span class="cstat-no" title="statement not covered" >            revert("nonexistent token")</span>;
+        }
+    }
+&nbsp;
+    // Optionally override tokenURI to include metadata pointer if desired.
+    // Leave existing tokenURI behavior unchanged unless you want on-chain tokenURI generation here.
+}
+&nbsp;</pre></td></tr>
+</table></pre>
+<div class='push'></div><!-- for sticky footer -->
+</div><!-- /wrapper -->
+<div class='footer quiet pad2 space-top1 center small'>
+  Code coverage
+  generated by <a href="http://istanbul-js.org/" target="_blank">istanbul</a> at Sun Nov 16 2025 07:32:03 GMT-0500 (Colombia Standard Time)
+</div>
+</div>
+<script src="../prettify.js"></script>
+<script>
+window.onload = function () {
+        if (typeof prettyPrint === 'function') {
+            prettyPrint();
+        }
+};
+</script>
+<script src="../sorter.js"></script>
+</body>
+</html>

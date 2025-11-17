@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>Code coverage report for contracts\ReserveController.sol</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../prettify.css" />
+    <link rel="stylesheet" href="../base.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+<body>
+<div class='wrapper'>
+  <div class='pad1'>
+    <h1>
+      <a href="../index.html">all files</a> / <a href="index.html">contracts/</a> ReserveController.sol
+    </h1>
+    <div class='clearfix'>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">45% </span>
+        <span class="quiet">Statements</span>
+        <span class='fraction'>9/20</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">30.77% </span>
+        <span class="quiet">Branches</span>
+        <span class='fraction'>8/26</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">30% </span>
+        <span class="quiet">Functions</span>
+        <span class='fraction'>3/10</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">44.44% </span>
+        <span class="quiet">Lines</span>
+        <span class='fraction'>12/27</span>
+      </div>
+    </div>
+  </div>
+  <div class='status-line low'></div>
+<pre><table class="coverage">
+<tr><td class="line-count quiet">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75
+76
+77
+78
+79
+80
+81
+82
+83
+84
+85
+86
+87
+88
+89
+90
+91
+92
+93
+94
+95</td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+&nbsp;
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+&nbsp;
+interface IGoldOracle {
+    function getGoldPrice() external view returns (uint256);
+}
+&nbsp;
+contract ReserveController is Ownable {
+    IERC20 public immutable gold;
+    address public treasury;
+&nbsp;
+    uint256 public reserveFloorBps = 1200; // 12%
+    uint256 public reserveCeilBps = 2500; // 25%
+    uint256 public reserveRatio;
+    address public goldOracle; // authoritative oracle address (returns USD*1e6)
+    mapping(address =&gt; uint256) public reserves;
+&nbsp;
+    event ReserveFilled(uint256 amount);
+    event ReserveDrained(uint256 amount);
+    event ReserveRatioUpdated(uint256 newRatio);
+    event ReservesAdded(address indexed asset, uint256 amount);
+    event GoldPriceUpdated(uint256 newPrice);
+&nbsp;
+    constructor(IERC20 _gold, address _goldOracle) Ownable(msg.sender) {
+        gold = _gold;
+        reserveRatio = 2000; // 20% default
+        goldOracle = _goldOracle;
+    }
+&nbsp;
+    function setTreasury(address _treasury) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyOwner {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_treasury != address(0), "Treasury address cannot be zero");
+        treasury = _treasury;
+    }
+&nbsp;
+    // set the external oracle address (owner only) to support migration
+<span class="fstat-no" title="function not covered" >    function setGoldOracle(address _oracle) external onlyOwner {</span>
+<span class="cstat-no" title="statement not covered" >        require(_oracle != address(0), "oracle cannot be zero")</span>;
+        goldOracle = _oracle;
+    }
+&nbsp;
+    function manageReserve(uint256 currentRatio) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyOwner {
+        if (currentRatio &lt; reserveFloorBps) {
+            uint256 amountToFill = reserveFloorBps - currentRatio;
+            <span class="missing-if-branch" title="else path not taken" >E</span>require(gold.transferFrom(treasury, address(this), amountToFill), "Reserve fill failed");
+            emit ReserveFilled(amountToFill);
+        } else <span class="missing-if-branch" title="else path not taken" >E</span>if (currentRatio &gt; reserveCeilBps) {
+            uint256 amountToDrain = currentRatio - reserveCeilBps;
+            <span class="missing-if-branch" title="else path not taken" >E</span>require(gold.transfer(treasury, amountToDrain), "Reserve drain failed");
+            emit ReserveDrained(amountToDrain);
+        }
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function setReserveRatio(uint256 newRatio) external onlyOwner {</span>
+<span class="cstat-no" title="statement not covered" >        require(newRatio &lt;= 10000, "Invalid ratio")</span>;
+        reserveRatio = newRatio;
+<span class="cstat-no" title="statement not covered" >        emit ReserveRatioUpdated(newRatio);</span>
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function getReserveRatio() external view returns (uint256) {</span>
+<span class="cstat-no" title="statement not covered" >        return reserveRatio;</span>
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function addReserves(address asset, uint256 amount) external onlyOwner {</span>
+        reserves[asset] += amount;
+<span class="cstat-no" title="statement not covered" >        emit ReservesAdded(asset, amount);</span>
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function totalReserves(address asset) external view returns (uint256) {</span>
+<span class="cstat-no" title="statement not covered" >        return reserves[asset];</span>
+    }
+&nbsp;
+    /// @notice Get the Net Asset Value of reserves in USD (6 decimals)
+    /// @return Total USD value of all reserves
+<span class="fstat-no" title="function not covered" >    function navReserveUsd() external view returns (uint256) {</span>
+<span class="cstat-no" title="statement not covered" >        uint256 goldBal = gold.balanceOf(address(this));</span>
+        // Read authoritative price from GoldOracle (expected usd * 1e6)
+<span class="cstat-no" title="statement not covered" >        uint256 priceUsd6 = 0;</span>
+<span class="cstat-no" title="statement not covered" >        if (goldOracle != address(0)) {</span>
+            priceUsd6 = IGoldOracle(goldOracle).getGoldPrice();
+        }
+        // Convert GOLD balance (18 decimals) to USD value (6 decimals): goldBal * priceUsd6 / 1e18
+<span class="cstat-no" title="statement not covered" >        return (goldBal * priceUsd6) / 1e18;</span>
+    }
+&nbsp;
+    /// @notice Calculate coverage ratio in basis points
+    /// @return Coverage ratio (0-10000 = 0%-100%)
+<span class="fstat-no" title="function not covered" >    function coverageRatio() external view returns (uint256) {</span>
+        // This is a simplified version - in production would compare reserve value to liabilities
+<span class="cstat-no" title="statement not covered" >        return reserveRatio;</span>
+    }
+}
+&nbsp;</pre></td></tr>
+</table></pre>
+<div class='push'></div><!-- for sticky footer -->
+</div><!-- /wrapper -->
+<div class='footer quiet pad2 space-top1 center small'>
+  Code coverage
+  generated by <a href="http://istanbul-js.org/" target="_blank">istanbul</a> at Sun Nov 16 2025 07:32:03 GMT-0500 (Colombia Standard Time)
+</div>
+</div>
+<script src="../prettify.js"></script>
+<script>
+window.onload = function () {
+        if (typeof prettyPrint === 'function') {
+            prettyPrint();
+        }
+};
+</script>
+<script src="../sorter.js"></script>
+</body>
+</html>

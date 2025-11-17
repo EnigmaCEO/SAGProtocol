@@ -4,26 +4,97 @@ An Autonomous Investment Engine for the Age of Trustless Wealth
 Sagitta Protocol is a fully autonomous, self-regulating investment ecosystem built on Polkadot. It unites on-chain transparency with off-chain intelligence to form a complete DeFi architecture capable of managing, stabilizing, and protecting multi-billion-dollar portfolios.
 
 - At its core, Sagitta is not a single contract — it is an engine of systems:
-- Vaults issuing NFT receipts that represent real, tradable yield positions
-- Treasuries that allocate liquidity dynamically between DeFi, staking, and institutional channels
-- Reserves backed by tokenized gold assets such as XAUT and PAXG, forming a tangible insurance layer
-- Escrows bridging on-chain trust and off-chain compliance for institutional onboarding
+- DOT travels through XCM, crosses into Moonbeam as xcDOT, and finds its place in the Vault
+- The Vault issuing NFT receipts that represent real, tradable yield positions
+- The Treasury that allocate liquidity dynamically between DeFi, staking, and institutional channels
+- The Reserve backed by tokenized gold assets such as XAUT and PAXG, forming a tangible insurance layer
+- Escrow Batches bridging on-chain trust and off-chain compliance for institutional onboarding
 - And an AI Allocation Agent that manages every capital flow with precision — from small DOT deposits to high-net-worth nodes.
 
 Together, these components create a living protocol capable of defending capital, rewarding participants, and adapting autonomously to market change.
 
+## 🪂 Polkadot Integration
+✔️ 1. Native DOT → xcDOT via XCM
+
+Users bridge DOT from the Relay Chain into Moonbeam as xcDOT using Polkadot’s XCM transfer system.
+Sagitta’s Vault accepts xcDOT directly, making deposits Polkadot-native.
+
+✔️ 2. Deployed on Moonbeam (Polkadot Parachain)
+
+Sagitta’s smart contracts (Vault, Treasury, Escrow) run inside Moonbeam’s Substrate-secured EVM environment, benefiting from:
+
+- Polkadot shared security
+- Low-latency finality
+- XC-20 assets compatible with ERC-20
+- Native access to XCM messaging
+
+✔️ 3. Cross-Chain Investment Engine (Future Use)
+
+Sagitta’s batch-based Escrow is designed to route investments to other parachains or asset-specific chains via XCM.
+This enables:
+
+- Parachain treasury yield strategies
+- Cross-chain staking
+- Cross-chain RWA investment flows
+- Inter-ecosystem capital routing without bridging risk
+
 ## ⚙️ System Architecture
-🏦 The Vault — Entry Point & NFT Receipts
+Sagitta is a layered economic engine built for Polkadot:
 
-Users deposit DOT into the Vault, which automatically issues NFT Receipts.
-Each NFT represents a tokenized investment position with metadata including:
+DOT (Relay Chain)
+   ↓ XCM
+xcDOT on Moonbeam
+   ↓ Vault
+┌───────────────────────────────┐
+│       1. Vault (xcDOT)        │
+│  - User principal stored      │
+│  - NFT receipts minted        │
+│  - Auto-return on unlock      │
+└─────────────┬─────────────────┘
+              │
+      Collateralize via Treasury
+              │
+┌───────────────────────────────┐
+│   2. Treasury (SAG + Gold)    │
+│  - Converts value → USDC      │
+│  - Maintains 2:1 T:R ratio    │
+│  - Routes capital to Escrow   │
+│  - Receives profits           │
+└─────────────┬─────────────────┘
+              │
+         Batch Allocation
+              │
+┌───────────────────────────────┐
+│   3. Escrow Batch Engine      │
+│  - Weekly batch creation      │
+│  - XCM-ready routing          │
+│  - Off-chain asset support    │
+│  - Batch P&L reporting        │
+└─────────────┬─────────────────┘
+              │
+       Reinforce Stability
+              │
+┌───────────────────────────────┐
+│  4. Gold Reserve (RWA Backed) │
+│  - Tokenized gold (XAUT/PAXG) │
+│  - Insurance + Rebalancing    │
+│  - Value buffer for Treasury  │
+└───────────────────────────────┘
 
-- Deposit amount and timestamp
-- Expected APY or performance target
-- Live Profit & Loss tracking feed
-- Claim history and maturity schedule
+## 🏦 The Vault — Trustless xcDOT Custody
 
-These NFTs are tradable on the secondary market, allowing users to transfer, sell, or collateralize active yield positions — introducing true DeFi liquidity to staking and investment receipts.
+It holds xcDOT — untouched, unleveraged, unscarred by speculation.
+Each deposit becomes an NFT receipt, a bearer instrument of time:
+
+- Transferable
+- Sellable
+- Giftable
+- Redeemable
+
+When time expires, the Vault looks only at the current holder of the receipt, not the original depositor.
+And like all things sovereign, it returns what is owed, without hesitation.
+
+This is the core of trustless wealth management.
 
 ## 💰 The Treasury — Liquidity Brain
 
@@ -32,7 +103,8 @@ It manages liquidity flows, ensures 2:1 collateralization against the Reserve, a
 
 - On-chain staking pools for small and mid-size deposits
 - Off-chain managed portfolios through the Escrow system for institutional-scale investments
-- Stablecoin balancing pools that stabilize SAG token value
+- A buyback policy that strengthens SAG
+- A rebalancer that sells gold in times of need
 
 The Treasury continuously updates its P&L and interacts with the AI Allocation Layer, dynamically routing capital where it performs best while preserving safety ratios.
 
@@ -47,12 +119,12 @@ It performs three roles:
 
 The Reserve transforms volatility into resilience — making Sagitta not just decentralized, but self-regulated.
 
-## 🧾 The Escrow — Compliance & Institutional Bridge
+## 📦 The Escrow — Compliance & Institutional Bridge
 
 The Escrow system connects off-chain investments with on-chain proof.
 It conducts:
 
-- Batch reporting on real-world portfolios
+- Batch reporting on real-world and on-chain portfolios
 - Compliance checks and KYC onboarding for regulated investors
 - Transparent P&L reports tied to each deposit batch
 
@@ -97,26 +169,31 @@ Every module in Sagitta Protocol was built with audit-ready precision and instit
 Our guiding principle: autonomy requires accountability.
 That means on-chain transparency, off-chain verification, and algorithmic consistency — together creating a financial organism that regulates itself as it grows.
 
-```bash
-┌────────────────────┐
-│    User Deposits   │
-└────────┬───────────┘
-         │
-         ▼
-┌────────────────────┐
-│     Treasury       │───► Allocates capital to staking & DeFi pools
-└────────┬───────────┘
-         │
-         ▼
-┌────────────────────┐
-│      Reserve       │───► Gold-backed insurance & stability
-└────────┬───────────┘
-         │
-         ▼
-┌────────────────────┐
-│       Escrow       │───► Off-chain portfolio & yield reporting
-└────────────────────┘
-```
+## 🚀 Impact on Polkadot Ecosystem
+
+Sagitta becomes the wealth layer of Polkadot.
+
+Use cases:
+
+💎 For DOT holders
+
+Trustless, principal-protected yield.
+
+🛡️ For Parachain Treasuries
+
+Deposit DOT → generate income → auto-return guaranteed.
+
+🏦 For DAOs
+
+Invest treasury assets without losing custody.
+
+🔗 For Polkadot developers
+
+Sagitta can route capital to their chains via XCM.
+
+🏛️ For Institutions
+
+A compliance-friendly, batch-based, cross-chain investment interface.
 
 ## Setup
 
@@ -142,6 +219,12 @@ cd frontend
 npm run dev
 ```
 
+5. Code Test & Coverage:
+```bash
+npx hardhat test
+npx hardhat coverage
+```
+
 ## Quick Start
 
 ### 1. Start Hardhat Node
@@ -159,7 +242,7 @@ This will:
 - Fund demo account with 1000 USDC
 - Generate contract addresses
 
-### 3. Start Frontend
+### 3. Start Frontend (in a new terminal)
 ```bash
 cd frontend
 pnpm dev
@@ -172,7 +255,7 @@ Visit `http://localhost:3000`
 **Demo Mode:** The frontend runs in demo mode using a pre-configured test account. No wallet needed!
 
 - Demo Account: `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`
-- Initial Balance: 1000 USDC
+- Initial Balance: 1000 mDOT
 
 **Note:** Hardhat node is ephemeral. If you restart it, you must redeploy contracts and get new addresses.
 
@@ -181,6 +264,18 @@ Visit `http://localhost:3000`
 
 Polkadot Hackathon — Polkadot Tinkerers Track
 Pioneering self-regulated, AI-enhanced DeFi infrastructure for a decentralized global economy.
+
+We built Sagitta to demonstrate true Polkadot-native financial architecture:
+
+- XCM asset flows
+- Cross-chain investment engine
+- Smart contracts on a Polkadot parachain
+- Multi-layer stability
+- Autonomous batch execution
+- NFT-encoded yield positions
+
+This is not another yield farm.
+Sagitta is a cross-chain trust engine anchored in Polkadot.
 
 ## 🚀 What’s Next for Sagitta Protocol
 

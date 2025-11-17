@@ -342,6 +342,9 @@ async function main() {
         console.warn('Could not read deposit receipt at index', newIdx);
       }
 
+      // make amountUsd6Bn available to subsequent checks (declare in outer scope)
+      let amountUsd6Bn: bigint | null = null;
+
       // 2) Wire Vault <-> Treasury and AMM if needed (best-effort)
       try {
         // Read vault.treasury() and warn if unset.
@@ -389,7 +392,7 @@ async function main() {
                 const price8 = await (new Contract(sagOracleAddr, ['function getPrice() view returns (uint256)'], provider)).getPrice();
                 if (price8 && BigInt(price8.toString()) > 0n) {
                   // ceil(neededUsd6 * 1e18 / price8)
-                  sagNeeded = (BigInt(amountUsd6Bn.toString()) * 10n ** 18n + BigInt(price8.toString()) - 1n) / BigInt(price8.toString());
+                  sagNeeded = (BigInt(amountUsd6Bn) * 10n ** 18n + BigInt(price8.toString()) - 1n) / BigInt(price8.toString());
                   console.log('Oracle-based SAG needed to cover deposit:', fmtToken(sagNeeded, 18));
                 } else {
                   console.warn('sagOracle returned zero price; cannot compute sagNeeded.');
@@ -483,7 +486,7 @@ async function main() {
           }
 
           try {
-            const pairAddr = ammPairAddr || (ADDR_FILE?.AmmSAGUSDC ?? AMM);
+            const pairAddr = ammPairAddr || (ADDR_FILE?.AmmSAGUSDC);
             if (!pairAddr) {
               console.warn('No ammPair configured to estimate swap output.');
               ammLooksHealthy = false;
@@ -624,7 +627,7 @@ async function main() {
                 const usdcBalT = USDC ? await (new Contract(USDC, ['function balanceOf(address) view returns (uint256)'], provider)).balanceOf(TREASURY).catch(()=>null) : null;
                 console.log('Treasury snapshot on revert -> USDC:', usdcBalT ? fmtUsd6(usdcBalT) : 'N/A', 'SAG:', sagBalT ? fmtToken(sagBalT,18) : 'N/A');
                 // AMM raw balances
-                const pairAddr2 = ammPairAddr || (ADDR_FILE?.AmmSAGUSDC ?? AMM);
+                const pairAddr2 = ammPairAddr || (ADDR_FILE?.AmmSAGUSDC);
                 if (pairAddr2) {
                   const ammSagRaw = SAG ? await (new Contract(SAG, ['function balanceOf(address) view returns (uint256)'], provider)).balanceOf(pairAddr2).catch(()=>null) : null;
                   const ammUsdcRaw = USDC ? await (new Contract(USDC, ['function balanceOf(address) view returns (uint256)'], provider)).balanceOf(pairAddr2).catch(()=>null) : null;

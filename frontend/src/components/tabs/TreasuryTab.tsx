@@ -438,16 +438,13 @@ export default function TreasuryTab() {
   // --- Render ---
   return (
     <div className="space-y-8 animate-fadeIn p-6 lg:p-12">
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
-        <div>
-          <h2 className="text-3xl font-bold bg-gradient-to-r from-sky-400 via-indigo-500 to-violet-500 bg-clip-text text-transparent">
-            Sagitta Treasury Engine
-          </h2>
+      <div className="sagitta-hero">
+        <div className="sagitta-cell">
+          <h2 style={{ marginBlockStart: '0.3em' }}>Treasury Engine</h2>
           <div className="text-slate-400 text-sm mt-1">Monitor and steer Treasury, Reserve, and coverage in real time.</div>
-        </div>
-        <div className="flex items-center gap-2 text-sm text-slate-400">
+          <div style={{ height: 12 }} />
           <Clock size={16} />
-          <span>Last updated: {new Date().toLocaleTimeString()}</span>
+          <span> Last updated: {new Date().toLocaleTimeString()} </span>
           <button
             className="ml-2 px-2 py-1 rounded bg-slate-700 hover:bg-slate-600"
             onClick={refreshTreasuryState}
@@ -458,81 +455,70 @@ export default function TreasuryTab() {
           </button>
         </div>
       </div>
-      {/* Metrics */}
-      <div className="mb-6">
-        <MetricGrid>
-          {/* Row 1: compact market / capital metrics */}
-          <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
-            Treasury Oracle Price
-          </h3>
-          <div className="col-span-1"><MetricCard title="SAG Price (USD)" value={sagPrice ? `$${(sagPrice).toFixed(3)}` : '–'} tone="neutral" /></div>
-          <div className="col-span-1"><MetricCard title="Gold Price (USD)" value={goldPrice ? `$${(goldPrice).toFixed(2)}` : '–'} tone="neutral" /></div>
-          
-          <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
-            Treasury Value
-          </h3>
-          <div className="col-span-1"><MetricCard title="SAG Value (Treasury)" value={formatUsd(sagValueUsd6)} tone="neutral" /></div>
-          <div className="col-span-1"><MetricCard title="USDC Balance (Treasury)" value={formatUsd(usdcBalance)} tone="neutral" /></div>
-          <div className="col-span-1 md:col-span-1"><MetricCard title="Treasury Value" value={formatUsd(treasuryUsd)} tone="success" /></div>
-          
-          {/* Row 2: target & totals */}
-          <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
-            Escrow
-          </h3>
-          <div className="col-span-1"><MetricCard title="Escrow USDC Balance" value={formatUsd(escrowUsdcBalance)} tone="neutral" /></div>
-          <div className="col-span-1 md:col-span-1"><MetricCard title="Collateralized USDC" value={formatUsd(collateralizedUsd)} tone="success" /></div>
-          
-          <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
-            Reserves
-          </h3>
-          <div className="col-span-1 md:col-span-1"><MetricCard title="Reserve Value" value={formatUsd(reserveUsd)} tone="neutral" /></div>
-          <div className="col-span-1 md:col-span-1"><MetricCard title="Target Reserve" value={formatUsd(targetReserveUsd)} tone="neutral" /></div>
-          
-          {/* Row 3: safety visuals - make these wider on md+ */}
-          <div className="col-span-1 md:col-span-2 lg:col-span-2">
-            <MetricCard
-              title="Treasury : Reserve Ratio"
-              value={formatRatio(treasuryUsd, reserveUsd)}
-              tone="neutral"
-            />
-          </div>
-          <div className="col-span-1 md:col-span-2 lg:col-span-2">
-            <MetricCard
-              title="Reserve / Treasury %"
-              value={formatPercent(reserveUsd, treasuryUsd)}
-              tone={reserveUsd * 100 / (treasuryUsd || 1) > 50 ? 'danger' : 'success'}
-            />
+ 
+      {/* Metrics: replaced with explicit inline grid to avoid conflicting global CSS */}
+      <div>
+        <div className="sagitta-grid">
+          {/* Cell 1 */}
+          <div className="sagitta-cell">
+            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Oracle Prices</h3>
+            <MetricCard title="SAG Price (USD)" value={sagPrice ? `$${sagPrice.toFixed(3)}` : '–'} tone="neutral" />
+            <div style={{ height: 12 }} />
+            <MetricCard title="Gold Price (USD)" value={goldPrice ? `$${goldPrice.toFixed(2)}` : '–'} tone="neutral" />
           </div>
 
-          <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
-            Deposits
-          </h3>
-          {/* Row 4 */}
-          <div className="col-span-1 md:col-span-2">
-            <MetricCard
-              title="Coverage Ratio"
-              value={coverageRatio ? `${coverageRatio.toFixed(2)}×` : '–'}
-              tone="success"
-            />
+          {/* Cell 2 */}
+          <div className="sagitta-cell">
+            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Treasury Totals</h3>
+            <MetricCard title="Treasury Value (USD)" value={formatUsd(treasuryUsd)} tone="success" />
+            <div style={{ height: 12 }} />
+            <MetricCard title="USDC Balance (Treasury)" value={formatUsd(usdcBalance)} tone="neutral" />
           </div>
-          <div className="col-span-1 md:col-span-2">
-            <MetricCard
-              title="Deposit Capacity Remaining"
-              value={formatUsd(treasuryUsd - totalDepositsUsd)}
-              tone="neutral"
-            />
+
+          {/* Cell 3 */}
+          <div className="sagitta-cell">
+            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Gold Reserves</h3>
+            <MetricCard title="Reserve Value" value={formatUsd(reserveUsd)} tone="neutral" />
+            <div style={{ height: 12 }} />
+            <MetricCard title="Target Reserve" value={formatUsd(targetReserveUsd)} tone="neutral" />
           </div>
-        </MetricGrid>
+
+          {/* Cell 4 */}
+          <div className="sagitta-cell">
+            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Asset Balances</h3>
+            <MetricCard title="SAG Value (Treasury)" value={formatUsd(sagValueUsd6)} tone="neutral" />
+            <div style={{ height: 12 }} />
+            <MetricCard title="Collateralized USDC" value={formatUsd(collateralizedUsd)} tone="success" />
+          </div>
+
+          {/* Cell 5 */}
+          <div className="sagitta-cell">
+            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Escrow</h3>
+            <MetricCard title="Escrow USDC Balance" value={formatUsd(escrowUsdcBalance)} tone="neutral" />
+            <div style={{ height: 12 }} />
+            <MetricCard title="Escrow Address" value={escrowAddress ?? 'Not set'} tone="neutral" />
+          </div>
+
+          {/* Cell 6 */}
+          <div className="sagitta-cell">
+            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Safety / Coverage</h3>
+            <MetricCard title="Coverage Ratio" value={coverageRatio ? `${coverageRatio.toFixed(2)}×` : '–'} tone="success" />
+            <div style={{ height: 12 }} />
+            <MetricCard title="Treasury : Reserve Ratio" value={formatRatio(treasuryUsd, reserveUsd)} tone="neutral" />
+          </div>
+        </div>
       </div>
-      {/* Controls */}
-      <div className="bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-lg p-6 border border-slate-700/50 mb-6">
+     {/* Controls */}
+     <div className="sagitta-hero">
+        <div className="sagitta-cell">
+      
         <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
           <Settings size={18} /> Simulation / Controls
         </h3>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* SAG Price Control */}
           <div className="flex flex-col gap-3 p-2">
-            <label className="text-slate-300 font-medium mb-1">SAG Price (USD)</label>
+            <label className="text-slate-300 font-medium mb-1">SAG Price (USD) </label>
             <input
               type="number"
               min="0"
@@ -540,19 +526,21 @@ export default function TreasuryTab() {
               className="px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
               value={sagPriceInput}
               onChange={e => setSagPriceInput(e.target.value)}
-              placeholder="e.g. 0.75"
+              placeholder="0.75"
             />
             <button
               className="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 text-white font-bold"
+              style={{ backgroundColor: '#0000cc', color: 'white' }}
               onClick={handleSetSagPrice}
               disabled={!sagPriceInput || loading}
             >
               Set SAG Price
             </button>
           </div>
+          <div style={{ height: 12 }}></div>
           {/* Gold Price Control */}
           <div className="flex flex-col gap-3 p-2">
-            <label className="text-slate-300 font-medium mb-1">Gold Price (USD)</label>
+            <label className="text-slate-300 font-medium mb-1">Gold Price (USD) </label>
             <input
               type="number"
               min="0"
@@ -560,19 +548,21 @@ export default function TreasuryTab() {
               className="px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
               value={goldPriceInput}
               onChange={e => setGoldPriceInput(e.target.value)}
-              placeholder="e.g. 2100"
+              placeholder="4000"
             />
             <button
               className="px-4 py-2 rounded bg-amber-600 hover:bg-amber-500 text-white font-bold"
+              style={{ backgroundColor: '#0000cc', color: 'white' }}
               onClick={handleSetGoldPrice}
               disabled={!goldPriceInput || loading}
             >
               Set Gold Price
             </button>
           </div>
+          <div style={{ height: 12 }}></div>
           {/* Rebalance Control */}
           <div className="flex flex-col gap-3 p-2">
-            <label className="text-slate-300 font-medium mb-1">Rebalance Engine</label>
+            <label className="text-slate-300 font-medium mb-1">Rebalance Engine </label>
             <button
               className="flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-sky-500 to-indigo-600 text-white font-bold transition-all duration-300 hover:shadow-[0_0_20px_theme(colors.sky.500)]"
               onClick={handleRebalance}
@@ -583,18 +573,23 @@ export default function TreasuryTab() {
             </button>
           </div>
 
+          </div>
         </div>
       </div>
       {/* Engine Log */}
-      <div className="bg-slate-900/80 rounded-xl p-4 border border-slate-700/50 max-h-56 overflow-y-auto text-xs text-slate-300 font-mono">
-        
-        <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
-          Engine Log
-        </h3>
-        {log.length === 0 && <div className="text-slate-500">No actions yet.</div>}
-        {log.map((entry, i) => (
-          <div key={i} className="mb-1">{entry}</div>
-        ))}
+      <div className="sagitta-hero">
+        <div className="sagitta-cell">
+          <div className="bg-slate-900/80 rounded-xl p-4 border border-slate-700/50 max-h-56 overflow-y-auto text-xs text-slate-300 font-mono">
+            
+            <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
+              Engine Log
+            </h3>
+            {log.length === 0 && <div className="text-slate-500">No actions yet.</div>}
+            {log.map((entry, i) => (
+              <div key={i} className="mb-1">{entry}</div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

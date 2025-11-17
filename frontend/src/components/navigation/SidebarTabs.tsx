@@ -26,38 +26,58 @@ export default function SidebarTabs({ active, onChange }: SidebarTabsProps) {
   };
 
   return (
-    <div className="space-y-8">
-      {/* Logo/Title */}
-      <div className="px-2 py-2">
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-sky-400 via-indigo-500 to-violet-500 bg-clip-text text-transparent">
-          SAG Protocol
+    <div>
+      {/* Logo/Title + inline nav */}
+      <header
+        className="px-2 py-2"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '9rem',
+          flexWrap: 'nowrap',     // prevent wrapping
+          overflowX: 'auto'      // allow horizontal scroll if needed
+        }}
+      >
+        <h1
+          className="text-2xl font-bold"
+          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', whiteSpace: 'nowrap' }}
+        >
+          <img alt="SAGITTA icon" src="/images/icon.png" width={28} /> 
+          SAGITTA
         </h1>
-        <p className="text-xs text-slate-500 mt-1">Sovereign Treasury Platform</p>
-      </div>
 
-      {/* Navigation */}
-      <nav className="space-y-2">
-        {tabs.map(({ id, label, icon: Icon }) => {
-          const isActive = active === id;
-          return (
-            <button
-              key={id}
-              onClick={() => handleTabClick(id)}
-              className={`
-                w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left
-                transition-all duration-300 ease-in-out group
-                ${isActive
-                  ? 'bg-sky-500/10 text-sky-300 border border-sky-500/20 shadow-lg shadow-sky-500/10'
-                  : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-                }
-              `}
-            >
-              <Icon size={20} className={`transition-colors duration-300 ${isActive ? 'text-sky-400' : 'text-slate-500 group-hover:text-slate-300'}`} />
-              <span className="font-medium">{label}</span>
-            </button>
-          );
-        })}
-      </nav>
+        <nav
+          className="flex items-center"
+          style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', whiteSpace: 'nowrap' }}
+        >
+          {tabs.map(({ id, label, icon: Icon }) => {
+            const isActive = active === id;
+            return (
+              <button
+                key={id}
+                onClick={() => handleTabClick(id)}
+                className={isActive ? 'text-sky-300' : 'text-slate-400'}
+                style={{
+                  color: 'white',
+                  backgroundColor: isActive? '#030316' : 'transparent',
+                  border: 'none',
+                  borderBottom: isActive? '2px solid white' : '2px solid transparent',
+                  display: 'inline-flex',   // override any global display:block
+                  alignItems: 'center',
+                  cursor: 'pointer',
+                  gap: '0.5rem',
+                  padding: '0.5rem 0.5rem',
+                  width: 'auto',            // ensure not full width
+                  whiteSpace: 'nowrap'      // prevent label wrap
+                }}
+              >
+                <Icon size={18} className={isActive ? 'text-sky-400' : 'text-slate-500'} />
+                <span className="text-sm whitespace-nowrap">{label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      </header>
     </div>
   );
 }

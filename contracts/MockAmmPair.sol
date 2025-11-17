@@ -72,21 +72,27 @@ contract MockAmmPair {
 
         // Attempt to pull tokens in (router-style). If transferFrom reverts,
         // accept the case where tokens were pre-transferred into the pair and validate balances.
+        uint256 balanceBeforeAttempt = IERC20(tokenIn).balanceOf(address(this));
         bool pulled = false;
-        uint256 beforeBalance = IERC20(tokenIn).balanceOf(address(this));
-        // try transferFrom, but do not revert permanently: handle pre-funded case
+        // try to pull tokens via transferFrom; if this reverts, check whether tokens were pre-funded
         try IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn) returns (bool ok) {
             require(ok, "transferFrom failed");
             pulled = true;
         } catch {
-            // transferFrom reverted — check if tokens were already sent to this contract
-            uint256 afterBalance = IERC20(tokenIn).balanceOf(address(this));
-            // require that the pair's token balance increased by at least amountIn compared to reserves snapshot
-            // (use reserveIn as previous logical reserve; actual on-chain balance may already reflect pre-transfer)
-            if (afterBalance >= beforeBalance + amountIn) {
+            // transferFrom reverted — examine current balance to detect pre-funding.
+            uint256 currentBalance = IERC20(tokenIn).balanceOf(address(this));
+            // If caller pre-funded earlier, currentBalance will already include that amount:
+            // accept if currentBalance >= reserveIn + amountIn (i.e., at least amountIn above logical reserve).
+            if (currentBalance >= reserveIn + amountIn) {
                 pulled = true;
             } else {
-                revert("transferFrom failed and no pre-funded tokens");
+                // Fallback: if balance increased during this call path and is >= balanceBeforeAttempt + amountIn,
+                // consider it pulled (covers unusual race/transfer timing).
+                if (currentBalance >= balanceBeforeAttempt + amountIn) {
+                    pulled = true;
+                } else {
+                    revert("transferFrom failed and no pre-funded tokens");
+                }
             }
         }
 

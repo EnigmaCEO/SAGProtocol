@@ -87,44 +87,55 @@ export default function DAOTab() {
 
   return (
     <div className="space-y-8 animate-fadeIn">
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-        <h2 className="text-3xl font-bold bg-gradient-to-r from-sky-400 via-indigo-500 to-violet-500 bg-clip-text text-transparent">
-          DAO Administration
-        </h2>
-        <div className="flex items-center gap-2 text-sm text-slate-400">
+      <div className="sagitta-hero">
+        <div className="sagitta-cell">
+          <h2 style={{ marginBlockStart: '0.3em' }}>DAO Administration</h2>
+          <div className="text-slate-400 text-sm mt-1">Heavy is the head that wears the crown</div>
+          <div style={{ height: 12 }} />
+          <div className="flex items-center gap-2 text-sm text-slate-400">
           <Clock size={16} />
           <span>Last updated: {new Date().toLocaleTimeString()}</span>
         </div>
+        </div>
       </div>
-
-      <MetricGrid>
-        <MetricCard 
-          title="Contract Owner" 
+      <div className="sagitta-grid">
+        {/* Cell 1 */}
+        <div className="sagitta-cell">
+        <h3>Protocol Owner</h3>
+          <MetricGrid>
+          <MetricCard 
+          title="" 
           value={`${ownerAddress.slice(0, 6)}...${ownerAddress.slice(-4)}`}
           tone="neutral"
           icon={<UserCog />}
-        />
-        <MetricCard 
-          title="Protocol State" 
+          />
+          </MetricGrid>
+        </div>
+        {/* Cell 2 */}
+        <div className="sagitta-cell">
+          <h3>Protocol Status</h3>
+          <MetricCard 
+          title="" 
           value={vaultPaused ? 'Paused' : 'Active'}
           tone={vaultPaused ? 'danger' : 'success'}
           icon={vaultPaused ? <XCircle/> : <CheckCircle/>}
         />
-        <MetricCard 
-          title="Admins" 
+        </div>
+        {/* Cell 3 */}
+        <div className="sagitta-cell">
+          <h3>Admins</h3>
+          <MetricCard 
+          title="" 
           value={adminAddresses.length.toString()}
           tone="neutral"
           icon={<Users/>}
         />
-      </MetricGrid>
+        </div>
 
-      {/* Sections */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="space-y-8">
-          {/* Emergency Controls */}
-          <div className="bg-slate-800/60 backdrop-blur-xl rounded-2xl p-6 border border-slate-700/50">
-            <h3 className="text-xl font-semibold mb-4 flex items-center gap-2 text-rose-400"><ShieldAlert size={22}/>Emergency Controls</h3>
-            <div className="flex items-center justify-between rounded-lg p-4 bg-slate-900/50">
+        {/* Cell 4 */}
+        <div className="sagitta-cell">
+          <h3><ShieldAlert size={22}/>Emergency Controls</h3>
+          <div className="flex items-center justify-between rounded-lg p-4 bg-slate-900/50">
               <p className="text-slate-300">{vaultPaused ? 'Resume all operations' : 'Pause all vault operations'}</p>
               <button
                 onClick={handlePauseToggle}
@@ -138,12 +149,12 @@ export default function DAOTab() {
                 {vaultPaused ? 'Resume' : 'Pause'}
               </button>
             </div>
-          </div>
+        </div>
 
-          {/* Ownership Transfer */}
-          <div className="bg-slate-800/60 backdrop-blur-xl rounded-2xl p-6 border border-slate-700/50">
-            <h3 className="text-xl font-semibold mb-4 flex items-center gap-2 text-amber-400"><Zap size={22}/>Transfer Ownership</h3>
-            <p className="text-sm text-slate-400 mb-4">This action is irreversible and will transfer full control.</p>
+        {/* Cell 5 */}
+        <div className="sagitta-cell">
+          <h3><Zap size={22}/>Transfer Ownership</h3>
+          <p className="text-sm text-slate-400 mb-4">This action is irreversible and will transfer full control.</p>
             <div className="flex flex-col sm:flex-row gap-3">
               <input
                 type="text"
@@ -161,29 +172,21 @@ export default function DAOTab() {
                 Transfer
               </button>
             </div>
-          </div>
         </div>
 
-        {/* Admins List */}
-        <div className="bg-slate-800/60 backdrop-blur-xl rounded-2xl border border-slate-700/50 flex flex-col overflow-hidden">
-          <h3 className="text-xl font-semibold p-6 flex items-center gap-2"><UserCog size={22}/>Protocol Administrators</h3>
-          <div className="overflow-y-auto -mx-6 -mb-6 px-2 rounded-b-2xl">
-            <div className="sticky top-0 bg-slate-900/70 backdrop-blur-sm px-4 py-2 border-b-2 border-sky-700/40">
-              <div className="text-xs text-slate-400 uppercase font-bold grid grid-cols-[1fr_auto] gap-4 px-2">
-                <div>Address</div>
-                <div>Role</div>
+        {/* Cell 6 */}
+        <div className="sagitta-cell">
+          <h3><UserCog size={22}/>Protocol Administrators</h3>
+          <div className="space-y-2 p-4">
+            {adminAddresses.map((addr, idx) => (
+              <div key={idx} className="grid grid-cols-[1fr_auto] gap-4 items-center bg-slate-900/50 rounded-lg p-3 hover:bg-slate-800/50 transition-colors">
+                <span className="font-mono text-sm truncate text-slate-300">Address: {addr}</span>
+                <div style={{ height: 12 }} />
+                {addr === ownerAddress && (
+                  <span className="text-xs bg-gradient-to-r from-sky-500 to-indigo-500 text-white px-2.5 py-1 rounded-full font-semibold">Role: Owner</span>
+                )}
               </div>
-            </div>
-            <div className="space-y-2 p-4">
-              {adminAddresses.map((addr, idx) => (
-                <div key={idx} className="grid grid-cols-[1fr_auto] gap-4 items-center bg-slate-900/50 rounded-lg p-3 hover:bg-slate-800/50 transition-colors">
-                  <span className="font-mono text-sm truncate text-slate-300">{addr}</span>
-                  {addr === ownerAddress && (
-                    <span className="text-xs bg-gradient-to-r from-sky-500 to-indigo-500 text-white px-2.5 py-1 rounded-full font-semibold">Owner</span>
-                  )}
-                </div>
-              ))}
-            </div>
+            ))}
           </div>
         </div>
       </div>

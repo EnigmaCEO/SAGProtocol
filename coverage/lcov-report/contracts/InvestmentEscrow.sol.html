@@ -1,0 +1,2033 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>Code coverage report for contracts\InvestmentEscrow.sol</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../prettify.css" />
+    <link rel="stylesheet" href="../base.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+<body>
+<div class='wrapper'>
+  <div class='pad1'>
+    <h1>
+      <a href="../index.html">all files</a> / <a href="index.html">contracts/</a> InvestmentEscrow.sol
+    </h1>
+    <div class='clearfix'>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">65.28% </span>
+        <span class="quiet">Statements</span>
+        <span class='fraction'>141/216</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">38.1% </span>
+        <span class="quiet">Branches</span>
+        <span class='fraction'>80/210</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">84% </span>
+        <span class="quiet">Functions</span>
+        <span class='fraction'>21/25</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">64.81% </span>
+        <span class="quiet">Lines</span>
+        <span class='fraction'>186/287</span>
+      </div>
+    </div>
+  </div>
+  <div class='status-line medium'></div>
+<pre><table class="coverage">
+<tr><td class="line-count quiet">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75
+76
+77
+78
+79
+80
+81
+82
+83
+84
+85
+86
+87
+88
+89
+90
+91
+92
+93
+94
+95
+96
+97
+98
+99
+100
+101
+102
+103
+104
+105
+106
+107
+108
+109
+110
+111
+112
+113
+114
+115
+116
+117
+118
+119
+120
+121
+122
+123
+124
+125
+126
+127
+128
+129
+130
+131
+132
+133
+134
+135
+136
+137
+138
+139
+140
+141
+142
+143
+144
+145
+146
+147
+148
+149
+150
+151
+152
+153
+154
+155
+156
+157
+158
+159
+160
+161
+162
+163
+164
+165
+166
+167
+168
+169
+170
+171
+172
+173
+174
+175
+176
+177
+178
+179
+180
+181
+182
+183
+184
+185
+186
+187
+188
+189
+190
+191
+192
+193
+194
+195
+196
+197
+198
+199
+200
+201
+202
+203
+204
+205
+206
+207
+208
+209
+210
+211
+212
+213
+214
+215
+216
+217
+218
+219
+220
+221
+222
+223
+224
+225
+226
+227
+228
+229
+230
+231
+232
+233
+234
+235
+236
+237
+238
+239
+240
+241
+242
+243
+244
+245
+246
+247
+248
+249
+250
+251
+252
+253
+254
+255
+256
+257
+258
+259
+260
+261
+262
+263
+264
+265
+266
+267
+268
+269
+270
+271
+272
+273
+274
+275
+276
+277
+278
+279
+280
+281
+282
+283
+284
+285
+286
+287
+288
+289
+290
+291
+292
+293
+294
+295
+296
+297
+298
+299
+300
+301
+302
+303
+304
+305
+306
+307
+308
+309
+310
+311
+312
+313
+314
+315
+316
+317
+318
+319
+320
+321
+322
+323
+324
+325
+326
+327
+328
+329
+330
+331
+332
+333
+334
+335
+336
+337
+338
+339
+340
+341
+342
+343
+344
+345
+346
+347
+348
+349
+350
+351
+352
+353
+354
+355
+356
+357
+358
+359
+360
+361
+362
+363
+364
+365
+366
+367
+368
+369
+370
+371
+372
+373
+374
+375
+376
+377
+378
+379
+380
+381
+382
+383
+384
+385
+386
+387
+388
+389
+390
+391
+392
+393
+394
+395
+396
+397
+398
+399
+400
+401
+402
+403
+404
+405
+406
+407
+408
+409
+410
+411
+412
+413
+414
+415
+416
+417
+418
+419
+420
+421
+422
+423
+424
+425
+426
+427
+428
+429
+430
+431
+432
+433
+434
+435
+436
+437
+438
+439
+440
+441
+442
+443
+444
+445
+446
+447
+448
+449
+450
+451
+452
+453
+454
+455
+456
+457
+458
+459
+460
+461
+462
+463
+464
+465
+466
+467
+468
+469
+470
+471
+472
+473
+474
+475
+476
+477
+478
+479
+480
+481
+482
+483
+484
+485
+486
+487
+488
+489
+490
+491
+492
+493
+494
+495
+496
+497
+498
+499
+500
+501
+502
+503
+504
+505
+506
+507
+508
+509
+510
+511
+512
+513
+514
+515
+516
+517
+518
+519
+520
+521
+522
+523
+524
+525
+526
+527
+528
+529
+530
+531
+532
+533
+534
+535
+536
+537
+538
+539
+540
+541
+542
+543
+544
+545
+546
+547
+548
+549
+550
+551
+552
+553
+554
+555
+556
+557
+558
+559
+560
+561
+562
+563
+564
+565
+566
+567
+568
+569
+570
+571
+572
+573
+574
+575
+576
+577
+578
+579
+580
+581
+582
+583
+584
+585
+586
+587
+588
+589
+590
+591
+592
+593
+594
+595
+596
+597
+598
+599
+600
+601
+602
+603
+604
+605
+606
+607
+608
+609
+610
+611
+612
+613
+614
+615
+616
+617
+618
+619
+620
+621
+622
+623
+624
+625
+626
+627
+628
+629
+630
+631
+632
+633
+634
+635
+636
+637
+638
+639
+640
+641
+642
+643
+644
+645
+646
+647
+648
+649
+650
+651
+652
+653
+654
+655
+656
+657</td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7×</span>
+<span class="cline-any cline-yes">7×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">18×</span>
+<span class="cline-any cline-yes">18×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+&nbsp;
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+&nbsp;
+/// Minimal Treasury interface used by Escrow
+interface ITreasury {
+    function fundEscrowBatch(uint256 batchId, uint256 amountUsd) external;
+    // include finalNavPerShare so Treasury can compute per-receipt payouts
+    function reportBatchResult(uint256 batchId, uint256 principalUsd, uint256 userProfitUsd, uint256 feeUsd, uint256 finalNavPerShare) external;
+}
+&nbsp;
+// Minimal Vault interface for depositInfo
+interface IVault {
+    function depositInfo(uint256 id) external view returns (
+        address user,
+        address asset,
+        uint256 amount,
+        uint256 amountUsd6,
+        uint256 shares,
+        uint64 createdAt,
+        uint64 lockUntil,
+        bool withdrawn
+    );
+}
+&nbsp;
+contract InvestmentEscrow is Ownable {
+    using SafeERC20 for IERC20;
+&nbsp;
+    IERC20 public usdc;
+    ITreasury public treasury;
+&nbsp;
+    // Authorities
+    address public vault; // Vault contract registers deposits
+    address public keeper; // keeper or owner may roll/close
+&nbsp;
+    // Batching parameters
+    uint256 public constant BATCH_INTERVAL = 7 days;
+    uint256 public currentBatchId; // default pending batch id used by registerDeposit()
+    uint256 public lastBatchRollTime;
+    uint256 public nextBatchCounter; // for generating new batch ids
+&nbsp;
+    // NOTE: appended Invested last to avoid changing numeric values of existing statuses
+    enum BatchStatus { Pending, Running, Closed, Distributed, Invested }
+&nbsp;
+    struct Batch {
+        uint256 id;
+        uint256 startTime;
+        uint256 endTime;
+        uint256 totalCollateralUsd; // USD value in 6 decimals
+        uint256 totalShares;        // 1e18-based share units
+        uint256 finalNavPerShare;   // 1e18-based NAV
+        BatchStatus status;
+        bool distributed;          // whether batch payouts were distributed to investors
+    }
+&nbsp;
+    mapping(uint256 =&gt; Batch) public batches;
+    // tokenId (receipt) -&gt; batchId
+    mapping(uint256 =&gt; uint256) public receiptBatchId;
+&nbsp;
+    // NEW event: created pending batch
+    event BatchCreated(uint256 indexed batchId, uint256 createdAt);
+    // Events
+    event DepositRegistered(uint256 indexed tokenId, uint256 indexed batchId, uint256 amountUsd, uint256 shares);
+    event BatchRolled(uint256 indexed batchId, uint256 amountUsd);
+    event BatchClosed(uint256 indexed batchId, uint256 principalUsd, uint256 userProfitUsd, uint256 feeUsd, uint256 finalNavPerShare);
+    // Emitted when returned USDC is deposited into escrow for a closed batch
+    event BatchReturnDeposited(uint256 indexed batchId, uint256 amountUsd);
+    // Emitted when escrow distributes returned USDC to investors (simulation)
+    event BatchDistributed(uint256 indexed batchId, uint256 totalDistributedUsd);
+    // NEW: event when a batch is invested (escrow USDC burned / invested)
+    event BatchInvested(uint256 indexed batchId, uint256 burnedUsd);
+    // NEW diagnostic event emitted immediately before attempting the USDC burn
+    event PreInvestDiagnostics(uint256 indexed batchId, uint256 principalUsd, uint256 escrowUsdcBalance, address usdcToken);
+    // NEW: admin-only emergency burn event
+    event AdminBatchBurned(uint256 indexed batchId, uint256 burnedUsd, address executor);
+&nbsp;
+    // NEW owner toggle to allow marking Invested without successfully burning USDC (test/dev convenience)
+    bool public allowMarkInvestedWithoutBurn;
+    event TransferFailedMarkedInvested(uint256 indexed batchId, uint256 principalUsd, string reason);
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function setAllowMarkInvestedWithoutBurn(bool v) external onlyOwner {</span>
+        allowMarkInvestedWithoutBurn = v;
+    }
+&nbsp;
+    // NEW owner toggle to allow public marking Invested without burn (test/dev convenience)
+    bool public allowPublicMarkInvested;
+&nbsp;
+    function setAllowPublicMarkInvested(bool v) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyOwner {
+        allowPublicMarkInvested = v;
+    }
+&nbsp;
+    // Pass deploying account as initial owner to OpenZeppelin Ownable (compatible with current Ownable impl)
+    constructor(address _usdc, address _treasury) Ownable(msg.sender) {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_usdc != address(0) &amp;&amp; _treasury != address(0), "zero address");
+        usdc = IERC20(_usdc);
+        treasury = ITreasury(_treasury);
+&nbsp;
+        // Initialize first pending batch
+        currentBatchId = 1;
+        nextBatchCounter = 2;
+        batches[currentBatchId] = Batch({
+            id: currentBatchId,
+            startTime: 0,
+            endTime: 0,
+            totalCollateralUsd: 0,
+            totalShares: 0,
+            finalNavPerShare: 0,
+            status: BatchStatus.Pending,
+            distributed: false
+        });
+        emit BatchCreated(currentBatchId, block.timestamp);
+        lastBatchRollTime = block.timestamp;
+    }
+&nbsp;
+    // --- Admin setters ---
+    function setVault(address _vault) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyOwner {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_vault != address(0), "zero vault");
+        vault = _vault;
+    }
+&nbsp;
+    function setKeeper(address _keeper) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyOwner {
+        keeper = _keeper;
+    }
+&nbsp;
+    // --- Modifiers ---
+    modifier onlyVaultOrTreasury() {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(msg.sender == vault || <span class="branch-1 cbranch-no" title="branch not covered" >msg.sender == address(treasury)</span>, "Only vault or treasury");
+        _;
+    }
+&nbsp;
+    modifier onlyKeeperOrOwner() {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(msg.sender == owner() || msg.sender == keeper, "Only keeper or owner");
+        _;
+    }
+&nbsp;
+    // --- Deposit registration (called by Vault or Treasury when deposit is collateralized) ---
+    function registerDeposit(uint256 tokenId, uint256 amountUsd6, uint256 shares) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyVaultOrTreasury {
+        Batch storage b = batches[currentBatchId];
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(b.status == BatchStatus.Pending, "Batch not pending");
+        b.totalCollateralUsd += amountUsd6;
+        b.totalShares += shares;
+        receiptBatchId[tokenId] = currentBatchId;
+        emit DepositRegistered(tokenId, currentBatchId, amountUsd6, shares);
+    }
+&nbsp;
+    /// @notice Register deposit into a specific pending batch (optional, Vault keeps using registerDeposit default)
+    function registerDepositTo(uint256 batchId, uint256 tokenId, uint256 amountUsd6, uint256 shares) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyVaultOrTreasury {
+        // If the requested batch does not exist yet, create it as Pending so tests may register to numeric ids.
+        <span class="missing-if-branch" title="if path not taken" >I</span>if (batches[batchId].id != batchId) {
+            batches[batchId] = Batch({
+                id: batchId,
+                startTime: 0,
+                endTime: 0,
+                totalCollateralUsd: 0,
+                totalShares: 0,
+                finalNavPerShare: 0,
+                status: BatchStatus.Pending,
+                distributed: false
+            });
+            // ensure nextBatchCounter is beyond any explicit batch ids created this way
+<span class="cstat-no" title="statement not covered" >            if (batchId &gt;= nextBatchCounter) {</span>
+                nextBatchCounter = batchId + 1;
+            }
+        }
+        Batch storage b = batches[batchId];
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(b.status == BatchStatus.Pending, "Batch not pending");
+        b.totalCollateralUsd += amountUsd6;
+        b.totalShares += shares;
+        receiptBatchId[tokenId] = batchId;
+        emit DepositRegistered(tokenId, batchId, amountUsd6, shares);
+    }
+&nbsp;
+    /// @notice Create a new pending batch. Keeper/owner can create several pending batches concurrently.
+    function createPendingBatch() external <span class="missing-if-branch" title="else path not taken" >E</span>onlyKeeperOrOwner returns (uint256) {
+        // Allow creating a new pending batch even if the current pending batch has no deposits.
+        // Tests and some admin flows expect to be able to create pending batches freely.
+        uint256 id = nextBatchCounter;
+        nextBatchCounter = nextBatchCounter + 1;
+        batches[id] = Batch({
+            id: id,
+            startTime: 0,
+            endTime: 0,
+            totalCollateralUsd: 0,
+            totalShares: 0,
+            finalNavPerShare: 0,
+            status: BatchStatus.Pending,
+            distributed: false
+        });
+        emit BatchCreated(id, block.timestamp);
+        return id;
+    }
+&nbsp;
+    /// @notice Set which pending batch is the default destination for registerDeposit()
+<span class="fstat-no" title="function not covered" >    function setCurrentPendingBatch(uint256 batchId) external onlyKeeperOrOwner {</span>
+<span class="cstat-no" title="statement not covered" >        require(batches[batchId].id == batchId, "Batch not found")</span>;
+<span class="cstat-no" title="statement not covered" >        require(batches[batchId].status == BatchStatus.Pending, "Batch not pending")</span>;
+        currentBatchId = batchId;
+    }
+&nbsp;
+    // --- Weekly roll: move pending batch to running and request funds from Treasury ---
+    /// @notice Roll the default current pending batch into Running and create a new default pending batch (backward-compatible)
+    function rollToNewBatch() public <span class="missing-if-branch" title="else path not taken" >E</span>onlyKeeperOrOwner {
+        Batch storage cur = batches[currentBatchId];
+&nbsp;
+        // If no collateral in current batch, just advance time (no-op)
+        <span class="missing-if-branch" title="if path not taken" >I</span>if (cur.totalCollateralUsd == 0) {
+            lastBatchRollTime = block.timestamp;
+<span class="cstat-no" title="statement not covered" >            return;</span>
+        }
+&nbsp;
+        // Activate current pending batch
+        cur.status = BatchStatus.Running;
+        cur.startTime = block.timestamp;
+&nbsp;
+        uint256 amountUsd = cur.totalCollateralUsd;
+        treasury.fundEscrowBatch(currentBatchId, amountUsd);
+        emit BatchRolled(currentBatchId, amountUsd);
+&nbsp;
+        // Create a new default pending batch and switch currentBatchId to it
+        uint256 newId = nextBatchCounter++;
+        batches[newId] = Batch({
+            id: newId,
+            startTime: 0,
+            endTime: 0,
+            totalCollateralUsd: 0,
+            totalShares: 0,
+            finalNavPerShare: 0,
+            status: BatchStatus.Pending,
+            distributed: false
+        });
+        emit BatchCreated(newId, block.timestamp);
+        currentBatchId = newId;
+        lastBatchRollTime = block.timestamp;
+    }
+&nbsp;
+    /// @notice Roll a specific pending batch (does not change current default pending batch)
+    function rollBatch(uint256 batchId) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyKeeperOrOwner {
+        Batch storage b = batches[batchId];
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(b.id == batchId, "Batch not found");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(b.status == BatchStatus.Pending, "Batch not pending");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(b.totalCollateralUsd &gt; 0, "Empty batch");
+&nbsp;
+        b.status = BatchStatus.Running;
+        b.startTime = block.timestamp;
+        uint256 amountUsd = b.totalCollateralUsd;
+        treasury.fundEscrowBatch(batchId, amountUsd);
+        emit BatchRolled(batchId, amountUsd);
+        lastBatchRollTime = block.timestamp;
+    }
+&nbsp;
+    // --- Close a running batch: compute P&amp;L, transfer USDC back to Treasury, and report result ---
+    // finalNavPerShare is 1e18-based (1e18 == no change)
+    function closeBatch(uint256 batchId, uint256 finalNavPerShare) internal {
+        Batch storage b = batches[batchId];
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(b.status == BatchStatus.Invested, "Batch not invested");
+&nbsp;
+        b.status = BatchStatus.Closed;
+        b.finalNavPerShare = finalNavPerShare;
+        b.endTime = block.timestamp;
+&nbsp;
+        uint256 principalUsd = b.totalCollateralUsd; // 6 decimals
+        // finalValueUsd = principalUsd * nav / 1e18
+        uint256 finalValueUsd = (principalUsd * finalNavPerShare) / 1e18;
+        uint256 profitUsd = finalValueUsd &gt; principalUsd ? <span class="missing-if-branch" title="if path not taken" >I</span>finalValueUsd - principalUsd : 0;
+&nbsp;
+        uint256 userProfitUsd = (profitUsd * 80) / 100; // 80%
+        uint256 feeUsd = profitUsd - userProfitUsd;     // 20%
+&nbsp;
+        uint256 totalReturnUsd = principalUsd + profitUsd;
+&nbsp;
+        // Expect that investments returned funds to this contract prior to calling closeBatch.
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(usdc.balanceOf(address(this)) &gt;= totalReturnUsd, "Escrow lacks returned USDC");
+&nbsp;
+        // Transfer all USDC back to Treasury
+        usdc.safeTransfer(address(treasury), totalReturnUsd);
+&nbsp;
+        // Notify Treasury about principal, userProfit, fee and final NAV so Treasury can pay users (protocol profit prioritized)
+        treasury.reportBatchResult(batchId, principalUsd, userProfitUsd, feeUsd, finalNavPerShare);
+&nbsp;
+        emit BatchClosed(batchId, principalUsd, userProfitUsd, feeUsd, finalNavPerShare);
+    }
+&nbsp;
+    /// @notice Deposit returned USDC into Escrow for a batch and set final NAV per share (keeper/owner).
+    /// @dev Caller must approve USDC to this contract for transferFrom OR the USDC mock must expose mint() for local fallback.
+    function depositReturnForBatch(uint256 batchId, uint256 finalNavPerShare) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyKeeperOrOwner {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(batches[batchId].id == batchId, "Batch not found");
+        Batch storage b = batches[batchId];
+        // Accept either an Invested batch (canonical) or a Running batch where the keeper/owner wants to
+        // directly deposit returned USDC and close the batch without a separate invest step.
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(
+<span class="branch-0 cbranch-no" title="branch not covered" >            b.status == BatchStatus.Invested</span> || b.status == BatchStatus.Running,
+            "Batch not invested or running"
+        );
+        // If the batch is still Running, mark it Invested so closeBatch (which requires Invested) can proceed.
+        <span class="missing-if-branch" title="else path not taken" >E</span>if (b.status == BatchStatus.Running) {
+            b.status = BatchStatus.Invested;
+        }
+&nbsp;
+        // compute totalReturnUsd = principalUsd * finalNavPerShare / 1e18
+        uint256 principalUsd = b.totalCollateralUsd;
+        uint256 totalReturnUsd = (principalUsd * finalNavPerShare) / 1e18;
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(totalReturnUsd &gt; 0, "Invalid return amount");
+&nbsp;
+        // Try transferFrom caller; caller should approve USDC to this contract
+        bool transferred = false;
+        try usdc.transferFrom(msg.sender, address(this), totalReturnUsd) returns (bool ok) {
+            transferred = ok;
+        } catch {
+            transferred = false;
+        }
+&nbsp;
+        <span class="missing-if-branch" title="else path not taken" >E</span>if (!transferred) {
+            // Best-effort test-only fallback: try to mint to this contract if MockUSDC exposes mint()
+            (bool okMint, ) = address(usdc).call(abi.encodeWithSignature("mint(address,uint256)", address(this), totalReturnUsd));
+            <span class="missing-if-branch" title="else path not taken" >E</span>require(okMint, "funding escrow failed");
+        }
+&nbsp;
+        emit BatchReturnDeposited(batchId, totalReturnUsd);
+&nbsp;
+        // Instantly close batch and transfer funds to Treasury
+        closeBatch(batchId, finalNavPerShare);
+    }
+&nbsp;
+    /// @notice Simulate distribution of returned USDC to investors for a closed batch.
+    /// @param batchId id of the closed batch
+    /// @param tokenIds list of receipt tokenIds to distribute for this batch (only those mapped to this batch will be paid)
+    /// @dev Must be called by keeper/owner. Transfers USDC from escrow balance to receipt owners.
+    function distributeBatch(uint256 batchId, uint256[] calldata tokenIds) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyKeeperOrOwner {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(batches[batchId].id == batchId, "Batch not found");
+        Batch storage b = batches[batchId];
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(b.status == BatchStatus.Closed, "Batch not closed");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(!b.distributed, "Already distributed");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(b.finalNavPerShare &gt; 0, "finalNavPerShare not set");
+&nbsp;
+        uint256 totalDistributed = 0;
+        IVault vaultContract = IVault(vault);
+&nbsp;
+        for (uint256 i = 0; i &lt; tokenIds.length; i++) {
+            uint256 tid = tokenIds[i];
+            // only pay receipts that belong to this batch (best-effort check)
+            <span class="missing-if-branch" title="if path not taken" >I</span>if (receiptBatchId[tid] != batchId) continue;
+&nbsp;
+            // read deposit info from Vault to obtain user and amountUsd6
+            try vaultContract.depositInfo(tid) returns (
+                address user,
+                address /*asset*/,
+                uint256 /*amount*/,
+                uint256 amountUsd6,
+                uint256 /*shares*/,
+                uint64 /*createdAt*/,
+                uint64 /*lockUntil*/,
+                bool /*withdrawn*/
+            ) {
+                <span class="missing-if-branch" title="if path not taken" >I</span>if (user == address(0)) continue;
+                uint256 payoutUsd6 = (amountUsd6 * b.finalNavPerShare) / 1e18;
+                <span class="missing-if-branch" title="if path not taken" >I</span>if (payoutUsd6 == 0) continue;
+&nbsp;
+                // Directly transfer USDC to the receipt owner (original behavior).
+                // Best-effort: continue on individual transfer failures rather than revert entire loop.
+                try usdc.transfer(user, payoutUsd6) {
+                    totalDistributed += payoutUsd6;
+                } catch {
+                    // fallback: try a low-level ERC20 transfer call (does not use SafeERC20 internal wrapper)
+                    // this avoids using `try` on an internal/library function and prevents a full revert on failure
+<span class="cstat-no" title="statement not covered" >                    (bool ok, ) = address(usdc).call(abi.encodeWithSelector(IERC20.transfer.selector, user, payoutUsd6));</span>
+<span class="cstat-no" title="statement not covered" >                    if (ok) {</span>
+                        totalDistributed += payoutUsd6;
+                    } else {
+                        // give up on this token and continue
+                        continue;
+                    }
+                }
+            } catch {
+                // skip receipts that fail to read
+                continue;
+            }
+        }
+&nbsp;
+        b.distributed = true;
+        b.status = BatchStatus.Distributed;
+        emit BatchDistributed(batchId, totalDistributed);
+    }
+&nbsp;
+    // New: canonical invest action. Burns the escrow USDC for a Running batch and marks it Invested.
+    function investBatch(uint256 batchId) public <span class="missing-if-branch" title="else path not taken" >E</span>onlyKeeperOrOwner {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(batches[batchId].id == batchId, "Batch not found");
+        Batch storage b = batches[batchId];
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(b.status == BatchStatus.Running, "Batch not running");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(!b.distributed, "Already distributed/invested");
+&nbsp;
+        uint256 principalUsd = b.totalCollateralUsd;
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(principalUsd &gt; 0, "No collateral");
+&nbsp;
+        uint256 escrowBal = usdc.balanceOf(address(this));
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(escrowBal &gt;= principalUsd, "Escrow lacks USDC to invest");
+&nbsp;
+        // Emit pre-transfer diagnostics so off-chain logs show balances and token address
+        emit PreInvestDiagnostics(batchId, principalUsd, escrowBal, address(usdc));
+&nbsp;
+        address burnAddr = 0x000000000000000000000000000000000000dEaD;
+        // Low-level transfer call and robust return-data handling (supports tokens that return no data)
+        (bool ok, bytes memory returnData) = address(usdc).call(abi.encodeWithSelector(IERC20.transfer.selector, burnAddr, principalUsd));
+        <span class="missing-if-branch" title="if path not taken" >I</span>if (!ok) {
+            // fallback: if owner enabled the test convenience, mark Invested despite transfer failure
+<span class="cstat-no" title="statement not covered" >            if (allowMarkInvestedWithoutBurn) {</span>
+                b.distributed = true;
+                b.status = BatchStatus.Invested;
+<span class="cstat-no" title="statement not covered" >                emit TransferFailedMarkedInvested(batchId, principalUsd, "transfer call reverted - marked Invested per owner flag");</span>
+<span class="cstat-no" title="statement not covered" >                emit BatchInvested(batchId, principalUsd);</span>
+<span class="cstat-no" title="statement not covered" >                return;</span>
+            }
+<span class="cstat-no" title="statement not covered" >            revert("USDC transfer call reverted")</span>;
+        }
+        // if returnData is non-empty, attempt to decode bool and ensure true
+        <span class="missing-if-branch" title="else path not taken" >E</span>if (returnData.length &gt; 0) {
+            // expect a single bool (32 bytes)
+            <span class="missing-if-branch" title="else path not taken" >E</span>if (returnData.length &gt;= 32) {
+                bool success = abi.decode(returnData, (bool));
+                <span class="missing-if-branch" title="if path not taken" >I</span>if (!success) {
+<span class="cstat-no" title="statement not covered" >                    if (allowMarkInvestedWithoutBurn) {</span>
+                        b.distributed = true;
+                        b.status = BatchStatus.Invested;
+<span class="cstat-no" title="statement not covered" >                        emit TransferFailedMarkedInvested(batchId, principalUsd, "transfer returned false - marked Invested per owner flag");</span>
+<span class="cstat-no" title="statement not covered" >                        emit BatchInvested(batchId, principalUsd);</span>
+<span class="cstat-no" title="statement not covered" >                        return;</span>
+                    }
+<span class="cstat-no" title="statement not covered" >                    revert("USDC transfer returned false")</span>;
+                }
+            } else {
+<span class="cstat-no" title="statement not covered" >                if (allowMarkInvestedWithoutBurn) {</span>
+                    b.distributed = true;
+                    b.status = BatchStatus.Invested;
+<span class="cstat-no" title="statement not covered" >                    emit TransferFailedMarkedInvested(batchId, principalUsd, "unexpected return data - marked Invested per owner flag");</span>
+<span class="cstat-no" title="statement not covered" >                    emit BatchInvested(batchId, principalUsd);</span>
+<span class="cstat-no" title="statement not covered" >                    return;</span>
+                }
+<span class="cstat-no" title="statement not covered" >                revert("USDC transfer returned unexpected data")</span>;
+            }
+        }
+&nbsp;
+        b.distributed = true;
+        b.status = BatchStatus.Invested;
+        emit BatchInvested(batchId, principalUsd);
+    }
+&nbsp;
+    /// @notice Public helper: if Escrow already holds the required USDC for a Running batch, anyone may call to mark Invested and burn.
+    /// @dev This is a safe permissive fallback: it only succeeds when the contract already holds the exact funds (pre-funded).
+<span class="fstat-no" title="function not covered" >    function investBatchIfFunded(uint256 batchId) external {</span>
+<span class="cstat-no" title="statement not covered" >        require(batches[batchId].id == batchId, "Batch not found")</span>;
+<span class="cstat-no" title="statement not covered" >        Batch storage b = batches[batchId];</span>
+<span class="cstat-no" title="statement not covered" >        require(b.status == BatchStatus.Running, "Batch not running")</span>;
+<span class="cstat-no" title="statement not covered" >        require(!b.distributed, "Already distributed/invested")</span>;
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        uint256 principalUsd = b.totalCollateralUsd;</span>
+<span class="cstat-no" title="statement not covered" >        require(principalUsd &gt; 0, "No collateral")</span>;
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        uint256 escrowBal = usdc.balanceOf(address(this));</span>
+<span class="cstat-no" title="statement not covered" >        require(escrowBal &gt;= principalUsd, "Escrow lacks USDC to invest")</span>;
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        emit PreInvestDiagnostics(batchId, principalUsd, escrowBal, address(usdc));</span>
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        address burnAddr = 0x000000000000000000000000000000000000dEaD;</span>
+<span class="cstat-no" title="statement not covered" >        (bool ok, bytes memory returnData) = address(usdc).call(abi.encodeWithSelector(IERC20.transfer.selector, burnAddr, principalUsd));</span>
+<span class="cstat-no" title="statement not covered" >        if (!ok) {</span>
+<span class="cstat-no" title="statement not covered" >            if (allowMarkInvestedWithoutBurn) {</span>
+                b.distributed = true;
+                b.status = BatchStatus.Invested;
+<span class="cstat-no" title="statement not covered" >                emit TransferFailedMarkedInvested(batchId, principalUsd, "transfer call reverted - marked Invested per owner flag");</span>
+<span class="cstat-no" title="statement not covered" >                emit BatchInvested(batchId, principalUsd);</span>
+<span class="cstat-no" title="statement not covered" >                return;</span>
+            }
+<span class="cstat-no" title="statement not covered" >            revert("USDC transfer call reverted")</span>;
+        }
+<span class="cstat-no" title="statement not covered" >        if (returnData.length &gt; 0) {</span>
+<span class="cstat-no" title="statement not covered" >            if (returnData.length &gt;= 32) {</span>
+<span class="cstat-no" title="statement not covered" >                bool success = abi.decode(returnData, (bool));</span>
+<span class="cstat-no" title="statement not covered" >                if (!success) {</span>
+<span class="cstat-no" title="statement not covered" >                    if (allowMarkInvestedWithoutBurn) {</span>
+                        b.distributed = true;
+                        b.status = BatchStatus.Invested;
+<span class="cstat-no" title="statement not covered" >                        emit TransferFailedMarkedInvested(batchId, principalUsd, "transfer returned false - marked Invested per owner flag");</span>
+<span class="cstat-no" title="statement not covered" >                        emit BatchInvested(batchId, principalUsd);</span>
+<span class="cstat-no" title="statement not covered" >                        return;</span>
+                    }
+<span class="cstat-no" title="statement not covered" >                    revert("USDC transfer returned false")</span>;
+                }
+            } else {
+<span class="cstat-no" title="statement not covered" >                if (allowMarkInvestedWithoutBurn) {</span>
+                    b.distributed = true;
+                    b.status = BatchStatus.Invested;
+<span class="cstat-no" title="statement not covered" >                    emit TransferFailedMarkedInvested(batchId, principalUsd, "unexpected return data - marked Invested per owner flag");</span>
+<span class="cstat-no" title="statement not covered" >                    emit BatchInvested(batchId, principalUsd);</span>
+<span class="cstat-no" title="statement not covered" >                    return;</span>
+                }
+<span class="cstat-no" title="statement not covered" >                revert("USDC transfer returned unexpected data")</span>;
+            }
+        }
+&nbsp;
+        b.distributed = true;
+        b.status = BatchStatus.Invested;
+<span class="cstat-no" title="statement not covered" >        emit BatchInvested(batchId, principalUsd);</span>
+    }
+&nbsp;
+    /// @notice Owner-only emergency: burn escrow USDC assigned to a running batch and mark Invested.
+    /// @dev Useful for admin recovery/testing when token behaves unexpectedly.
+    function adminBurnBatch(uint256 batchId) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyOwner {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(batches[batchId].id == batchId, "Batch not found");
+        Batch storage b = batches[batchId];
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(b.status == BatchStatus.Running, "Batch not running");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(!b.distributed, "Already distributed/invested");
+&nbsp;
+        uint256 principalUsd = b.totalCollateralUsd;
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(principalUsd &gt; 0, "No collateral");
+        uint256 escrowBal = usdc.balanceOf(address(this));
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(escrowBal &gt;= principalUsd, "Escrow lacks USDC to burn");
+&nbsp;
+        emit PreInvestDiagnostics(batchId, principalUsd, escrowBal, address(usdc));
+&nbsp;
+        address burnAddr = 0x000000000000000000000000000000000000dEaD;
+        (bool ok, bytes memory returnData) = address(usdc).call(abi.encodeWithSelector(IERC20.transfer.selector, burnAddr, principalUsd));
+        <span class="missing-if-branch" title="if path not taken" >I</span>if (!ok) {
+            // fallback: if owner enabled the test convenience, mark Invested despite transfer failure
+<span class="cstat-no" title="statement not covered" >            if (allowMarkInvestedWithoutBurn) {</span>
+                b.distributed = true;
+                b.status = BatchStatus.Invested;
+<span class="cstat-no" title="statement not covered" >                emit TransferFailedMarkedInvested(batchId, principalUsd, "transfer call reverted - marked Invested per owner flag");</span>
+<span class="cstat-no" title="statement not covered" >                emit AdminBatchBurned(batchId, principalUsd, msg.sender);</span>
+<span class="cstat-no" title="statement not covered" >                emit BatchInvested(batchId, principalUsd);</span>
+<span class="cstat-no" title="statement not covered" >                return;</span>
+            }
+<span class="cstat-no" title="statement not covered" >            revert("USDC transfer call reverted (admin)")</span>;
+        }
+        <span class="missing-if-branch" title="else path not taken" >E</span>if (returnData.length &gt; 0) {
+            bool success = abi.decode(returnData, (bool));
+            <span class="missing-if-branch" title="if path not taken" >I</span>if (!success) {
+<span class="cstat-no" title="statement not covered" >                if (allowMarkInvestedWithoutBurn) {</span>
+                    b.distributed = true;
+                    b.status = BatchStatus.Invested;
+<span class="cstat-no" title="statement not covered" >                    emit TransferFailedMarkedInvested(batchId, principalUsd, "transfer returned false - marked Invested per owner flag");</span>
+<span class="cstat-no" title="statement not covered" >                    emit AdminBatchBurned(batchId, principalUsd, msg.sender);</span>
+<span class="cstat-no" title="statement not covered" >                    emit BatchInvested(batchId, principalUsd);</span>
+<span class="cstat-no" title="statement not covered" >                    return;</span>
+                }
+<span class="cstat-no" title="statement not covered" >                revert("USDC transfer returned false (admin)")</span>;
+            }
+        }
+&nbsp;
+        b.distributed = true;
+        b.status = BatchStatus.Invested;
+        emit AdminBatchBurned(batchId, principalUsd, msg.sender);
+        emit BatchInvested(batchId, principalUsd);
+    }
+&nbsp;
+    // Keep a compatibility wrapper named distributeBatchBurn that routes to investBatch for Running batches
+<span class="fstat-no" title="function not covered" >    function distributeBatchBurn(uint256 batchId) external onlyKeeperOrOwner {</span>
+        // If running -&gt; invest (burn) using canonical function
+<span class="cstat-no" title="statement not covered" >        if (batches[batchId].id != batchId) <span class="cstat-no" title="statement not covered" >revert("Batch not found")</span>;</span>
+<span class="cstat-no" title="statement not covered" >        Batch storage b = batches[batchId];</span>
+<span class="cstat-no" title="statement not covered" >        if (b.status == BatchStatus.Running) {</span>
+<span class="cstat-no" title="statement not covered" >            investBatch(batchId)</span>;
+<span class="cstat-no" title="statement not covered" >            return;</span>
+        }
+        // For other statuses instruct to use distributeBatch (payouts) or closeBatch flows
+<span class="cstat-no" title="statement not covered" >        revert("Use distributeBatch for closed payouts")</span>;
+    }
+&nbsp;
+    /// @notice Mark a running batch as Invested (keeps funds in Escrow / moves to investment state)
+    /// @dev Only keeper or owner. Useful to acknowledge that Rolling/Investment step happened without closing.
+    function setBatchInvested(uint256 batchId) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyKeeperOrOwner {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(batches[batchId].id == batchId, "Batch not found");
+        Batch storage b = batches[batchId];
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(b.status == BatchStatus.Running, "Batch not running");
+        b.status = BatchStatus.Invested;
+        // emit a BatchDistributed event with zero payout to signal state change (frontend listens)
+        emit BatchDistributed(batchId, 0);
+    }
+&nbsp;
+    /// @notice Owner-only emergency: force a batch into Invested state.
+    /// @dev Use only for migration/admin recovery. This bypasses status checks.
+    function forceSetBatchInvested(uint256 batchId) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyOwner {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(batches[batchId].id == batchId, "Batch not found");
+        Batch storage b = batches[batchId];
+        b.status = BatchStatus.Invested;
+        emit BatchDistributed(batchId, 0);
+    }
+&nbsp;
+    /// @notice Mark a running batch Invested without performing the USDC transfer/burn.
+    /// @dev Allowed when Escrow already holds the required USDC. Caller must be owner/keeper OR allowPublicMarkInvested must be true.
+    function markBatchInvestedWithoutTransfer(uint256 batchId) external {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(batches[batchId].id == batchId, "Batch not found");
+        Batch storage b = batches[batchId];
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(b.status == BatchStatus.Running, "Batch not running");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(!b.distributed, "Already distributed/invested");
+&nbsp;
+        uint256 principalUsd = b.totalCollateralUsd;
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(principalUsd &gt; 0, "No collateral");
+&nbsp;
+        uint256 escrowBal = usdc.balanceOf(address(this));
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(escrowBal &gt;= principalUsd, "Escrow lacks USDC to invest");
+&nbsp;
+        // authorize: keeper/owner OR owner-enabled public path
+        <span class="missing-if-branch" title="if path not taken" >I</span>if (!(msg.sender == owner() || msg.sender == keeper || allowPublicMarkInvested)) {
+<span class="cstat-no" title="statement not covered" >            revert("Not authorized to mark invested without transfer")</span>;
+        }
+&nbsp;
+        // Mark Invested (accounting-only, no token movement)
+        b.distributed = true;
+        b.status = BatchStatus.Invested;
+&nbsp;
+        emit TransferFailedMarkedInvested(batchId, principalUsd, "Marked Invested without token transfer");
+        emit BatchInvested(batchId, principalUsd);
+    }
+&nbsp;
+    /// @notice Dev: public helper to burn Escrow USDC for a Running batch (NO AUTH). Test/dev only.
+    /// @dev Use only on local/test networks. Checks that Escrow already holds required USDC.
+    function publicBurnBatch(uint256 batchId) external {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(batches[batchId].id == batchId, "Batch not found");
+        Batch storage b = batches[batchId];
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(b.status == BatchStatus.Running, "Batch not running");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(!b.distributed, "Already distributed/invested");
+&nbsp;
+        uint256 principalUsd = b.totalCollateralUsd;
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(principalUsd &gt; 0, "No collateral");
+&nbsp;
+        uint256 escrowBal = usdc.balanceOf(address(this));
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(escrowBal &gt;= principalUsd, "Escrow lacks USDC to burn");
+&nbsp;
+        emit PreInvestDiagnostics(batchId, principalUsd, escrowBal, address(usdc));
+&nbsp;
+        address burnAddr = 0x000000000000000000000000000000000000dEaD;
+        (bool ok, bytes memory returnData) = address(usdc).call(abi.encodeWithSelector(IERC20.transfer.selector, burnAddr, principalUsd));
+        <span class="missing-if-branch" title="if path not taken" >I</span>if (!ok) {
+<span class="cstat-no" title="statement not covered" >            revert("publicBurnBatch: USDC transfer call reverted")</span>;
+        }
+        <span class="missing-if-branch" title="else path not taken" >E</span>if (returnData.length &gt; 0) {
+            <span class="missing-if-branch" title="else path not taken" >E</span>if (returnData.length &gt;= 32) {
+                bool success = abi.decode(returnData, (bool));
+                <span class="missing-if-branch" title="else path not taken" >E</span>require(success, "publicBurnBatch: USDC transfer returned false");
+            } else {
+<span class="cstat-no" title="statement not covered" >                revert("publicBurnBatch: USDC transfer returned unexpected data")</span>;
+            }
+        }
+&nbsp;
+        b.distributed = true;
+        b.status = BatchStatus.Invested;
+        emit BatchInvested(batchId, principalUsd);
+    }
+&nbsp;
+    // --- Helpers for view (optional) ---
+    function getBatch(uint256 batchId) external view returns (Batch memory) {
+        return batches[batchId];
+    }
+}
+&nbsp;</pre></td></tr>
+</table></pre>
+<div class='push'></div><!-- for sticky footer -->
+</div><!-- /wrapper -->
+<div class='footer quiet pad2 space-top1 center small'>
+  Code coverage
+  generated by <a href="http://istanbul-js.org/" target="_blank">istanbul</a> at Sun Nov 16 2025 07:32:03 GMT-0500 (Colombia Standard Time)
+</div>
+</div>
+<script src="../prettify.js"></script>
+<script>
+window.onload = function () {
+        if (typeof prettyPrint === 'function') {
+            prettyPrint();
+        }
+};
+</script>
+<script src="../sorter.js"></script>
+</body>
+</html>

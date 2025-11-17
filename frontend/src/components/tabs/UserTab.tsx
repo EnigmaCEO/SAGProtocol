@@ -634,11 +634,17 @@ export default function UserTab() {
 
   return (
     <div className="space-y-8 animate-fadeIn">
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-        <h2 className="text-3xl font-bold bg-gradient-to-r from-sky-400 via-indigo-500 to-violet-500 bg-clip-text text-transparent">
-          User Vault
-        </h2>
-        <div className="flex items-center gap-4 text-sm text-slate-400">
+      <div className="sagitta-hero">
+        <div className="sagitta-cell">
+          <h2 style={{ marginBlockStart: '0.3em' }}>User Dashboard</h2>
+          <div className="text-slate-400 text-sm mt-1">Manage deposits and balance.</div>
+          <div style={{ height: 12 }} />
+          <div className="flex items-center gap-4 text-sm text-slate-400">
+            <span> Balance: {Number(formatUnits(dotBalance, assetDecimals)).toFixed(2)} xcDOT </span>
+            <span className="text-xs">({address.slice(0, 6)}...{address.slice(-4)})</span>
+          </div>
+          <div style={{ height: 12 }} />
+          <div>
           <button 
             onClick={handleMintDOT}
             disabled={isLoading}
@@ -646,146 +652,153 @@ export default function UserTab() {
           >
             Mint 1000 mDOT
           </button>
-          <span>Balance: {Number(formatUnits(dotBalance, assetDecimals)).toFixed(2)} mDOT</span>
-          <span className="text-xs">({address.slice(0, 6)}...{address.slice(-4)})</span>
+          </div>
         </div>
       </div>
 
-      <MetricGrid>
-        <MetricCard title="Total Principal Locked" value={`$${totalPrincipalLocked.toFixed(2)}`} hint="USD" tone="neutral" />
-        <MetricCard title="Active Deposits" value={lockedDeposits.length.toString()} hint="Receipts" tone="neutral" />
-        <MetricCard title="Next Unlock" value={nextUnlockDate ? nextUnlockDate.toLocaleDateString() : 'N/A'} hint="Date" tone="neutral" />
-      </MetricGrid>
-
-      <div className="bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-lg p-6 border border-slate-700/50">
-        <h3 className="text-lg font-semibold mb-4 text-slate-200 flex items-center gap-2">
-          <ArrowDown size={20} className="text-emerald-400"/>New Deposit
-        </h3>
-        <div className="flex flex-col sm:flex-row items-center gap-4">
-          <div className="relative w-full sm:w-auto flex-grow">
-            <input 
-              type="number" 
-              placeholder="Amount" 
-              value={depositAmount}
-              onChange={(e) => setDepositAmount(e.target.value)}
-              disabled={isLoading}
-              className="w-full pl-4 pr-16 py-3 rounded-full bg-slate-900/70 border border-slate-700 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/50 text-slate-200 placeholder-slate-500 outline-none transition-all disabled:opacity-50"
-            />
-            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">mDOT</span>
-          </div>
-
-          {/* Max deposit hint */}
-          <div className="w-full sm:w-auto text-sm text-slate-400">
-            {maxDepositToken !== null ? (
-              <div>
-                Max deposit: <span className="font-mono text-slate-200">{Number(formatUnits(maxDepositToken, assetDecimals)).toFixed(4)} mDOT</span>
-                {' '}(~${maxDepositUsd6 ? Number(formatUnits(maxDepositUsd6, 6)).toFixed(2) : 'N/A'})
-                {oracleUsed && (
-                  <div className="text-xs text-slate-500 mt-1">Oracle used: {oracleUsed.slice(0,8)}...{oracleUsed.slice(-6)}</div>
+      <div className="sagitta-grid" style={{ gridTemplateColumns: 'repeat(2, 2fr)' }}>
+        {/* Cell 1 */}
+        <div className="sagitta-cell">
+        <h3>Total Principal Locked (USD)</h3>
+          <MetricGrid>
+            <MetricCard title="" value={`$${totalPrincipalLocked.toFixed(2)}`} tone="neutral" />
+            </MetricGrid>
+        </div>
+        {/* Cell 2 */}
+        <div className="sagitta-cell" style={{ gridRow: '2' }}>
+          <h3>Active Deposits</h3>
+            <MetricCard title="" value={lockedDeposits.length.toString()} tone="neutral" />
+         
+        </div>
+        {/* Cell 3 */}
+        <div className="sagitta-cell" style={{ gridRowStart: 'span 2' }}>
+          <div className="bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-lg p-6 border border-slate-700/50">
+            <h3 className="text-lg font-semibold mb-4 text-slate-200 flex items-center gap-2">
+              <ArrowDown size={20} className="text-emerald-400"/>New Deposit
+            </h3>
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+              <div className="relative w-full sm:w-auto flex-grow">
+                <input 
+                  type="number" 
+                  placeholder="Amount" 
+                  value={depositAmount}
+                  onChange={(e) => setDepositAmount(e.target.value)}
+                  disabled={isLoading}
+                  className="w-full pl-4 pr-16 py-3 rounded-full bg-slate-900/70 border border-slate-700 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/50 text-slate-200 placeholder-slate-500 outline-none transition-all disabled:opacity-50"
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold"> xcDOT</span>
+              </div>
+              <div style={{ height: 12 }} />
+              {/* Max deposit hint */}
+              <div className="w-full sm:w-auto text-sm text-slate-400">
+                {maxDepositToken !== null ? (
+                  <div>
+                    Max deposit: <span className="font-mono text-slate-200">{Number(formatUnits(maxDepositToken, assetDecimals)).toFixed(4)} xcDOT</span>
+                    {' '}(~${maxDepositUsd6 ? Number(formatUnits(maxDepositUsd6, 6)).toFixed(2) : 'N/A'})
+                    
+                  </div>
+                ) : (
+                  <div>Max deposit: N/A</div>
                 )}
               </div>
-            ) : (
-              <div>Max deposit: N/A</div>
-            )}
-          </div>
-
-          {needsApproval ? (
-            <div className="w-full sm:w-auto flex gap-3">
-              <button 
-                onClick={handleApprove}
-                disabled={!depositAmount || isLoading}
-                className="flex-1 px-6 py-3 rounded-full bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold transition-all duration-300 hover:shadow-[0_0_20px_theme(colors.amber.500)] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isLoading ? 'Processing...' : 'Approve mDOT'}
-              </button>
-              <button
-                onClick={handleApproveMax}
-                disabled={isLoading}
-                className="px-4 py-3 rounded-full bg-slate-700/60 border border-slate-600 text-slate-200 font-medium hover:bg-slate-700 disabled:opacity-50"
-              >
-                {isLoading ? 'Processing...' : 'Approve Max'}
-              </button>
+              <div style={{ height: 12 }} />
+              {needsApproval ? (
+                <div className="w-full sm:w-auto flex gap-3">
+                  <button 
+                    onClick={handleApprove}
+                    disabled={!depositAmount || isLoading}
+                    className="flex-1 px-6 py-3 rounded-full bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold transition-all duration-300 hover:shadow-[0_0_20px_theme(colors.amber.500)] disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isLoading ? 'Processing...' : 'Approve mDOT'}
+                  </button>
+                  <button
+                    onClick={handleApproveMax}
+                    disabled={isLoading}
+                    className="px-4 py-3 rounded-full bg-slate-700/60 border border-slate-600 text-slate-200 font-medium hover:bg-slate-700 disabled:opacity-50"
+                  >
+                    {isLoading ? 'Processing...' : 'Approve Max'}
+                  </button>
+                </div>
+              ) : (
+                <button 
+                  onClick={handleDeposit}
+                  disabled={!depositAmount || isLoading}
+                  className="w-full sm:w-auto px-8 py-3 rounded-full bg-gradient-to-r from-sky-500 to-indigo-600 text-white font-bold transition-all duration-300 hover:shadow-[0_0_20px_theme(colors.sky.500)] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isLoading ? 'Processing...' : 'Deposit mDOT'}
+                </button>
+              )}
             </div>
-          ) : (
+            <p className="mt-3 text-sm text-slate-400">
+              Deposits are automatically returned to your wallet at term end
+            </p>
+          </div>
+        </div>
+      </div>
+      <div className="sagitta-hero">
+        <div className="sagitta-cell">
+          <div className="flex justify-between items-center p-6">
+            <h3 className="text-lg font-semibold text-slate-200">Your Deposit Receipts</h3>
             <button 
-              onClick={handleDeposit}
-              disabled={!depositAmount || isLoading}
-              className="w-full sm:w-auto px-8 py-3 rounded-full bg-gradient-to-r from-sky-500 to-indigo-600 text-white font-bold transition-all duration-300 hover:shadow-[0_0_20px_theme(colors.sky.500)] disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={fetchReceipts}
+              disabled={isRefreshing}
+              className="p-2 rounded-lg bg-slate-700/50 hover:bg-slate-700 transition-colors disabled:opacity-50"
             >
-              {isLoading ? 'Processing...' : 'Deposit mDOT'}
+              <RefreshCw size={16} className={`text-slate-400 ${isRefreshing ? 'animate-spin' : ''}`} />
             </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left" style={{ width: '100%' }}>
+              <thead className="border-b-2 border-sky-700/40">
+                <tr className="text-sm text-slate-400">
+                  <th className="p-4"><Hash size={14} className="inline-block mr-1"/>ID</th>
+                  <th className="p-4"><Package size={14} className="inline-block mr-1"/>Asset</th>
+                  <th className="p-4"><ArrowDown size={14} className="inline-block mr-1"/>Principal</th>
+                  <th className="p-4"><DollarSign size={14} className="inline-block mr-1"/>Entry Value</th>
+                  <th className="p-4"><Clock size={14} className="inline-block mr-1"/>Unlock Date</th>
+                  <th className="p-4">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isRefreshing ? (
+                  <tr><td colSpan={7} className="p-8 text-center text-slate-400">Loading receipts...</td></tr>
+                ) : deposits.length === 0 ? (
+                  <tr><td colSpan={7} className="p-8 text-center text-slate-400">You have no deposits.</td></tr>
+                ) : (
+                  deposits.map((receipt) => (
+                    <tr key={receipt.id} className="text-sm text-slate-400">
+                      <td className="p-4 font-mono text-amber-300">#{receipt.id}</td>
+                      <td className="p-4 font-bold">{receipt.asset}</td>
+                      <td className="p-4 font-mono text-amber-300">
+                        {Number(formatUnits(receipt.principalAmount, assetDecimals)).toFixed(2)}
+                      </td>
+                      <td className="p-4 font-mono text-slate-300">${receipt.entryValueUsd.toFixed(2)}</td>
+                      
+                      <td className="p-4">{receipt.unlockDate.toLocaleDateString()}</td>
+                      <td className="p-4">
+                        {receipt.status === 'LOCKED' && (
+                          <span className="flex items-center gap-2 text-orange-400"><Lock size={14}/> Locked</span>
+                        )}
+                        {receipt.status === 'PENDING_RETURN' && (
+                          <span className="flex items-center gap-2 text-yellow-400"><Unlock size={14}/> Pending Return</span>
+                        )}
+                        {receipt.status === 'RETURNED' && (
+                          <span className="flex items-center gap-2 text-emerald-400"><Unlock size={14}/> Returned</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          {/* Auto-return info message */}
+          {deposits.some(r => r.status === 'PENDING_RETURN') && (
+            <div className="p-4 bg-yellow-900/30 border-t border-yellow-700 text-yellow-200 text-sm">
+              Some of your deposits have matured and are pending auto-return. Your principal will be automatically sent to your wallet soon.
+            </div>
           )}
         </div>
-        <p className="mt-3 text-sm text-slate-400">
-          Deposits are automatically returned to your wallet at term end
-        </p>
-      </div>
-
-      <div className="bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-lg border border-slate-700/50 overflow-hidden">
-        <div className="flex justify-between items-center p-6">
-          <h3 className="text-lg font-semibold text-slate-200">Your Deposit Receipts</h3>
-          <button 
-            onClick={fetchReceipts}
-            disabled={isRefreshing}
-            className="p-2 rounded-lg bg-slate-700/50 hover:bg-slate-700 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw size={16} className={`text-slate-400 ${isRefreshing ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="border-b-2 border-sky-700/40">
-              <tr className="text-sm text-slate-400">
-                <th className="p-4"><Hash size={14} className="inline-block mr-1"/>ID</th>
-                <th className="p-4"><Package size={14} className="inline-block mr-1"/>Asset</th>
-                <th className="p-4"><ArrowDown size={14} className="inline-block mr-1"/>Principal</th>
-                <th className="p-4"><DollarSign size={14} className="inline-block mr-1"/>Entry Value</th>
-                <th className="p-4">Shares (18d)</th>
-                <th className="p-4"><Clock size={14} className="inline-block mr-1"/>Unlock Date</th>
-                <th className="p-4">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isRefreshing ? (
-                <tr><td colSpan={7} className="p-8 text-center text-slate-400">Loading receipts...</td></tr>
-              ) : deposits.length === 0 ? (
-                <tr><td colSpan={7} className="p-8 text-center text-slate-400">You have no deposits.</td></tr>
-              ) : (
-                deposits.map((receipt) => (
-                  <tr key={receipt.id} className="hover:bg-slate-800/40 transition-colors duration-300 border-t border-slate-800">
-                    <td className="p-4 font-mono text-sky-400">#{receipt.id}</td>
-                    <td className="p-4 font-bold">{receipt.asset}</td>
-                    <td className="p-4 font-mono text-amber-300">
-                      {Number(formatUnits(receipt.principalAmount, assetDecimals)).toFixed(4)}
-                    </td>
-                    <td className="p-4 font-mono text-slate-300">${receipt.entryValueUsd.toFixed(2)}</td>
-                    <td className="p-4 font-mono text-slate-300">
-                      {Number(formatUnits(receipt.shares, 18)).toFixed(4)}
-                    </td>
-                    <td className="p-4">{receipt.unlockDate.toLocaleDateString()}</td>
-                    <td className="p-4">
-                      {receipt.status === 'LOCKED' && (
-                        <span className="flex items-center gap-2 text-orange-400"><Lock size={14}/> Locked</span>
-                      )}
-                      {receipt.status === 'PENDING_RETURN' && (
-                        <span className="flex items-center gap-2 text-yellow-400"><Unlock size={14}/> Pending Return</span>
-                      )}
-                      {receipt.status === 'RETURNED' && (
-                        <span className="flex items-center gap-2 text-emerald-400"><Unlock size={14}/> Returned</span>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        {/* Auto-return info message */}
-        {deposits.some(r => r.status === 'PENDING_RETURN') && (
-          <div className="p-4 bg-yellow-900/30 border-t border-yellow-700 text-yellow-200 text-sm">
-            Some of your deposits have matured and are pending auto-return. Your principal will be automatically sent to your wallet soon.
-          </div>
-        )}
       </div>
     </div>
   );

@@ -170,16 +170,12 @@ export default function EscrowTab() {
           getByStatus(4)
         ]);
 
-        console.log(`Fetched batches by status: pending=${Array.isArray(pending) ? pending.length : 'n/a'} running=${Array.isArray(running) ? running.length : 'n/a'} closed=${Array.isArray(closed) ? closed.length : 'n/a'} invested=${Array.isArray(invested) ? invested.length : 'n/a'}`);
-
         // If returned arrays are empty (contract missing function or ABI mismatch),
         // fallback to a full probe using dumpBatches to reconstruct lists.
         const totalFromStatusCalls = (Array.isArray(pending) ? pending.length : 0)
           + (Array.isArray(running) ? running.length : 0)
           + (Array.isArray(closed) ? closed.length : 0)
           + (Array.isArray(invested) ? invested.length : 0);
-
-        console.log(`Batch status call totals: pending=${Array.isArray(pending) ? pending.length : 'n/a'} running=${Array.isArray(running) ? running.length : 'n/a'} closed=${Array.isArray(closed) ? closed.length : 'n/a'} invested=${Array.isArray(invested) ? invested.length : 'n/a'} => total=${totalFromStatusCalls}`);
 
         if (totalFromStatusCalls === 0) {
           // probe a reasonable range: at least dumpLimit or currentPendingId + 5
@@ -877,147 +873,153 @@ export default function EscrowTab() {
 
   return (
     <div className="space-y-8 animate-fadeIn">
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-        <h2 className="text-3xl font-bold bg-gradient-to-r from-sky-400 via-indigo-500 to-violet-500 bg-clip-text text-transparent">
-          Escrow Management
-        </h2>
-        <div className="flex items-center gap-2 text-sm text-slate-400">
+      <div className="sagitta-hero">
+        <div className="sagitta-cell">
+          <h2 style={{ marginBlockStart: '0.3em' }}>Escrow Management</h2>
+          <div className="text-slate-400 text-sm mt-1">Monitor escrow batches and investments.</div>
+          <div style={{ height: 12 }} />
+          <div className="flex items-center gap-2 text-sm text-slate-400">
           <Clock size={16} />
-          <span>Last updated: {new Date().toLocaleTimeString()}</span>
-        </div>
-      </div>
-
-      <MetricGrid>
-          <div className="col-span-1"><MetricCard title="Escrow Address" value={escrowAddr ?? 'not set'} tone="neutral" /></div>
-          <div className="col-span-1"><MetricCard title="Escrow USDC Balance" value={escrowUsdc ? `$${(escrowUsdc / 1e6).toFixed(2)}` : '$0'} tone="neutral" /></div>
-        </MetricGrid>
-
-      <div className="grid md:grid-cols-3 gap-6">
-        <div className="bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-lg p-6 border border-slate-700/50">
-          <h3 className="text-lg font-semibold mb-4 text-slate-200">Start Batch</h3>
-          <p className="text-sm text-slate-400 mb-2">Roll the current pending batch into an active batch and request funds from Treasury (admin only).</p>
-          <button
-            onClick={handleStartBatch}
-            disabled={loading}
-            className="w-full px-6 py-3 rounded-full bg-gradient-to-r from-sky-500 to-indigo-600 text-white font-bold disabled:opacity-60"
-          >
-            {loading ? 'Submitting...' : 'Start Batch (rollToNewBatch)'}
-          </button>
-        </div>
-      </div>
-
-      {/* NEW: Active Batches */}
-      <div className="mt-6">
-        <h3 className="text-xl font-semibold text-slate-200">Active Batches</h3>
-        {activeBatches.filter((b:any)=>Number(b?.id)>0).length === 0 && <div className="text-slate-500 text-sm">No running batches</div>}
-         <div className="grid gap-3 mt-3">
-          {/* Pending batches first (filter out invalid id === 0) */}
-          
-
-          {/* Running batches */}
-           {activeBatches.map((b: any, i: number) => (
-             <div key={`running-${b?.id}-${i}`} className="p-3 bg-slate-800/50 rounded-lg border border-slate-700/40">
-               <div className="text-sm text-slate-200 font-mono">Batch #{String(b?.id ?? '0')}</div>
-               <div className="text-xs text-slate-400">Started: {b.startTime ? new Date(Number(b.startTime) * 1000).toLocaleString() : 'n/a'}</div>
-               <div className="text-sm mt-1">Collateral: {fmtUsd6(b.totalCollateralUsd)}</div>
-               <div className="text-xs text-slate-400">Shares: {String(b?.totalShares ?? '0')}</div>
-             </div>
-           ))}
-         </div>
-       </div>
-
-      {/* NEW: Keeper/Owner Controls */}
-      <div className="space-y-6 p-6">
-        
-        <div className="flex items-center justify-between">
-          <h3 className="text-2xl font-bold">Investment Escrow</h3>
-          
-        </div>
-
-        <div className="bg-slate-800 p-4 rounded">
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div>
-              <div className="text-sm text-slate-300 mb-2">Final NAV per share (1.10 = 10% Profit)</div>
-              
-              <label className="text-sm text-slate-300">Batch ID </label>
-              <input className="w-full mt-1 p-2 rounded bg-slate-900" value={batchIdInput} onChange={e => setBatchIdInput(e.target.value)} placeholder="Batch ID" />
-              <label className="text-sm text-slate-300 mt-2 block"> </label>
-              <input className="w-full mt-1 p-2 rounded bg-slate-900" value={navInput} onChange={e => setNavInput(e.target.value)} placeholder="1.05" />
-              
-              <div className="flex gap-2 mt-3">
-                <button
-                  className="px-4 py-2 bg-rose-600 text-white rounded"
-                  onClick={investBatch}
-                  disabled={loading}
-                >
-                  Invest Batch (burn escrow USDC)
-                </button>
-              </div>
-              
-              
-            </div>
-            <div>
-              <div className="text-sm text-slate-300 mb-2">Investments return USDC to the Escrow contract</div>
-              <div className="flex gap-2 mt-3">
-                <button className="px-4 py-2 bg-emerald-600 text-white rounded" onClick={depositReturnForBatch} disabled={loading}>Deposit Returns</button>
-              </div>
-            </div>
+            <span>Last updated: {new Date().toLocaleTimeString()}</span>
           </div>
         </div>
       </div>
+      
+      <div>
+        <div className="sagitta-grid">
+          {/* Cell 1 */}
+          <div className="sagitta-cell" style={{ minHeight: '200px' }}>
+            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Details</h3>
+            <MetricGrid>
+              <div className="col-span-1"><MetricCard title="Escrow Address" value={escrowAddr ?? 'not set'} tone="neutral" /></div>
+              <div style={{ height: 12 }} />
+              <div className="col-span-1"><MetricCard title="Escrow USDC Balance" value={escrowUsdc ? `$${(escrowUsdc / 1e6).toFixed(2)}` : '$0'} tone="neutral" /></div>
+            </MetricGrid>
+          </div>
 
-      {/* NEW: Invested Batches (status = 4) */}
-      <div className="mt-6">
-        <h3 className="text-xl font-semibold text-slate-200">Invested Batches</h3>
-        {investedBatches.length === 0 && <div className="text-slate-500 text-sm">No invested batches</div>}
-        <div className="grid gap-3 mt-3">
-          {investedBatches.map((b: any, i: number) => (
-            <div key={`invested-${b?.id}-${i}`} className="p-3 bg-emerald-900/10 rounded-lg border border-emerald-700/20">
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-slate-200 font-mono">Batch #{String(b?.id ?? '0')}</div>
-                <div className="text-xs text-emerald-300 font-semibold">Invested</div>
-              </div>
-              <div className="text-xs text-slate-400">Started: {b.startTime ? new Date(Number(b.startTime) * 1000).toLocaleString() : 'n/a'}</div>
-              <div className="text-sm mt-1">Collateral: {fmtUsd6(b.totalCollateralUsd)}</div>
-              <div className="text-xs text-slate-400">Shares: {String(b?.totalShares ?? '0')}</div>
-            </div>
-          ))}
-        </div>
-      </div>
+          {/* Cell 2 */}
+          <div className="sagitta-cell" style={{ minHeight: '200px' }}>
+            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Start Batch Manually</h3>
+            <p className="text-sm text-slate-400 mb-2">Roll the current pending batch into an active batch and request funds from Treasury (admin only).</p>
+            <button
+              onClick={handleStartBatch}
+              disabled={loading}
+              className="w-full px-6 py-3 rounded-full bg-gradient-to-r from-sky-500 to-indigo-600 text-white font-bold disabled:opacity-60"
+            >
+              {loading ? 'Submitting...' : 'Start Batch'}
+            </button>
+          </div>
 
-      {/* NEW: Closed Batches with results */}
-      <div className="mt-6">
-        <h3 className="text-xl font-semibold text-slate-200">Closed Batches (Results)</h3>
-        {closedBatches.length === 0 && <div className="text-slate-500 text-sm">No closed batches</div>}
-        <div className="grid gap-3 mt-3">
-          {closedBatches.map(({ batch, result }, i) => (
-            <div key={batch.id.toString() + i} className="p-3 bg-slate-800/50 rounded-lg border border-slate-700/40">
-              <div className="flex justify-between items-center">
-                <div className="text-sm text-slate-200 font-mono">Batch #{batch.id.toString()}</div>
-                <div className="text-xs text-slate-400">Closed: {new Date(Number(batch.endTime) * 1000).toLocaleString()}</div>
-              </div>
-              <div className="mt-1 text-sm">Principal: {fmtUsd6(batch.totalCollateralUsd)}</div>
-              {result ? (
-                <div className="text-sm mt-1">
-                  Final Value: {fmtUsd6(result.finalValueUsd)} • Profit: {fmtUsd6(result.profitUsd)} • User: {fmtUsd6(result.userProfitUsd)} • Fee: {fmtUsd6(result.feeUsd)}
+          {/* Cell 3 */}
+          <div className="sagitta-cell" style={{ minHeight: '200px' }}>
+            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Investment Escrow</h3>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <div className="text-sm text-slate-300 mb-2">Final NAV per share (1.10 = 10% Profit)</div>
+                <div style={{ height: 12 }} />
+                <label className="text-sm text-slate-300">Batch ID </label>
+                <input className="w-full mt-1 p-2 rounded bg-slate-900" value={batchIdInput} onChange={e => setBatchIdInput(e.target.value)} placeholder="Batch ID" />
+                <label className="text-sm text-slate-300 mt-2 block"> </label>
+                <input className="w-full mt-1 p-2 rounded bg-slate-900" value={navInput} onChange={e => setNavInput(e.target.value)} placeholder="1.05" />
+                <div style={{ height: 12 }} />
+                <div className="flex gap-2 mt-3">
+                  <button
+                    className="px-4 py-2 bg-rose-600 text-white rounded"
+                    onClick={investBatch}
+                    disabled={loading}
+                  >
+                    Invest Batch (burn escrow USDC)
+                  </button>
                 </div>
-              ) : (
-                <div className="text-sm mt-1 text-slate-400">Result unavailable</div>
-              )}
+                <div style={{ height: 12 }} />
+              </div>
+              <div>
+                <div className="text-sm text-slate-300 mb-2">Investments return USDC to the Escrow contract</div>
+                <div style={{ height: 12 }} />
+                <div className="flex gap-2 mt-3">
+                  <button className="px-4 py-2 bg-emerald-600 text-white rounded" onClick={depositReturnForBatch} disabled={loading}>Deposit Returns</button>
+                </div>
+              </div>
             </div>
-          ))}
+          </div>
+
+          {/* Cell 4 */}
+          <div className="sagitta-cell" style={{ minHeight: '200px' }}>
+            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Active Batches</h3>
+            {activeBatches.filter((b:any)=>Number(b?.id)>0).length === 0 && <div className="text-slate-500 text-sm">No running batches</div>}
+            <div className="grid gap-3 mt-3">
+              {/* Running batches */}
+              {activeBatches.map((b: any, i: number) => (
+                <div key={`running-${b?.id}-${i}`} className="p-3 bg-slate-800/50 rounded-lg border border-slate-700/40">
+                  <div className="text-sm text-slate-200 font-mono">Batch #{String(b?.id ?? '0')}</div>
+                  <div className="text-xs text-slate-400">Started: {b.startTime ? new Date(Number(b.startTime) * 1000).toLocaleString() : 'n/a'}</div>
+                  <div className="text-sm mt-1">Collateral: {fmtUsd6(b.totalCollateralUsd)}</div>
+                  <div className="text-xs text-slate-400">Shares: {String(b?.totalShares ?? '0')}</div>
+                </div>
+              ))}
+              </div>
+          </div>
+
+          {/* Cell 5 */}
+          <div className="sagitta-cell" style={{ minHeight: '200px' }}>
+            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Invested Batches</h3>
+            {investedBatches.length === 0 && <div className="text-slate-500 text-sm">No invested batches</div>}
+            <div className="grid gap-3 mt-3">
+              {investedBatches.map((b: any, i: number) => (
+                <div key={`invested-${b?.id}-${i}`} className="p-3 bg-emerald-900/10 rounded-lg border border-emerald-700/20">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-slate-200 font-mono">Batch #{String(b?.id ?? '0')}</div>
+                    <div className="text-xs text-emerald-300 font-semibold">Invested</div>
+                  </div>
+                  <div className="text-xs text-slate-400">Started: {b.startTime ? new Date(Number(b.startTime) * 1000).toLocaleString() : 'n/a'}</div>
+                  <div className="text-sm mt-1">Collateral: {fmtUsd6(b.totalCollateralUsd)}</div>
+                  <div className="text-xs text-slate-400">Shares: {String(b?.totalShares ?? '0')}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Cell 6 */}
+          <div className="sagitta-cell" style={{ minHeight: '200px' }}>
+            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Closed Batches</h3>
+            {closedBatches.length === 0 && <div className="text-slate-500 text-sm">No closed batches</div>}
+            <div className="grid gap-3 mt-3">
+              {closedBatches.map(({ batch, result }, i) => (
+                <div key={batch.id.toString() + i} className="p-3 bg-slate-800/50 rounded-lg border border-slate-700/40">
+                  <div className="flex justify-between items-center">
+                    <div className="text-sm text-slate-200 font-mono">Batch #{batch.id.toString()}</div>
+                    <div className="text-xs text-slate-400">Closed: {new Date(Number(batch.endTime) * 1000).toLocaleString()}</div>
+                  </div>
+                  <div className="mt-1 text-sm">Principal: {fmtUsd6(batch.totalCollateralUsd)}</div>
+                  {result ? (
+                    <div className="text-sm mt-1">
+                      Final Value: {fmtUsd6(result.finalValueUsd)} • Profit: {fmtUsd6(result.profitUsd)} • User: {fmtUsd6(result.userProfitUsd)} • Fee: {fmtUsd6(result.feeUsd)}
+                    </div>
+                  ) : (
+                    <div className="text-sm mt-1 text-slate-400">Result unavailable</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
         </div>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-6">
-        <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
-          Escrow Log
-        </h3>
-        
-        {log.length === 0 && <div className="text-slate-500">No actions yet.</div>}
-        {log.map((entry, i) => (
-          <div key={i} className="mb-1">{entry}</div>
-        ))}
+      {/* Engine Log */}
+      <div className="sagitta-hero">
+        <div className="sagitta-cell">
+          <div className="bg-slate-900/80 rounded-xl p-4 border border-slate-700/50 max-h-56 overflow-y-auto text-xs text-slate-300 font-mono">
+            
+            <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
+            Escrow Log
+            </h3>
+            {log.length === 0 && <div className="text-slate-500">No actions yet.</div>}
+            {log.map((entry, i) => (
+              <div key={i} className="mb-1">{entry}</div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

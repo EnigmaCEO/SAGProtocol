@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>Code coverage report for contracts\SAGToken.sol</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../prettify.css" />
+    <link rel="stylesheet" href="../base.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+<body>
+<div class='wrapper'>
+  <div class='pad1'>
+    <h1>
+      <a href="../index.html">all files</a> / <a href="index.html">contracts/</a> SAGToken.sol
+    </h1>
+    <div class='clearfix'>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">0% </span>
+        <span class="quiet">Statements</span>
+        <span class='fraction'>0/9</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">0% </span>
+        <span class="quiet">Branches</span>
+        <span class='fraction'>0/16</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">0% </span>
+        <span class="quiet">Functions</span>
+        <span class='fraction'>0/5</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">0% </span>
+        <span class="quiet">Lines</span>
+        <span class='fraction'>0/10</span>
+      </div>
+    </div>
+  </div>
+  <div class='status-line low'></div>
+<pre><table class="coverage">
+<tr><td class="line-count quiet">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43</td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+&nbsp;
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+&nbsp;
+contract SAGToken is ERC20, Ownable {
+    // Event emitted when the treasury address is set
+    event TreasurySet(address indexed treasury);
+&nbsp;
+    // Address of the treasury
+    address public treasury;
+&nbsp;
+    // Constructor to initialize the token name and symbol
+<span class="fstat-no" title="function not covered" >    constructor() ERC20("SAG Token", "SAG") Ownable(msg.sender) {}</span>
+&nbsp;
+    // Function to set the treasury address, callable only by the owner
+<span class="fstat-no" title="function not covered" >    function setTreasury(address _treasury) external onlyOwner {</span>
+<span class="cstat-no" title="statement not covered" >        require(_treasury != address(0), "Treasury address cannot be zero")</span>;
+        treasury = _treasury;
+<span class="cstat-no" title="statement not covered" >        emit TreasurySet(_treasury);</span>
+    }
+&nbsp;
+    // Function to mint new tokens, callable only by the owner
+<span class="fstat-no" title="function not covered" >    function mint(address to, uint256 amount) external onlyOwner {</span>
+<span class="cstat-no" title="statement not covered" >        require(to != address(0), "Cannot mint to the zero address")</span>;
+<span class="cstat-no" title="statement not covered" >        require(amount &gt; 0, "Mint amount must be greater than zero")</span>;
+<span class="cstat-no" title="statement not covered" >        _mint(to, amount)</span>;
+    }
+&nbsp;
+    // Function to burn tokens, callable only by the owner
+<span class="fstat-no" title="function not covered" >    function burn(address from, uint256 amount) external onlyOwner {</span>
+<span class="cstat-no" title="statement not covered" >        require(from != address(0), "Cannot burn from the zero address")</span>;
+<span class="cstat-no" title="statement not covered" >        require(amount &gt; 0, "Burn amount must be greater than zero")</span>;
+<span class="cstat-no" title="statement not covered" >        _burn(from, amount)</span>;
+    }
+&nbsp;
+    // Function to mint tokens for testing or development purposes
+<span class="fstat-no" title="function not covered" >    function faucetMint(address to, uint256 amount) external {</span>
+<span class="cstat-no" title="statement not covered" >        _mint(to, amount)</span>;
+    }
+}
+&nbsp;</pre></td></tr>
+</table></pre>
+<div class='push'></div><!-- for sticky footer -->
+</div><!-- /wrapper -->
+<div class='footer quiet pad2 space-top1 center small'>
+  Code coverage
+  generated by <a href="http://istanbul-js.org/" target="_blank">istanbul</a> at Sun Nov 16 2025 07:32:03 GMT-0500 (Colombia Standard Time)
+</div>
+</div>
+<script src="../prettify.js"></script>
+<script>
+window.onload = function () {
+        if (typeof prettyPrint === 'function') {
+            prettyPrint();
+        }
+};
+</script>
+<script src="../sorter.js"></script>
+</body>
+</html>

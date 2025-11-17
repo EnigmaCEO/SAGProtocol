@@ -9,6 +9,8 @@ body,
   width: 100%;
   margin: 0;
   padding: 5px;
+  background-color: #000000;
+  color: white;
 }
 
 @layer base {
@@ -29,6 +31,72 @@ body,
   }
   .input-field {
     @apply bg-slate-800 border border-slate-700 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500;
+  }
+
+  /* SAGITTA specific header/nav/tab classes */
+  .sagitta-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .sagitta-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+    font-size: 1.25rem; /* matches text-2xl roughly */
+    font-weight: 700;
+  }
+
+  .sagitta-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+  }
+
+  .sagitta-tab {
+    @apply inline-flex items-center gap-2 px-2 py-1 rounded text-slate-400;
+    white-space: nowrap;
+    background: transparent;
+    border: none;
+    width: auto;
+  }
+
+  .sagitta-tab--active {
+    @apply text-sky-300;
+    background: transparent;
+    border-bottom: 2px solid rgba(255,255,255,1);
+  }
+
+  /* Treasury grid / cell classes to replace inline styles */
+  .sagitta-hero {
+    margin-top: 12px;
+    display: grid;
+    grid-template-columns: repeat(1, 1fr);
+    grid-auto-rows: min-content;
+    gap: 12px;
+    width: 90%;
+  }
+
+  .sagitta-grid {
+    margin-top: 12px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: max-content;
+    gap: 12px;
+    align-items: start;
+    width: 90%;
+  }
+
+  .sagitta-cell {
+    padding: 12px;
+    background: #050024;
+    border-radius: 8px;
+    border: 1px solid rgba(71,85,105,0.16);
   }
 }
 

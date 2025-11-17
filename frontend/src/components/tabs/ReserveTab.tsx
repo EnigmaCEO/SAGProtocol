@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ethers } from 'ethers';
 import MetricGrid from '../ui/MetricGrid';
 import MetricCard from '../ui/MetricCard';
-import { Clock, Scale, Gem, DollarSign } from 'lucide-react';
+import { Clock, Scale, Gem, DollarSign, Globe } from 'lucide-react';
 import ReserveControllerAbi from '../../lib/abis/ReserveController.json';
 import GOLDAbiFile from '../../lib/abis/GOLD.json';
 import GoldOracleAbiFile from '../../lib/abis/GoldOracle.json';
@@ -274,25 +274,42 @@ export default function ReserveTab() {
 
   return (
     <div className="space-y-8 animate-fadeIn">
-      
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-        <h2 className="text-3xl font-bold bg-gradient-to-r from-sky-400 via-indigo-500 to-violet-500 bg-clip-text text-transparent">
-          Reserve Status
-        </h2>
-        <div className="flex items-center gap-2 text-sm text-slate-400">
-          <Clock size={16} />
-          <span>Last updated: {new Date().toLocaleTimeString()}</span>
+      <div className="sagitta-hero">
+        <div className="sagitta-cell">
+          <h2 style={{ marginBlockStart: '0.3em' }}>Gold Reserve</h2>
+          <div className="text-slate-400 text-sm mt-1">Monitor gold reserves.</div>
+          <div style={{ height: 12 }} />
+          <div className="flex items-center gap-2 text-sm text-slate-400">
+            <Clock size={16} />
+            <span> Last updated: {new Date().toLocaleTimeString()}</span>
+          </div>
         </div>
       </div>
-
-      <MetricGrid>
-        <MetricCard title="Net Asset Value (NAV)" value={formatUsd(nav)} tone="success" icon={<DollarSign />} />
-        <MetricCard title="Gold Balance" value={`${goldBalance.toLocaleString()} oz`} tone="neutral" icon={<Gem />} />
-        <MetricCard title="GOLD Value (USD)" value={formatUsd(goldValueUsd)} tone="neutral" icon={<DollarSign />} />
-        <MetricCard title="Oracle Price" value={formatUsd(oraclePrice)} tone="neutral" />
-        <MetricCard title="Reserve / Treasury" value={`${coverageRatio.toFixed(1)}%`} tone="success" icon={<Scale />} />
-      </MetricGrid>
-
+      <div className="sagitta-grid" style={{ gridTemplateColumns: 'repeat(4, 2fr)' }}>
+        {/* Cell 1 */}
+        <div className="sagitta-cell">
+        <h3>Reserve Value (USD)</h3>
+          <MetricGrid>
+          <MetricCard title="" value={formatUsd(nav)} tone="success" icon={<DollarSign />} />
+          
+            </MetricGrid>
+        </div>
+        {/* Cell 2 */}
+        <div className="sagitta-cell">
+          <h3>Gold Balance</h3>
+          <MetricCard title="" value={`${goldBalance.toLocaleString()} oz`} tone="neutral" icon={<Gem />} />
+        </div>
+        {/* Cell 3 */}
+        <div className="sagitta-cell">
+          <h3>Oracle Price</h3>
+          <MetricCard title="" value={formatUsd(oraclePrice)} tone="neutral" icon={<Globe />} />
+        </div>
+        {/* Cell 4 */}
+        <div className="sagitta-cell">
+          <h3>Reserve / Treasury %</h3>
+          <MetricCard title="" value={`${coverageRatio.toFixed(1)}%`} tone="success" icon={<Scale />} />
+        </div>
+      </div>
     </div>
   );
 }
