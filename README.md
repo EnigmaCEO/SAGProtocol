@@ -41,6 +41,7 @@ This enables:
 ## ⚙️ System Architecture
 Sagitta is a layered economic engine built for Polkadot:
 
+```bash
 DOT (Relay Chain)
    ↓ XCM
 xcDOT on Moonbeam
@@ -80,6 +81,7 @@ xcDOT on Moonbeam
 │  - Insurance + Rebalancing    │
 │  - Value buffer for Treasury  │
 └───────────────────────────────┘
+```
 
 ## 🏦 The Vault — Trustless xcDOT Custody
 

@@ -78,8 +78,8 @@ export default function UserTab() {
   const [allowance, setAllowance] = useState<bigint>(BigInt(0));
   const [isLoading, setIsLoading] = useState(false);
   const [contractError, setContractError] = useState<string | null>(null);
-  const [tokenDecimals, setTokenDecimals] = useState<number>(6); // default to 6 for mDOT
-  const [assetDecimals, setAssetDecimals] = useState<number>(6); // default to 6 for mDOT
+  const [tokenDecimals, setTokenDecimals] = useState<number>(6); // default to 6 for xcDOT
+  const [assetDecimals, setAssetDecimals] = useState<number>(6); // default to 6 for xcDOT
 
   // max deposit (USD6) and equivalent token amount
   const [maxDepositUsd6, setMaxDepositUsd6] = useState<bigint | null>(null);
@@ -97,7 +97,7 @@ export default function UserTab() {
   useEffect(() => {
     async function fetchBalances() {
       try {
-        // mDOT balance
+        // xcDOT balance
         const mdotRaw = await publicClient.readContract({
           address: MOCK_DOT_ADDRESS as `0x${string}`,
           abi: MOCK_DOT_ABI,
@@ -233,7 +233,7 @@ export default function UserTab() {
         setMaxDepositUsd6(treasuryUsdVal);
         const treasuryUsd6 = treasuryUsdVal;
 
-        // Read Vault asset info for mDOT to determine decimals and oracle
+        // Read Vault asset info for xcDOT to determine decimals and oracle
         const assetInfo = await publicClient.readContract({
           address: VAULT_ADDRESS as `0x${string}`,
           abi: VAULT_ABI,
@@ -268,7 +268,7 @@ export default function UserTab() {
 
         if (candidates.length === 0) {
           // keep previous maxDepositToken / oracleUsed and surface error
-          setContractError(`No oracle configured for mDOT. Update Vault.assets(mDOT) or frontend/src/lib/addresses.ts with a valid oracle address.`);
+          setContractError(`No oracle configured for xcDOT. Update Vault.assets(xcDOT) or frontend/src/lib/addresses.ts with a valid oracle address.`);
           return;
         }
 
@@ -480,7 +480,7 @@ export default function UserTab() {
       
       await publicClient.waitForTransactionReceipt({ hash });
       await fetchData();
-      alert('Minted 1000 mDOT successfully!');
+      alert('Minted 1000 xcDOT successfully!');
     } catch (error) {
       console.error('Error minting DOT:', error);
       alert('Failed to mint DOT');
@@ -529,7 +529,7 @@ export default function UserTab() {
       });
       await publicClient.waitForTransactionReceipt({ hash });
       await fetchData();
-      alert('Approved maximum mDOT allowance!');
+      alert('Approved maximum xcDOT allowance!');
     } catch (error) {
       console.error('Error approving max:', error);
       alert('Failed to approve max');
@@ -650,7 +650,7 @@ export default function UserTab() {
             disabled={isLoading}
             className="px-4 py-2 rounded-full bg-violet-600/20 hover:bg-violet-600/30 border border-violet-500/50 text-violet-300 transition-all disabled:opacity-50"
           >
-            Mint 1000 mDOT
+            Mint 1000 xcDOT
           </button>
           </div>
         </div>
@@ -709,7 +709,7 @@ export default function UserTab() {
                     disabled={!depositAmount || isLoading}
                     className="flex-1 px-6 py-3 rounded-full bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold transition-all duration-300 hover:shadow-[0_0_20px_theme(colors.amber.500)] disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isLoading ? 'Processing...' : 'Approve mDOT'}
+                    {isLoading ? 'Processing...' : 'Approve xcDOT'}
                   </button>
                   <button
                     onClick={handleApproveMax}
@@ -725,7 +725,7 @@ export default function UserTab() {
                   disabled={!depositAmount || isLoading}
                   className="w-full sm:w-auto px-8 py-3 rounded-full bg-gradient-to-r from-sky-500 to-indigo-600 text-white font-bold transition-all duration-300 hover:shadow-[0_0_20px_theme(colors.sky.500)] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isLoading ? 'Processing...' : 'Deposit mDOT'}
+                  {isLoading ? 'Processing...' : 'Deposit xcDOT'}
                 </button>
               )}
             </div>
