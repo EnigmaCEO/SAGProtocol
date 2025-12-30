@@ -96,8 +96,13 @@ Sagitta is built to function when conditions deteriorate, not only when they are
 
 ### Summary
 
-Sagitta Protocol defines a new class of financial infrastructure: **insured, autonomous, and continuity-governed capital allocation**.
+Sagitta Protocol defines a new class of financial infrastructure: **reserve-backed, autonomous, and continuity-governed capital allocation**.
 
-By enforcing fiduciary discipline through architecture, reserves, and protocol law, Sagitta transforms capital management from a trust-based activity into a survivable system.
+Fiduciary discipline is enforced directly through system architecture, protocol law, and capital reserves, transforming capital management from a trust-based activity into a survivable, self-regulating system.
 
-The protocol exists to ensure that **capital remains protected, accountable, and continuous across all states of operation**.
+The protocol exists to ensure that capital remains **protected, accountable, and continuous** across all states of operation.
+
+***
+
+**Author:** Alexander Demetrius Roth\
+**Contributors:** Orion Gray
