@@ -1,7 +1,5 @@
 # Executive Summary
 
-## Executive Summary
-
 Sagitta Protocol is an autonomous, fiduciary-grade investment engine that enforces trustless capital management through continuity governance and gold-backed insurance.
 
 The protocol is designed to preserve capital, discipline risk, and survive systemic failure through architecture rather than discretion. Sagitta restructures capital allocation as an insured, rule-bound, and continuity-governed system instead of a market-dependent or trust-based arrangement.
