@@ -1,6 +1,8 @@
 # Table of contents
 
-* [Sagitta Protocol](README.md)
+* [Executive Summary](README.md)
+* [Sagitta Protocol](<README (1).md>)
+* [Scope & Non-Banking Clarification](scope-and-non-banking-clarification.md)
 * [Fiduciary Alignment](fiduciary-alignment.md)
 * [Vault](vault.md)
 * [Treasury](treasury.md)
