@@ -31,7 +31,7 @@ This matrix describes **what happens**, not **how it is implemented**.
 | **Infrastructure Failure**            | Chain halt, RPC failure, or network outage                                     | Continuity Engine            | Execution halt; evacuation; reconstitution                                 | Principal preserved                       |
 | **Multi-Component Failure**           | Concurrent subsystem failures                                                  | Continuity Engine            | Evacuation; degradation; phased recovery                                   | Principal preserved                       |
 | **Catastrophic System Event**         | Extreme external or systemic shock                                             | Continuity Engine            | Full evacuation; reserve enforcement; reconstitution                       | Principal preserved                       |
-| Blockchain Failure                    | Chain halt, consensus failure, censorship, or irrecoverable network disruption | Continuity Engine            | Execution halt; asset evacuation; chain substitution; state reconstitution | Principal preserved                       |
+| **Blockchain Failure**                | Chain halt, consensus failure, censorship, or irrecoverable network disruption | Continuity Engine            | Execution halt; asset evacuation; chain substitution; state reconstitution | Principal preserved                       |
 
 ***
 
