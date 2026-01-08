@@ -205,15 +205,11 @@ Reserve-relative settlement is suspended only when Reserve values approach minim
 
 ### 12. Reserve Ratio Enforcement (2:1)
 
-The Treasury enforces a **Reserve collateralization target of 2:1**.
+The Treasury enforces a reserve collateralization target of 2:1 relative to net principal exposure.
 
-For every unit of deployed, risk-bearing capital, two units of Reserve value are maintained.
+For every unit of principal exposure authorized by the Treasury, a minimum of two units of Reserve value are maintained as insurance backing.
 
-Reserve enforcement occurs through:
-
-* batch sizing adjustments,
-* Treasury Token market operations,
-* direct Reserve rebalancing actions.
+Reserve ratio enforcement occurs through batch sizing adjustments, Treasury Token market operations, and direct Reserve rebalancing actions.
 
 Reserve discipline is mechanical and continuous.
 

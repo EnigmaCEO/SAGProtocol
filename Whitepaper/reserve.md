@@ -53,24 +53,7 @@ Reserve assets are isolated from allocation capital and are never deployed for y
 
 ***
 
-### 5. Reserve Ratio Doctrine (2:1)
-
-The Sagitta Reserve enforces a **target insurance coverage ratio of 2:1**.
-
-For every unit of Stability Units deployed into risk-bearing allocation or held as depositor principal, the Reserve maintains two units of Reserve value.
-
-This ratio governs:
-
-* maximum deposit acceptance
-* allocation batch sizing
-* Treasury liquidity formation
-* protocol growth rate
-
-Reserve ratio enforcement ensures that deposit insurance coverage scales mechanically with system exposure.
-
-***
-
-### 6. Reserve Snapshotting
+### 5. Reserve Snapshotting
 
 At the initiation of each allocation batch, the Treasury records a **snapshot of Reserve value**, denominated in Stability Units.
 
@@ -84,7 +67,7 @@ Snapshotting ensures that Reserve obligations are evaluated consistently across 
 
 ***
 
-### 7. Loss Absorption and Insurance Payout
+### 6. Loss Absorption and Insurance Payout
 
 When allocation outcomes or system failures impair deployed capital, the Reserve absorbs losses according to insurance doctrine.
 
@@ -98,7 +81,7 @@ Reserve payouts restore depositor principal to Vault balances or alternative cus
 
 ***
 
-### 8. Reserve-Relative Yield Substitution
+### 7. Reserve-Relative Yield Substitution
 
 When active allocation underperforms while Reserve assets appreciate over the same interval, a portion of Reserve appreciation is credited to depositors as **substituted yield**.
 
@@ -112,7 +95,7 @@ Substituted yield is capped and sourced exclusively from Reserve gains.
 
 ***
 
-### 9. Vault Failure Protection
+### 8. Vault Failure Protection
 
 In the event of Vault system failure, compromise, or irrecoverable fault, the Reserve activates **deposit insurance settlement**.
 
@@ -126,7 +109,7 @@ Vault failure does not impair depositor claims.
 
 ***
 
-### 10. Reserve Replenishment
+### 9. Reserve Replenishment
 
 The Reserve is replenished through:
 
@@ -138,7 +121,7 @@ Reserve replenishment is prioritized before protocol expansion or Treasury Token
 
 ***
 
-### 11. Interaction With Treasury Token
+### 10. Interaction With Treasury Token
 
 The Reserve operates independently of Treasury Token price, liquidity, or market perception.
 
@@ -148,7 +131,7 @@ This separation preserves insurance integrity during token market stress.
 
 ***
 
-### 12. Continuity Integration
+### 11. Continuity Integration
 
 The Sagitta Continuity Engine monitors Reserve health continuously.
 
@@ -163,7 +146,7 @@ Depositor protection remains the highest-order invariant under continuity events
 
 ***
 
-### 13. Standalone Interpretation
+### 12. Standalone Interpretation
 
 The Sagitta Reserve may be deployed independently as:
 
@@ -176,7 +159,7 @@ The Reserve enforces depositor trust through capital, not promises.
 
 ***
 
-### 14. Summary
+### 13. Summary
 
 The Sagitta Reserve is the **insurance foundation** of the protocol.
 
