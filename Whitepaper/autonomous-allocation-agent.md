@@ -6,204 +6,212 @@ description: Quantitative Analytical Intelligence Layer for Capital Evaluation
 
 ### 1. Mandate
 
-The Autonomous Allocation Agent is the quantitative **analytical intelligence layer** of the Sagitta Protocol.
+The Autonomous Allocation Agent (AAA) is the quantitative analytical intelligence layer of the **Sagitta Protocol**.
 
-Its mandate is to evaluate allocation opportunities, model risk and performance outcomes, and provide structured intelligence to the Treasury for capital routing decisions. The agent enhances allocation quality through continuous analysis while operating within defined system constraints.
+Its mandate is to evaluate allocation opportunities, model risk and performance outcomes, and produce structured, explainable intelligence for capital routing decisions—while operating strictly within system-defined doctrine, constraints, and survivability guarantees.
 
-The Autonomous Allocation Agent informs decisions.\
-The Treasury commits capital.
+The Autonomous Allocation Agent **informs decisions**.\
+The Treasury **commits capital**.
+
+AAA exists to ensure that all risk-bearing decisions are taken consciously, evaluated rigorously, and justified relative to protection mechanisms.
 
 ***
 
 ### 2. Position Within the Sagitta System
 
-The Autonomous Allocation Agent operates as a **non-custodial, non-executing analytical office** within the protocol.
+The Autonomous Allocation Agent operates as a **non-custodial, non-executing analytical office** within the Sagitta system architecture.
 
-* The **Sagitta Vault** records deposits and enforces accounting rules
-* The **Sagitta Treasury** forms liquidity, allocates capital, and settles outcomes
-* The **Sagitta Reserve** insures deposits and absorbs underperformance
-* The **Sagitta Escrow** executes capital deployment
+System roles are explicitly separated:
+
+* The **Vault** records deposits and enforces accounting invariants
+* The **Treasury** forms liquidity, sizes batches, allocates capital, and settles outcomes
+* The **Reserve** provides insurance coverage and absorbs underperformance
+* The **Escrow** executes capital deployment under Treasury authority
 * The **Autonomous Allocation Agent** evaluates strategies and outcomes
-* The **Sagitta Continuity Engine** governs system behavior under failure
+* The **Continuity Engine** governs behavior under failure and crisis states
 
-The agent exists upstream of execution and downstream of policy, translating strategy space into actionable insight.
+AAA exists **upstream of execution and downstream of policy**, translating policy-defined strategy space into actionable intelligence without authority to move capital.
 
 ***
 
 ### 3. Scope of Analysis
 
-The Autonomous Allocation Agent evaluates candidate allocation strategies across multiple dimensions, including:
+The Autonomous Allocation Agent evaluates candidate allocation strategies across multiple analytical dimensions, including:
 
-* expected return profiles
-* volatility and drawdown characteristics
-* liquidity and duration properties
-* counterparty and execution risk
-* correlation with Reserve assets
-* historical and simulated performance
+* expected return distributions
+* volatility, drawdown, and tail risk characteristics
+* liquidity, duration, and exit sensitivity
+* counterparty, execution, and operational risk
+* correlation with Reserve and Treasury assets
+* historical, simulated, and regime-conditioned performance
 
-Analysis is performed across defined time horizons aligned with allocation batch cadence.
+Analysis is performed across time horizons aligned with Treasury batch cadence and continuity posture.
 
 ***
 
 ### 4. Quantitative Foundation
 
-The Autonomous Allocation Agent is grounded in **quantitative finance methodologies** traditionally employed by professional asset managers, risk desks, and portfolio construction teams.
+AAA is grounded in **institutional quantitative finance methodologies** employed by professional asset managers, risk desks, and portfolio construction teams.
 
-Its analytical core reflects established quant practices, including:
+Its analytical core operationalizes established practices, including:
 
-* factor-based return analysis
+* factor-based return attribution
 * volatility and drawdown modeling
 * correlation and covariance analysis
 * scenario and regime simulation
 * risk-adjusted performance metrics
 * capital efficiency and duration modeling
 
-These methods provide a mathematically rigorous baseline for evaluating allocation strategies across diverse market conditions.
-
 The agent does not invent financial theory.\
-It operationalizes it at scale.
+It **scales** disciplined quantitative reasoning under constraint.
 
 ***
 
 ### 5. Human–Quant–Machine Alignment
 
-Sagitta treats quantitative intelligence as a **shared discipline**, not a replacement for expertise.
+Sagitta treats quantitative intelligence as a **shared discipline**, not a replacement for fiduciary judgment.
 
-The Autonomous Allocation Agent is designed to operate in alignment with:
+AAA operates in alignment with:
 
 * established quantitative finance principles
-* domain knowledge from professional quants
-* Treasury-defined risk and solvency doctrine
+* domain expertise from professional quants
+* Treasury-defined risk, solvency, and continuity doctrine
 
-Human quant insight informs:
+Human oversight informs:
 
-* model selection
-* constraint design
-* evaluation criteria
+* model selection and validation
+* constraint and guardrail design
+* evaluation criteria and exclusions
 * interpretation of edge cases
 
 Machine intelligence contributes:
 
-* scale
-* consistency
-* simulation depth
-* adaptive pattern recognition
+* scale and consistency
+* simulation depth across regimes
+* pattern recognition under bounded authority
 
-This alignment ensures that allocation intelligence remains **disciplined, explainable, and fiduciary-aligned**.
+This alignment ensures that AAA remains **disciplined, explainable, and fiduciary-aligned**.
 
 ***
 
-### 6. Quantitative Explainability
+### 6. Determinism, Guardrails, and Authority
 
-All agent outputs are expressed in **quant-native terms** familiar to institutional allocators.
+AAA operates under **deterministic guardrails** defined by system doctrine.
 
-Recommendations include:
+* No model—statistical or ML-based—may override Treasury constraints
+* No learning process may mutate invariants or guarantees
+* Authority is explicitly gated by allocator class
 
-* comparative return distributions
-* risk-adjusted metrics
-* sensitivity to shocks
-* Reserve-relative performance deltas
-
-This presentation allows Treasury operators, auditors, and external reviewers to assess recommendations using standard financial reasoning rather than opaque model outputs.
+Allocator capability progresses through authority levels (v1–v6), where **people qualify for authority** rather than purchasing features. Higher authority introduces broader decision space, not relaxed discipline.
 
 ***
 
 ### 7. Strategy Evaluation Framework
 
-The agent operates through a **scenario-driven evaluation framework**.
+AAA operates through a **scenario-driven evaluation framework**.
 
 For each candidate strategy, the agent:
 
-* simulates performance across varied market conditions
-* evaluates sensitivity to shocks and regime changes
+* simulates performance across varied market regimes
+* evaluates sensitivity to shocks and discontinuities
 * estimates impact on Treasury balance sheet and Reserve ratios
 * compares outcomes relative to passive Reserve performance
 
-Evaluation outputs are normalized into comparable metrics to support disciplined allocation decisions.
+Evaluation outputs are normalized into comparable metrics to support disciplined Treasury decision-making.
 
 ***
 
 ### 8. Reserve-Relative Intelligence
 
-The Autonomous Allocation Agent incorporates **Reserve-relative benchmarking** as a core analytical dimension.
+Reserve-relative benchmarking is a **core analytical dimension** of AAA.
 
-Active strategies are evaluated against the performance of Reserve assets over equivalent intervals. This benchmarking ensures that proposed risk-taking is justified relative to passive protection and aligns analytical incentives with fiduciary preservation.
+All active strategies are evaluated against Reserve asset performance over equivalent intervals. Risk-taking must be justified relative to passive protection.
 
-Strategies that fail to outperform protection mechanisms are deprioritized.
+Strategies that fail to demonstrate superior risk-adjusted outcomes relative to protection mechanisms are deprioritized by design.
+
+This aligns analytical incentives with fiduciary preservation rather than speculative yield chasing.
 
 ***
 
 ### 9. Interaction With the Treasury
 
-The Autonomous Allocation Agent produces **recommendations, rankings, and explanatory analysis** for Treasury review.
+AAA produces **rankings, evaluations, and explanatory intelligence** for Treasury review.
 
 Treasury decisions incorporate:
 
-* agent evaluations
+* agent evaluations and confidence bounds
 * Reserve coverage constraints
-* liquidity requirements
-* continuity posture
+* liquidity and duration requirements
+* system continuity posture
 
-The agent does not initiate allocation, modify batch sizing, or execute transactions. Its role is advisory and analytical.
+AAA does not initiate allocations, adjust batch sizing, or execute transactions. Its role is strictly advisory.
 
 ***
 
-### 10. Learning and Adaptation
+### 10. Learning, Feedback, and Adaptation
 
-The agent updates its evaluation models continuously using realized batch outcomes.
+AAA updates its analytical models using **realized batch outcomes**.
 
-Performance data from settled batches feeds back into:
+Settled performance feeds back into:
 
 * risk estimation models
 * correlation assumptions
 * scenario weighting
 * strategy ranking heuristics
 
-This adaptive process improves analytical accuracy while remaining bounded by Treasury doctrine and Reserve discipline.
+Adaptation improves analytical accuracy while remaining fully bounded by Treasury doctrine, Reserve discipline, and continuity constraints.
+
+Learning refines judgment—it does not expand authority.
 
 ***
 
 ### 11. Explainability and Auditability
 
-The Autonomous Allocation Agent generates **explainable outputs**.
+All AAA outputs are **quant-native, explainable, and auditable**.
 
 For each recommendation, the agent produces:
 
 * rationale summaries
 * contributing factors
 * comparative metrics
-* confidence assessments
+* confidence and uncertainty assessments
 
-All analytical outputs are logged, versioned, and auditable. This ensures transparency of reasoning and traceability of influence on Treasury decisions.
+All outputs are logged, versioned, and reviewable by Treasury operators, auditors, and governance processes.
 
 ***
 
 ### 12. Independence From Execution and Custody
 
-The Autonomous Allocation Agent does not custody assets, hold keys, or interface directly with execution venues.
+AAA does not custody assets, hold keys, or interface directly with execution venues.
 
-Its independence from capital movement preserves system integrity, reduces attack surface, and prevents analytical intelligence from becoming an execution authority.
+This separation:
+
+* reduces attack surface
+* prevents intelligence from becoming execution authority
+* preserves fiduciary clarity
+
+Analytical intelligence is intentionally isolated from capital movement.
 
 ***
 
 ### 13. Continuity and Degradation Behavior
 
-Under continuity events, the agent adjusts analytical posture.
+Under continuity events, AAA adapts its analytical posture without altering capital guarantees.
 
 Possible modes include:
 
 * conservative strategy filtering
 * stress-prioritized evaluation
 * reduced recommendation bandwidth
-* analysis suspension during emergency states
+* full analysis suspension during emergency states
 
-The agent adapts to system posture without altering capital guarantees.
+AAA obeys system posture set by the Continuity Engine.
 
 ***
 
 ### 14. Standalone Deployment
 
-The Autonomous Allocation Agent is deployable as a standalone analytical system.
+The Autonomous Allocation Agent is deployable as a **standalone analytical system**, independent of custody and execution.
 
 It may operate as:
 
@@ -212,23 +220,21 @@ It may operate as:
 * an allocation intelligence layer for funds or protocols
 * a decision-support system for fiduciary capital managers
 
-Standalone deployment preserves analytical independence from custody and execution.
+Standalone deployment preserves analytical independence and institutional applicability.
 
 ***
 
 ### 15. Summary
 
-The Autonomous Allocation Agent strengthens allocation decisions through disciplined analysis.
+The Autonomous Allocation Agent strengthens allocation decisions through disciplined quantitative intelligence.
 
 It:
 
-* evaluates strategy performance and risk
-* benchmarks outcomes against Reserve protection
-* adapts through feedback and learning
-* produces explainable, auditable intelligence
+* evaluates risk and performance under constraint
+* benchmarks strategies against protection
+* adapts through bounded feedback
+* produces explainable, auditable reasoning
 
 Sagitta treats intelligence as **advisory**, capital as **disciplined**, and protection as **invariant**.
 
-Sagitta treats quantitative finance as a discipline to be scaled, not replaced.
-
-The Autonomous Allocation Agent exists to ensure that **risk is taken consciously, evaluated rigorously, and justified continuously**.
+AAA exists to ensure that risk is taken consciously, justified continuously, and never confused with authority.
