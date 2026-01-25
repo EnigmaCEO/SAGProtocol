@@ -238,3 +238,99 @@ It:
 Sagitta treats intelligence as **advisory**, capital as **disciplined**, and protection as **invariant**.
 
 AAA exists to ensure that risk is taken consciously, justified continuously, and never confused with authority.
+
+
+
+### Sandbox Mode vs Agent Mode
+
+The Autonomous Allocation Agent operates under two distinct analytical postures: **Sandbox Mode** and **Agent Mode**.\
+These modes govern **how intelligence is produced, contextualized, and persisted**, not whether capital is deployed.
+
+Both modes remain strictly non-custodial and non-executing.
+
+***
+
+#### Sandbox Mode (Exploratory Analysis)
+
+Sandbox Mode is the default analytical posture for users without production decision authority or when operating in exploratory contexts.
+
+In Sandbox Mode, AAA functions as a **static evaluation engine**:
+
+* Strategies are evaluated independently of live Treasury state
+* Results are generated from cached or simulated data
+* No persistent belief state is maintained across evaluations
+* No historical feedback loops influence subsequent outputs
+
+Sandbox Mode is designed for:
+
+* policy exploration
+* comparative strategy testing
+* education and familiarization
+* pre-qualification analysis
+
+Outputs are informative but **non-authoritative**. They do not accumulate context, adapt across time, or express longitudinal confidence.
+
+Sandbox Mode enables breadth without responsibility.
+
+***
+
+#### Agent Mode (Persistent Decision Intelligence)
+
+Agent Mode is available only to users or systems with explicit **decision authority qualification**.
+
+In Agent Mode, AAA operates as a **persistent analytical agent** across discrete evaluation ticks aligned to Treasury cadence.
+
+Key characteristics:
+
+* Maintains a bounded internal belief state derived from prior evaluations
+* Incorporates realized outcomes from settled batches into future analysis
+* Updates regime context, correlation assumptions, and confidence weighting between ticks
+* Operates within fixed doctrine, constraints, and continuity posture
+
+Agent Mode does **not** imply autonomy over capital.\
+It implies **continuity of reasoning**.
+
+The agent evolves its analytical perspective over time while remaining fully constrained by Treasury-defined policy and Reserve discipline.
+
+***
+
+#### Tick-Based Evaluation and Human Intervention
+
+Agent Mode operates on scheduled evaluation ticks (e.g., weekly), corresponding to Treasury review and batch cycles.
+
+Between ticks:
+
+* Treasury operators may adjust portfolios, constraints, or policy parameters
+* These changes are incorporated as updated context at the next evaluation
+* The agent does not retroactively modify prior conclusions
+
+At each tick, AAA produces a fresh evaluation informed by:
+
+* current policy state
+* updated market data
+* accumulated analytical history
+* system continuity posture
+
+This preserves **human primacy in decision-making** while allowing analytical intelligence to compound responsibly over time.
+
+***
+
+#### Mode Separation and Safeguards
+
+Sandbox Mode and Agent Mode are intentionally separated to prevent:
+
+* unqualified users from generating authoritative-looking outputs
+* accidental carryover of exploratory assumptions into production analysis
+* erosion of accountability boundaries
+
+Agent Mode is gated by authority, not convenience.\
+Sandbox Mode is permissive by design.
+
+***
+
+#### Summary
+
+Sandbox Mode enables exploration without consequence.\
+Agent Mode enables continuity without autonomy.
+
+Together, they allow the Autonomous Allocation Agent to serve both as a **learning instrument** and a **fiduciary-grade de**
