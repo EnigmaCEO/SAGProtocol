@@ -86,38 +86,26 @@ async function main() {
   // resolve addresses (ONLY from addresses file)
   const VAULT = addr('Vault') ?? addr('VAULT');
   const TREASURY = addr('Treasury') ?? addr('TREASURY');
-  const MOCK_DOT = addr('MockDOT') ?? addr('Mock_DOT') ?? addr('mDOT') ?? addr('MDOT');
   const SAG = addr('SAGToken') ?? addr('SAG');
   const USDC = addr('MockUSDC') ?? addr('USDC') ?? addr('UsdcToken');
   const ESCROW = addr('InvestmentEscrow') ?? addr('Escrow') ?? addr('INVESTMENT_ESCROW');
 
-  console.log('Resolved addresses:', { VAULT, TREASURY, MOCK_DOT, SAG, USDC, ESCROW });
+  console.log('Resolved addresses:', { VAULT, TREASURY, SAG, USDC, ESCROW });
 
-  // Guard: fail fast with actionable message (addresses must be present in frontend/src/lib/addresses.ts/js)
-  if (!VAULT || !TREASURY || !MOCK_DOT) {
+  // Guard: fail fast with actionable message
+  if (!VAULT || !TREASURY) {
     console.error('\nMissing addresses in frontend/src/lib/addresses.(ts|js). The debug script only reads that file.');
-    console.error('Please ensure the file exports CONTRACT_ADDRESSES or the keys directly, e.g.:');
-    console.error('  // frontend/src/lib/addresses.ts');
-    console.error('  export const CONTRACT_ADDRESSES = {');
-    console.error('    Vault: "0x...",');
-    console.error('    Treasury: "0x...",');
-    console.error('    MockDOT: "0x...",');
-    console.error('    Sag: "0x...",');
-    console.error('    Usdc: "0x...",');
-    console.error('    InvestmentEscrow: "0x...",');
-    console.error('  } as const;');
+    console.error('Please ensure the file exports CONTRACT_ADDRESSES with at least Vault and Treasury keys.');
     process.exit(1);
   }
 
   // load ABIs
   const VaultAbi = loadAbi('Vault');
   const TreasuryAbi = loadAbi('Treasury');
-  const MockDotAbi = loadAbi('MockDOT'); // ensure file present
   const MockOracleAbi = loadAbi('MockOracle');
 
   const vault = new Contract(VAULT, VaultAbi, wallet);
   const treasury = new Contract(TREASURY, TreasuryAbi, wallet);
-  const mDot = new Contract(MOCK_DOT, MockDotAbi, wallet);
 
   // subscribe to Treasury events (if ABI includes them)
   function safeOn(c: Contract, eventName: string, handler: (...args: any[]) => void) {
@@ -270,29 +258,29 @@ async function main() {
     }
   }
 
-  // ensure user has mDOT: mint if contract supports mint
+  // ensure user has USDC: mint if contract supports mint
   const depositor = await wallet.getAddress();
-  const decimals = Number((await mDot.decimals?.().catch(() => 6)) ?? 6);
+  const usdcContract = USDC ? new Contract(USDC, ['function mint(address,uint256) external', 'function approve(address,uint256) external returns (bool)', 'function decimals() view returns (uint8)'], wallet) : null;
+  const decimals = usdcContract ? Number((await usdcContract.decimals?.().catch(() => 6)) ?? 6) : 6;
   const depositTokens = DEFAULT_DEPOSIT_AMOUNT;
-  console.log(`Preparing to deposit ${depositTokens} tokens (decimals ${decimals}) from ${depositor}`);
+  console.log(`Preparing to deposit ${depositTokens} USDC (decimals ${decimals}) from ${depositor}`);
 
-  // mint if available
-  if (typeof mDot['mint'] === 'function') {
+  if (usdcContract && typeof usdcContract['mint'] === 'function') {
     try {
-      const tx = await sendTx((ov) => mDot.mint(depositor, parseUnits(depositTokens, decimals), ov));
+      const tx = await sendTx((ov) => usdcContract.mint(depositor, parseUnits(depositTokens, decimals), ov));
       console.log('Mint tx sent:', tx.hash);
-      console.log('Minted mDOT to depositor');
+      console.log('Minted USDC to depositor');
     } catch (e) {
       console.warn('Mint failed or not available:', (e as any).message ?? e);
     }
   } else {
-    console.log('mint() not available on mDOT contract, assuming test account already funded');
+    console.log('mint() not available on USDC contract, assuming test account already funded');
   }
 
   // approve vault
   try {
-    const approveTx = await sendTx((ov) => mDot.approve(VAULT, parseUnits(depositTokens, decimals), ov));
-    console.log('Approved Vault to spend mDOT', approveTx.hash);
+    const approveTx = await sendTx((ov) => usdcContract!.approve(VAULT, parseUnits(depositTokens, decimals), ov));
+    console.log('Approved Vault to spend USDC', approveTx.hash);
   } catch (e) {
     console.error('Approve failed:', e);
     return;
@@ -301,7 +289,7 @@ async function main() {
   // perform deposit
   try {
     console.log('Calling Vault.deposit(...)');
-    const tx = await sendTx((ov) => vault.deposit(MOCK_DOT, parseUnits(depositTokens, decimals), ov));
+    const tx = await sendTx((ov) => vault.deposit(USDC, parseUnits(depositTokens, decimals), ov));
     console.log('Deposit tx mined:', tx.hash);
     const receipt = await tx.wait();
     console.log('Deposit mined:', receipt.transactionHash);

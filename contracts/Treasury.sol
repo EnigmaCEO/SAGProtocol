@@ -11,6 +11,26 @@ interface IPriceOracle {
     function getPrice() external view returns (uint256); // 8-decimals (e.g. 700000000 => $7.00)
 }
 
+interface IGoldOracleLegacy {
+    function getGoldPrice() external view returns (uint256); // 6-decimals
+}
+
+interface IOracleLatest {
+    function latest() external view returns (uint256 price8, uint256 updatedAt, bool valid);
+}
+
+interface IOracleUpdatedAt {
+    function updatedAt() external view returns (uint256);
+}
+
+interface IOracleValidity {
+    function valid() external view returns (bool);
+}
+
+interface IReserveValuation {
+    function navReserveUsd() external view returns (uint256);
+}
+
 /// Add the AMM interface at file scope (interfaces cannot be declared inside a contract)
 interface IAMMPair {
     function swapExactTokensForTokens(
@@ -36,29 +56,164 @@ interface IVaultForTreasury {
         bool withdrawn
     );
     function finalizePayout(uint256 tokenId, uint256 payoutUsd6) external;
+    function receiptNFT() external view returns (address);
+}
+
+interface IReceiptNFTForTreasury {
+    function ownerOf(uint256 tokenId) external view returns (address);
 }
 
 // NEW: Minimal Escrow interface so Treasury can validate which batch a receipt belongs to (best-effort)
 interface IEscrowForTreasury {
     function receiptBatchId(uint256 tokenId) external view returns (uint256);
+    function currentBatchId() external view returns (uint256);
+    function lastBatchRollTime() external view returns (uint256);
+    function BATCH_INTERVAL() external view returns (uint256);
+    function rollToNewBatch() external;
+    function batches(uint256 batchId) external view returns (
+        uint256 id,
+        uint256 startTime,
+        uint256 endTime,
+        uint256 totalCollateralUsd,
+        uint256 totalShares,
+        uint256 finalNavPerShare,
+        uint8 status,
+        bool distributed
+    );
 }
 
+/**
+ * @title Treasury
+ * @notice Central accounting and risk-management contract for the Sagitta protocol.
+ * @dev Responsibilities:
+ *   - Tracks collateral (totalCollateralUsd) against depositor liabilities.
+ *   - Runs a stress-state machine (Healthy → Degraded → RecapOnly → Emergency) driven by
+ *     on-chain metrics: backing coverage, reserve support, liquidity runway, and stablecoin depeg.
+ *   - Funds escrow batches (fundEscrowBatch) and receives batch results (reportBatchResult).
+ *   - Distributes user profit pro-rata by shares when batch results include a token list.
+ *   - Rebalances the USDC:GOLD reserve ratio toward a 2:1 target via _rebalanceReserve().
+ *
+ *   SECURITY — allowAutoMintCollateralize:
+ *     Defaults to false. When true, the Treasury mints additional USDC from the token contract
+ *     to cover a collateralization shortfall. This MUST be false on mainnet — it is a dev/test
+ *     escape hatch that bypasses the solvency requirement. Set and verify before deployment.
+ *
+ *   SECURITY — ORACLE FRESHNESS:
+ *     MAX_ORACLE_AGE = 1 day. If any oracle goes stale the stress state escalates to Emergency,
+ *     blocking new policy actions. Ensure the GoldOracle updatedAt is refreshed at least daily.
+ *
+ *   SECURITY — RECOVERY DELAYS:
+ *     Downgrade is instant; recovery requires a sustained period (RECOVERY_DELAY = 1 day for
+ *     Degraded/RecapOnly, EMERGENCY_RECOVERY_DELAY = 3 days for Emergency). This prevents
+ *     a flash-loan from temporarily improving metrics to unblock policy actions.
+ */
 contract Treasury is Ownable {
     using SafeERC20 for IERC20;
-    // AMM pair used for swapping tokens (e.g. SAG <-> USDC or SAG <-> GOLD)
+
+    uint256 public constant BPS_SCALE = 10_000;
+    uint256 public constant PRICE_SCALE = 1e8;
+    uint256 public constant USD6_SCALE = 1e6;
+
+    uint256 public constant FLAG_COVERAGE = 1;
+    uint256 public constant FLAG_RESERVE = 2;
+    uint256 public constant FLAG_LIQUIDITY = 4;
+    uint256 public constant FLAG_DEPEG = 8;
+    uint256 public constant FLAG_ORACLE = 16;
+
+    uint256 public constant STABLE_ASSET_HAIRCUT_BPS = 9_950;
+    uint256 public constant RESERVE_ASSET_HAIRCUT_BPS = 9_000;
+
+    uint256 public constant DEGRADED_COVERAGE_MIN_BPS = 10_300;
+    uint256 public constant DEGRADED_RESERVE_MIN_BPS = 4_000;
+    uint256 public constant DEGRADED_LIQUIDITY_MIN_BPS = 11_000;
+    uint256 public constant DEGRADED_DEPEG_MAX_BPS = 100;
+
+    uint256 public constant RECAP_COVERAGE_MIN_BPS = 10_000;
+    uint256 public constant RECAP_RESERVE_MIN_BPS = 3_500;
+    uint256 public constant RECAP_LIQUIDITY_MIN_BPS = 10_000;
+    uint256 public constant RECAP_DEPEG_MAX_BPS = 200;
+
+    uint256 public constant EMERGENCY_COVERAGE_MIN_BPS = 9_500;
+    uint256 public constant EMERGENCY_RESERVE_MIN_BPS = 2_500;
+    uint256 public constant EMERGENCY_LIQUIDITY_MIN_BPS = 8_000;
+    uint256 public constant EMERGENCY_DEPEG_MAX_BPS = 500;
+
+    uint256 public constant RECOVERY_DELAY = 1 days;
+    uint256 public constant EMERGENCY_RECOVERY_DELAY = 3 days;
+    uint256 public constant MAX_ORACLE_AGE = 1 days;
+
+    enum StressState {
+        Healthy,
+        Degraded,
+        RecapOnly,
+        Emergency
+    }
+
+    enum PolicyCategory {
+        Liquidity,
+        Incentives,
+        Recapitalization,
+        BuybackBurn,
+        IdleBurn
+    }
+
+    /*
+     * Canonical stress-metric definitions:
+     * - safeBackingUsd: post-haircut value of assets permitted to back obligations.
+     * - treasuryUsd: marked value of Treasury-controlled non-reserve assets.
+     * - reserveUsd: marked value of reserve assets under the unified reserve definition.
+     * - liabilitiesUsd: all outstanding Treasury-side dollar liabilities that matter to coverage.
+     * - immediateObligationsUsd: obligations callable inside the current execution horizon.
+     * - liquidStableUsd: stable assets actually usable now, not merely accounted for.
+     *
+     * Contract philosophy:
+     * - Math tells the truth.
+     * - State interprets the truth.
+     * - Policy obeys the state.
+     * - Admins do not override the machine.
+     */
+    struct StressMetrics {
+        uint256 safeBackingUsd;
+        uint256 liabilitiesUsd;
+        uint256 treasuryUsd;
+        uint256 reserveUsd;
+        uint256 liquidStableUsd;
+        uint256 immediateObligationsUsd;
+        uint256 backingCoverageBps;
+        uint256 reserveSupportBps;
+        uint256 liquidityRunwayBps;
+        uint256 stableDepegBps;
+        uint256 primaryStablePrice8;
+        uint256 secondaryStablePrice8;
+        uint256 goldPrice8;
+        uint256 primaryStableUpdatedAt;
+        uint256 secondaryStableUpdatedAt;
+        uint256 goldOracleUpdatedAt;
+        bool oracleFresh;
+    }
+
+    error PolicyCategoryNotAllowed(PolicyCategory category, StressState state, uint256 flags);
+
+    // AMM pair address (retained for compatibility with existing tooling)
     address public ammPair;
 
-    IERC20 public immutable sag;
     IERC20 public immutable usdc;
     IERC20 public immutable gold;
 
     address public reserveAddress;
     address public vault;
+    // Primary stable oracle used for depeg detection. Existing name retained for ABI compatibility.
     IPriceOracle public priceOracle;
+    address public secondaryStableOracle;
 
-    // Per-asset oracles so Treasury can read SAG and GOLD prices separately
-    IPriceOracle public sagOracle;
+    // Per-asset oracle for reserve valuation
     IPriceOracle public goldOracle;
+
+    StressState public stressState;
+    uint256 public stressStateSince;
+    uint256 public degradedRecoveryWindowStartedAt;
+    uint256 public recapOnlyRecoveryWindowStartedAt;
+    uint256 public emergencyRecoveryWindowStartedAt;
 
     uint256 public totalCollateralUsd;
 
@@ -71,16 +226,36 @@ contract Treasury is Ownable {
     mapping(uint256 => uint256) public batchProfitUsd;
     // per-batch stored final NAV (1e18)
     mapping(uint256 => uint256) public batchFinalNavPerShare;
+    // per-batch, per-receipt cumulative profit already paid (USD6)
+    mapping(uint256 => mapping(uint256 => uint256)) public receiptBatchProfitPaidUsd;
     // Track processed deposit/receipt IDs to make collateralizeForReceipt idempotent
     mapping(uint256 => bool) public processedReceipts;
     // ------------------ END NEW STATE ------------------
 
-    // NEW: allow automatic mint fallback (dev/test only). Default false.
+    // SECURITY: dev/test escape hatch — allows Treasury to self-mint USDC to cover
+    // collateralization shortfalls. MUST be false on mainnet. Verify before deployment.
     bool public allowAutoMintCollateralize;
 
     // NEW: slippage tolerance for AMM swaps (basis points). Default 50 = 0.5%.
     uint16 public slippageBps = 50;
     event SlippageBpsUpdated(uint16 bps);
+    event SecondaryStableOracleSet(address indexed oracle);
+    event StressStateTransition(
+        StressState indexed previousState,
+        StressState indexed nextState,
+        uint256 flags,
+        uint256 effectiveAt,
+        uint256 degradedRecoveryWindowStartedAt,
+        uint256 recapOnlyRecoveryWindowStartedAt,
+        uint256 emergencyRecoveryWindowStartedAt
+    );
+    event StressRecoveryWindowsUpdated(
+        StressState indexed currentState,
+        uint256 flags,
+        uint256 degradedRecoveryWindowStartedAt,
+        uint256 recapOnlyRecoveryWindowStartedAt,
+        uint256 emergencyRecoveryWindowStartedAt
+    );
 
     function setSlippageBps(uint16 bps) external onlyOwner {
         require(bps <= 1000, "slippage too large"); // max 10%
@@ -90,10 +265,8 @@ contract Treasury is Ownable {
 
     // EVENTS
     event Collateralized(uint256 amountUsd);
-    event CollateralizeAttempt(uint256 requestedUsd, uint256 usdcBefore, uint256 sagBefore, uint256 sagNeeded);
-    event CollateralizeInsufficientSAG(uint256 requestedUsd, uint256 sagBefore, uint256 sagNeeded);
-    // include sagAfter so callers can observe token changes post-swap
-    event CollateralizeSucceeded(uint256 requestedUsd, uint256 usdcAfter, uint256 sagAfter);
+    event CollateralizeAttempt(uint256 requestedUsd, uint256 usdcBefore, uint256 usdcNeeded);
+    event CollateralizeSucceeded(uint256 requestedUsd, uint256 usdcAfter);
     // Diagnostic: indicates we auto-minted USDC to cover a shortfall in test environments
     event CollateralizeMintFallback(uint256 mintedUsd);
 
@@ -104,6 +277,21 @@ contract Treasury is Ownable {
     // NEW EVENTS
     event BatchFunded(uint256 indexed batchId, uint256 amountUsd);
     event BatchResult(uint256 indexed batchId, uint256 principalUsd, uint256 userProfitUsd, uint256 feeUsd);
+    event ReceiptProfitPaid(uint256 indexed receiptId, address indexed recipient, uint256 amountUsd);
+    event ReceiptProfitPaidDetailed(
+        uint256 indexed batchId,
+        uint256 indexed receiptId,
+        address indexed recipient,
+        uint256 amountUsd,
+        uint256 paidTotalUsd,
+        uint256 dueTotalUsd
+    );
+    event RollProcessed(
+        bool batchDue,
+        bool rebalanceDue,
+        bool batchRolled,
+        bool reserveRebalanced
+    );
 
     modifier onlyVault() {
         require(msg.sender == vault, "Only vault");
@@ -123,19 +311,19 @@ contract Treasury is Ownable {
     }
 
     constructor(
-        IERC20 _sag,
         IERC20 _usdc,
         IERC20 _gold,
         address _reserveAddress,
         address _vault,
         IPriceOracle _priceOracle
     ) Ownable(msg.sender) {
-        sag = _sag;
         usdc = _usdc;
         gold = _gold;
         reserveAddress = _reserveAddress;
         vault = _vault;
         priceOracle = _priceOracle;
+        stressState = StressState.Healthy;
+        stressStateSince = block.timestamp;
     }
 
     function setVault(address _vault) external onlyOwner {
@@ -153,10 +341,9 @@ contract Treasury is Ownable {
         priceOracle = IPriceOracle(_oracle);
     }
 
-    // New setters for per-asset oracles
-    function setSagOracle(address _oracle) external onlyOwner {
-        require(_oracle != address(0), "Oracle address cannot be zero");
-        sagOracle = IPriceOracle(_oracle);
+    function setSecondaryStableOracle(address _oracle) external onlyOwner {
+        secondaryStableOracle = _oracle;
+        emit SecondaryStableOracleSet(_oracle);
     }
 
     function setGoldOracle(address _oracle) external onlyOwner {
@@ -175,33 +362,79 @@ contract Treasury is Ownable {
         escrow = _escrow;
     }
 
+    /// @notice Toggle the dev/test USDC auto-mint fallback. MUST remain false on mainnet.
     function setAllowAutoMintCollateralize(bool v) external onlyOwner {
         allowAutoMintCollateralize = v;
     }
 
     // --- View functions ---
 
+    /// @notice Marked value of Treasury-controlled non-reserve assets.
+    /// @dev Current implementation only models immediately-usable USDC, so treasuryUsd == liquidStableUsd.
     function getTreasuryValueUsd() public view returns (uint256) {
-        uint256 sagBal = sag.balanceOf(address(this)); // 18 decimals
-        uint256 usdcBal = usdc.balanceOf(address(this)); // 6 decimals
-        require(address(sagOracle) != address(0), "sagOracle not set");
-        uint256 sagPrice8 = sagOracle.getPrice(); // price * 1e8
-        // sagValueUsd6 = (sagBal * sagPrice8) / 1e20
-        uint256 sagValueUsd6 = (sagBal * sagPrice8) / (10 ** 20);
-        return sagValueUsd6 + usdcBal;
+        return usdc.balanceOf(address(this));
     }
 
+    /// @notice Marked value of reserve assets under the unified reserve definition.
+    /// @dev Prefers ReserveController.navReserveUsd() and only falls back to direct gold valuation if unavailable.
     function getReserveValueUsd() public view returns (uint256) {
-        require(address(goldOracle) != address(0), "goldOracle not set");
+        if (reserveAddress == address(0)) {
+            return 0;
+        }
+
+        try IReserveValuation(reserveAddress).navReserveUsd() returns (uint256 reserveUsd6) {
+            return reserveUsd6;
+        } catch {}
+
         uint256 goldBal = gold.balanceOf(reserveAddress); // 18 decimals
-        uint256 goldPrice8 = goldOracle.getPrice(); // price in 8-decimals
-        uint256 goldValueUsd6 = (goldBal * goldPrice8) / (10 ** 20);
-        return goldValueUsd6;
+        (uint256 goldPrice8,, bool isValid) = _readOraclePrice8(address(goldOracle), true);
+        if (!isValid || goldPrice8 == 0) {
+            return 0;
+        }
+        return (goldBal * goldPrice8) / 1e20;
     }
 
-    /// @notice Get the "safe backing" used for coverage calculations (Treasury + Reserve)
-    function getSafeBackingUsd() external view returns (uint256) {
+    function getGrossBackingUsd() public view returns (uint256) {
         return getTreasuryValueUsd() + getReserveValueUsd();
+    }
+
+    /// @notice Post-haircut value of assets permitted to back obligations.
+    function getSafeBackingUsd() public view returns (uint256) {
+        uint256 treasurySafeUsd = _applyHaircut(getTreasuryValueUsd(), STABLE_ASSET_HAIRCUT_BPS);
+        uint256 reserveSafeUsd = _applyHaircut(getReserveValueUsd(), RESERVE_ASSET_HAIRCUT_BPS);
+        return treasurySafeUsd + reserveSafeUsd;
+    }
+
+    /// @notice All outstanding Treasury-side dollar liabilities that matter to coverage.
+    function getLiabilitiesUsd() public view returns (uint256) {
+        return totalCollateralUsd;
+    }
+
+    /// @notice Obligations callable inside the current execution horizon.
+    /// @dev Conservative by design until the protocol distinguishes maturities on-chain.
+    function getImmediateObligationsUsd() public view returns (uint256) {
+        return totalCollateralUsd;
+    }
+
+    /// @notice Stable assets actually usable now, not merely accounted for.
+    function getLiquidStableUsd() public view returns (uint256) {
+        return usdc.balanceOf(address(this));
+    }
+
+    function getRecoveryWindows()
+        external
+        view
+        returns (
+            uint256 degradedStartedAt,
+            uint256 recapOnlyStartedAt,
+            uint256 emergencyStartedAt
+        )
+    {
+        return (
+            degradedRecoveryWindowStartedAt,
+            recapOnlyRecoveryWindowStartedAt,
+            emergencyRecoveryWindowStartedAt
+        );
     }
 
     function getTargetReserveUsd() public view returns (uint256) {
@@ -220,16 +453,52 @@ contract Treasury is Ownable {
         return getTreasuryValueUsd() >= amountUsd6;
     }
 
+    function getStressMetrics() external view returns (StressMetrics memory) {
+        return _computeStressMetrics();
+    }
+
+    function getStressState() public view returns (StressState state, uint256 flags) {
+        StressMetrics memory metrics = _computeStressMetrics();
+        uint256 ignored1;
+        uint256 ignored2;
+        uint256 ignored3;
+        (state, flags, ignored1, ignored2, ignored3) = _previewStressState(metrics);
+    }
+
+    function isPolicyCategoryAllowed(PolicyCategory category)
+        external
+        view
+        returns (bool allowed, StressState state, uint256 flags)
+    {
+        (state, flags) = getStressState();
+        allowed = _isCategoryAllowed(category, state);
+    }
+
+    function refreshStressState() external returns (StressState state, uint256 flags) {
+        return _syncStressState();
+    }
+
+    /// @notice Returns whether Treasury has any due roll actions.
+    /// @dev batchDue: Escrow weekly batch roll; rebalanceDue: reserve ratio drift.
+    function canRoll() public view returns (bool batchDue, bool rebalanceDue, bool anyDue) {
+        batchDue = _isBatchRollDue();
+        rebalanceDue = _isReserveRebalanceDue();
+        anyDue = batchDue || rebalanceDue;
+    }
+
     // --- Collateralization ---
 
     function collateralize(uint256 depositValueUsd) external onlyVault {
         _doCollateralize(depositValueUsd);
     }
 
-    /// @notice Collateralize a specific deposit/receipt id (idempotent).
-    /// @dev Called by Vault after a user deposit. Treasury will attempt to obtain USDC (swap SAG via AMM if needed)
-    ///      and update bookkeeping. Multiple calls for the same receiptId are safe (no double-counting).
-    /// @dev allow owner to call this for testing/manual recovery as well
+    /**
+     * @notice Collateralize a specific deposit/receipt id (idempotent).
+     * @dev Callable by the Vault (normal flow) or by the owner (manual recovery). Multiple calls
+     *      for the same receiptId are safe — subsequent calls return without double-counting.
+     * @param receiptId   The Vault receipt (deposit) token ID.
+     * @param depositValueUsd  Deposit value in USD with 6 decimals.
+     */
     function collateralizeForReceipt(uint256 receiptId, uint256 depositValueUsd) external onlyVaultOrOwner {
         // If already processed, do nothing (idempotent)
         if (processedReceipts[receiptId]) {
@@ -251,315 +520,181 @@ contract Treasury is Ownable {
     /// @dev shared implementation used by vault and admin entrypoints
     function _doCollateralize(uint256 depositValueUsd) internal {
         uint256 usdcBal = usdc.balanceOf(address(this));
+        emit CollateralizeAttempt(depositValueUsd, usdcBal, depositValueUsd);
 
-        // If we don't have enough USDC, attempt to convert SAG -> USDC via AMM
+        // USDC-only collateralization path.
         if (usdcBal < depositValueUsd) {
-            _ensureUsdc(depositValueUsd);
-        } else {
-            emit CollateralizeAttempt(depositValueUsd, usdcBal, sag.balanceOf(address(this)), 0);
-            emit CollateralizeSucceeded(depositValueUsd, usdcBal, sag.balanceOf(address(this)));
+            uint256 shortfall = depositValueUsd - usdcBal;
+            if (allowAutoMintCollateralize) {
+                (bool minted, ) = address(usdc).call(
+                    abi.encodeWithSignature("mint(address,uint256)", address(this), shortfall)
+                );
+                if (minted) {
+                    emit CollateralizeMintFallback(shortfall);
+                    usdcBal = usdc.balanceOf(address(this));
+                }
+            }
+            require(usdcBal >= depositValueUsd, "Not enough USDC for collateralization");
         }
+        emit CollateralizeSucceeded(depositValueUsd, usdcBal);
 
         // Record collateral (single accounting spot to avoid double-counting in collateralizeForReceipt fast-path)
         totalCollateralUsd += depositValueUsd;
         emit Collateralized(depositValueUsd);
     }
 
-    // Heavy work moved to helper to avoid "stack too deep" in caller.
-    function _ensureUsdc(uint256 depositValueUsd) internal {
-        uint256 usdcBal = usdc.balanceOf(address(this));
-        uint256 needed = depositValueUsd > usdcBal ? depositValueUsd - usdcBal : 0;
-        require(ammPair != address(0), "No AMM available");
-        require(address(sagOracle) != address(0), "sagOracle not set");
-
-        uint256 usdcAfterFinal;
-        uint256 sagAmount;
-        (usdcAfterFinal, sagAmount) = _performAmmSwap(depositValueUsd, needed);
-
-        // Move final checks/emits into a tiny helper to reduce _ensureUsdc locals.
-        _finalizeCollateralize(depositValueUsd, true, 0, usdcBal, usdcAfterFinal, sagAmount);
-    }
-
-    // Extracted AMM probe, sagAmount calc, and swap into a helper to reduce _ensureUsdc locals.
-    function _performAmmSwap(uint256 depositValueUsd, uint256 needed) internal returns (uint256 usdcAfterFinal, uint256 sagAmount) {
-        uint256 usdcBal = usdc.balanceOf(address(this));
-        bool ammProbeOk = false;
-        address token0Addr;
-        address token1Addr;
-        uint256 reserve0 = 0;
-        uint256 reserve1 = 0;
-        uint256 ammFeeBps = 30;
-        uint256 reserveIn;
-        uint256 reserveOut;
-
-        (token0Addr, token1Addr, reserve0, reserve1, ammFeeBps, ammProbeOk) = _probeAmm(ammPair);
-
-        if (reserve0 > 0 && reserve1 > 0 && (token0Addr != address(0) || token1Addr != address(0))) {
-            
-            if (token0Addr == address(sag)) { reserveIn = reserve0; reserveOut = reserve1; }
-            else if (token1Addr == address(sag)) { reserveIn = reserve1; reserveOut = reserve0; }
-            else { reserveIn = 0; reserveOut = 0; }
-            if (reserveOut > needed && reserveIn > 0) {
-                uint256 num = reserveIn * needed * 10000;
-                uint256 denom = (reserveOut - needed) * (10000 - ammFeeBps);
-                if (denom > 0) {
-                    sagAmount = (num + denom - 1) / denom;
-                    ammProbeOk = true;
-                }
-            }
-        }
-        if (!ammProbeOk) {
-            uint256 sagPrice8 = sagOracle.getPrice();
-            require(sagPrice8 > 0, "Invalid SAG price");
-            sagAmount = (needed * (10 ** 20) + sagPrice8 - 1) / sagPrice8;
-        }
-
-        uint256 sagBal = sag.balanceOf(address(this));
-        emit CollateralizeAttempt(depositValueUsd, usdcBal, sagBal, sagAmount);
-        if (sagBal == 0) {
-            emit CollateralizeInsufficientSAG(depositValueUsd, sagBal, sagAmount);
-            revert("Collateralize: no SAG available to buy USDC");
-        }
-
-        uint256 amountToSwap = sagAmount;
-        if (sagBal < sagAmount) {
-            amountToSwap = sagBal;
-            emit CollateralizeInsufficientSAG(depositValueUsd, sagBal, sagAmount);
-        }
-
-        uint256 expectedUsdc6;
-        if (ammProbeOk) {
-            uint256 amountInWithFee = amountToSwap * (10000 - ammFeeBps);
-            expectedUsdc6 = (amountInWithFee * reserveOut) / (reserveIn * 10000 + amountInWithFee);
-        } else {
-            uint256 sagPrice8 = sagOracle.getPrice();
-            expectedUsdc6 = (amountToSwap * sagPrice8) / (10 ** 20);
-        }
-        uint256 minExpectedUsdc6 = (expectedUsdc6 * (10000 - slippageBps)) / 10000;
-
-        try sag.approve(ammPair, 0) {} catch {}
-        try sag.approve(ammPair, amountToSwap) {} catch {}
-
-        bool swapped;
-        (swapped, usdcAfterFinal) = _doSwapAttempt(amountToSwap, minExpectedUsdc6);
-
-        // Removed final checks here to reduce locals; handled in _ensureUsdc via _finalizeCollateralize.
-    }
-
-    // Extracted swap attempt to reduce _performAmmSwap locals.
-    function _doSwapAttempt(uint256 amountToSwap, uint256 minExpectedUsdc6) internal returns (bool swapped, uint256 usdcAfterFinal) {
-        uint256 before = usdc.balanceOf(address(this));
-        // 1) Router: swapExactTokensForTokens(amountIn, amountOutMin, path, to)
-        {
-            address[] memory path = new address[](2);
-            path[0] = address(sag);
-            path[1] = address(usdc);
-            (bool ok, ) = ammPair.call(abi.encodeWithSignature(
-                "swapExactTokensForTokens(uint256,uint256,address[],address)",
-                amountToSwap, minExpectedUsdc6, path, address(this)
-            ));
-            if (ok && usdc.balanceOf(address(this)) > before) {
-                return (true, usdc.balanceOf(address(this)));
-            }
-        }
-        // 2) Router variant: swapExactTokensForTokens(amountIn, tokenIn, tokenOut, to)
-        {
-            (bool ok, ) = ammPair.call(abi.encodeWithSignature(
-                "swapExactTokensForTokens(uint256,address,address,address)",
-                amountToSwap, address(sag), address(usdc), address(this)
-            ));
-            if (ok && usdc.balanceOf(address(this)) > before) {
-                return (true, usdc.balanceOf(address(this)));
-            }
-        }
-        // 3) Pair.swap(amount, to)
-        {
-            (bool ok, ) = ammPair.call(abi.encodeWithSignature("swap(uint256,address)", amountToSwap, address(this)));
-            if (ok && usdc.balanceOf(address(this)) > before) {
-                return (true, usdc.balanceOf(address(this)));
-            }
-        }
-        // 4) transfer then sync/mint fallback
-        try sag.transfer(ammPair, amountToSwap) {
-            (bool okSync, ) = ammPair.call(abi.encodeWithSignature("sync()"));
-            if (okSync && usdc.balanceOf(address(this)) > before) return (true, usdc.balanceOf(address(this)));
-            (bool okMint, ) = ammPair.call(abi.encodeWithSignature("mint(address)", address(this)));
-            if (okMint && usdc.balanceOf(address(this)) > before) return (true, usdc.balanceOf(address(this)));
-        } catch {}
-
-        return (false, usdc.balanceOf(address(this)));
-    }
-
-    // Small helper extracted from _ensureUsdc to reduce its stack usage.
-    // Performs final verification and emits success/failure events (may revert).
-    function _finalizeCollateralize(
-        uint256 depositValueUsd,
-        bool swapped,
-        uint256 minExpectedUsdc6,
-        uint256 usdcBefore,
-        uint256 usdcAfterFinal,
-        uint256 sagAmount
-    ) internal {
-        uint256 usdcReceived = usdcAfterFinal > usdcBefore ? usdcAfterFinal - usdcBefore : 0;
-        if (!swapped || usdcReceived < minExpectedUsdc6) {
-            revert("Collateralize failed to obtain enough USDC");
-        }
-        uint256 sagAfterBal = sag.balanceOf(address(this));
-        if (usdcAfterFinal < depositValueUsd) {
-            emit CollateralizeInsufficientSAG(depositValueUsd, sagAfterBal, sagAmount);
-            revert("Collateralize failed to obtain enough USDC");
-        }
-        emit CollateralizeSucceeded(depositValueUsd, usdcAfterFinal, sagAfterBal);
-    }
-
-    // Probe AMM pair safely; returns defaults when probe fails.
-    function _probeAmm(address pair) internal view returns (
-        address token0Addr,
-        address token1Addr,
-        uint256 reserve0,
-        uint256 reserve1,
-        uint256 ammFeeBps,
-        bool ammProbeOk
-    ) {
-        ammFeeBps = 30;
-        (bool ok0, bytes memory d0) = pair.staticcall(abi.encodeWithSignature("token0()"));
-        if (ok0 && d0.length >= 32) token0Addr = abi.decode(d0, (address));
-        (bool ok1, bytes memory d1) = pair.staticcall(abi.encodeWithSignature("token1()"));
-        if (ok1 && d1.length >= 32) token1Addr = abi.decode(d1, (address));
-        (bool okR, bytes memory dR) = pair.staticcall(abi.encodeWithSignature("getReserves()"));
-        if (okR && dR.length >= 96) {
-            (uint256 r0, uint256 r1) = abi.decode(dR, (uint256, uint256));
-            reserve0 = r0;
-            reserve1 = r1;
-        }
-        (bool okFee, bytes memory dF) = pair.staticcall(abi.encodeWithSignature("SWAP_FEE_BPS()"));
-        if (okFee && dF.length >= 32) ammFeeBps = abi.decode(dF, (uint256));
-        ammProbeOk = (reserve0 > 0 && reserve1 > 0) && (token0Addr != address(0) || token1Addr != address(0));
-    }
-
-    // Try common swap entrypoints; returns (swapped, usdcBalanceAfter)
-    function _attemptSwap(address pair, uint256 amountToSwap, uint256 minExpectedUsdc6) internal returns (bool swapped, uint256 usdcAfter) {
-        try sag.approve(pair, 0) {} catch {}
-        try sag.approve(pair, amountToSwap) {} catch {}
-        uint256 before = usdc.balanceOf(address(this));
-
-        // 1) Router: swapExactTokensForTokens(amountIn, amountOutMin, path, to)
-        {
-            address[] memory path = new address[](2);
-            path[0] = address(sag);
-            path[1] = address(usdc);
-            (bool ok, ) = pair.call(abi.encodeWithSignature(
-                "swapExactTokensForTokens(uint256,uint256,address[],address)",
-                amountToSwap, minExpectedUsdc6, path, address(this)
-            ));
-            if (ok && usdc.balanceOf(address(this)) > before) {
-                return (true, usdc.balanceOf(address(this)));
-            }
-        }
-        // 2) Router variant: swapExactTokensForTokens(amountIn, tokenIn, tokenOut, to)
-        {
-            (bool ok, ) = pair.call(abi.encodeWithSignature(
-                "swapExactTokensForTokens(uint256,address,address,address)",
-                amountToSwap, address(sag), address(usdc), address(this)
-            ));
-            if (ok && usdc.balanceOf(address(this)) > before) {
-                return (true, usdc.balanceOf(address(this)));
-            }
-        }
-        // 3) Pair.swap(amount, to)
-        {
-            (bool ok, ) = pair.call(abi.encodeWithSignature("swap(uint256,address)", amountToSwap, address(this)));
-            if (ok && usdc.balanceOf(address(this)) > before) {
-                return (true, usdc.balanceOf(address(this)));
-            }
-        }
-        // 4) transfer then sync/mint fallback
-        try sag.transfer(pair, amountToSwap) {
-            (bool okSync, ) = pair.call(abi.encodeWithSignature("sync()"));
-            if (okSync && usdc.balanceOf(address(this)) > before) return (true, usdc.balanceOf(address(this)));
-            (bool okMint, ) = pair.call(abi.encodeWithSignature("mint(address)", address(this)));
-            if (okMint && usdc.balanceOf(address(this)) > before) return (true, usdc.balanceOf(address(this)));
-        } catch {}
-
-        return (false, usdc.balanceOf(address(this)));
-    }
+    // Legacy swap helpers removed in testnet USDC-only mode.
 
     // --- Reserve Rebalancing ---
 
     function rebalanceReserve() external {
-        require(address(sagOracle) != address(0) && address(goldOracle) != address(0), "oracles not set");
-        uint256 sagBal = sag.balanceOf(address(this)); // 18 decimals
-        uint256 sagPrice8 = sagOracle.getPrice(); // 8-decimals
-        uint256 sagValueUsd6 = (sagBal * sagPrice8) / (10 ** 20);
+        _rebalanceReserve();
+    }
 
+    /// @notice Keeper-style roll executor. Runs due Treasury actions and skips non-due ones.
+    /// @dev Non-reverting by design: failed branches are swallowed and reported in event output.
+    function rollIfDue() external returns (bool batchRolled, bool reserveRebalanced) {
+        (bool batchDue, bool rebalanceDue, ) = canRoll();
+
+        if (batchDue && escrow != address(0)) {
+            try IEscrowForTreasury(escrow).rollToNewBatch() {
+                batchRolled = true;
+            } catch {
+                batchRolled = false;
+            }
+        }
+
+        if (rebalanceDue) {
+            try this.rebalanceReserve() {
+                reserveRebalanced = true;
+            } catch {
+                reserveRebalanced = false;
+            }
+        }
+
+        emit RollProcessed(batchDue, rebalanceDue, batchRolled, reserveRebalanced);
+    }
+
+    function _rebalanceReserve() internal {
+        require(address(goldOracle) != address(0), "goldOracle not set");
+        uint256 treasuryUsdc6 = usdc.balanceOf(address(this)); // 6 decimals
         uint256 goldBal = gold.balanceOf(reserveAddress); // 18 decimals
-        uint256 goldPrice8 = goldOracle.getPrice(); // 8-decimals
+        uint256 goldPrice8 = _requireGoldPrice8();
         uint256 goldValueUsd6 = (goldBal * goldPrice8) / (10 ** 20);
 
-        // Target SAG:GOLD ratio is 2:1
-        // If ratio > 2.05:1, buy GOLD; if ratio < 1.95:1, sell GOLD
-        uint256 ratio = goldValueUsd6 == 0 ? type(uint256).max : (sagValueUsd6 * 1e6) / goldValueUsd6; // scaled by 1e6
+        // Target TreasuryUSDC:GOLD ratio is 2:1.
+        uint256 ratio = goldValueUsd6 == 0 ? type(uint256).max : (treasuryUsdc6 * 1e6) / goldValueUsd6; // scaled by 1e6
 
         uint256 targetRatio = 2 * 1e6; // 2.00 scaled by 1e6
         uint256 lower = targetRatio * 195 / 200; // 1.95
         uint256 upper = targetRatio * 205 / 200; // 2.05
 
         if (ratio > upper) {
-            // Too much SAG, need more GOLD: buy GOLD
-            // Calculate USD amount of GOLD to buy to reach target ratio
-            // Let x = new goldValueUsd6, solve (sagValueUsd6 / x) = 2
-            // x = sagValueUsd6 / 2
-            uint256 desiredGoldValueUsd6 = sagValueUsd6 / 2;
+            // Too much Treasury USDC, need more GOLD: buy GOLD.
+            uint256 desiredGoldValueUsd6 = treasuryUsdc6 / 2;
             uint256 goldToBuyUsd = desiredGoldValueUsd6 > goldValueUsd6 ? desiredGoldValueUsd6 - goldValueUsd6 : 0;
             if (goldToBuyUsd > 0) {
                 _buyGoldWithUsdc(goldToBuyUsd);
             }
         } else if (ratio < lower) {
-            // Too much GOLD, need less GOLD: sell GOLD
-            // Let x = new goldValueUsd6, solve (sagValueUsd6 / x) = 2
-            // x = sagValueUsd6 / 2
-            uint256 desiredGoldValueUsd6 = sagValueUsd6 / 2;
+            // Too much GOLD, need less GOLD: sell GOLD.
+            uint256 desiredGoldValueUsd6 = treasuryUsdc6 / 2;
             uint256 goldToSellUsd = goldValueUsd6 > desiredGoldValueUsd6 ? goldValueUsd6 - desiredGoldValueUsd6 : 0;
             if (goldToSellUsd > 0) {
                 _sellGoldForUsdc(goldToSellUsd);
             }
         }
-        emit Rebalanced(sagValueUsd6, goldValueUsd6);
+        emit Rebalanced(treasuryUsdc6, goldValueUsd6);
+    }
+
+    function _isBatchRollDue() internal view returns (bool) {
+        if (escrow == address(0)) return false;
+        IEscrowForTreasury escrowContract = IEscrowForTreasury(escrow);
+
+        uint256 lastRoll;
+        try escrowContract.lastBatchRollTime() returns (uint256 t) {
+            lastRoll = t;
+        } catch {
+            return false;
+        }
+
+        uint256 interval = 7 days;
+        try escrowContract.BATCH_INTERVAL() returns (uint256 configured) {
+            if (configured > 0) interval = configured;
+        } catch {
+            // keep default
+        }
+        if (block.timestamp < lastRoll + interval) return false;
+
+        // Best-effort: only signal batch roll due if the default pending batch has collateral.
+        uint256 pendingBatchId;
+        try escrowContract.currentBatchId() returns (uint256 id) {
+            pendingBatchId = id;
+        } catch {
+            return true;
+        }
+
+        try escrowContract.batches(pendingBatchId) returns (
+            uint256 /*id*/,
+            uint256 /*startTime*/,
+            uint256 /*endTime*/,
+            uint256 pendingCollateralUsd,
+            uint256 /*totalShares*/,
+            uint256 /*finalNavPerShare*/,
+            uint8 status,
+            bool /*distributed*/
+        ) {
+            // BatchStatus.Pending == 0
+            return status == 0 && pendingCollateralUsd > 0;
+        } catch {
+            return true;
+        }
+    }
+
+    function _isReserveRebalanceDue() internal view returns (bool) {
+        if (address(goldOracle) == address(0)) return false;
+        (uint256 goldPrice8,, bool isValid) = _readOraclePrice8(address(goldOracle), true);
+        if (!isValid || goldPrice8 == 0) return false;
+
+        uint256 treasuryUsdc6 = usdc.balanceOf(address(this));
+        uint256 reserveUsd6 = getReserveValueUsd();
+        if (reserveUsd6 == 0) return treasuryUsdc6 > 0;
+
+        uint256 ratio = (treasuryUsdc6 * 1e6) / reserveUsd6; // scaled by 1e6
+        uint256 targetRatio = 2 * 1e6; // 2.00 scaled by 1e6
+        uint256 lower = targetRatio * 195 / 200; // 1.95
+        uint256 upper = targetRatio * 205 / 200; // 2.05
+        return ratio > upper || ratio < lower;
     }
 
     // --- Internal book-keeping for MVP ---
 
+    /**
+     * @dev MVP simulation of a USDC → GOLD swap for reserve rebalancing.
+     *      Transfers the equivalent GOLD amount from the Treasury balance to the ReserveController,
+     *      and burns (sends to 0xdead) the corresponding USDC.
+     *
+     *      PRODUCTION NOTE: Replace this function with a real AMM swap (e.g. via ammPair) or a
+     *      custodian bridge before mainnet deployment. Burning USDC to 0xdead is irreversible.
+     *
+     * @param usdAmount USDC amount in 6 decimals to spend on GOLD.
+     */
     function _buyGoldWithUsdc(uint256 usdAmount) internal {
         uint256 usdcBal = usdc.balanceOf(address(this));
-
-        // If we don't have enough USDC, try selling SAG via AMM to obtain USDC
-        if (usdcBal < usdAmount && ammPair != address(0)) {
-            uint256 sagBal = sag.balanceOf(address(this));
-            if (sagBal > 0) {
-                // Approve AMM to pull SAG
-                // call SafeERC20 library explicitly to avoid ADL lookup issues
-                sag.approve(ammPair, 0);
-                sag.approve(ammPair, sagBal);
-                // swap SAG -> USDC, receive USDC back into this contract
-                uint256 obtainedUsdc = IAMMPair(ammPair).swapExactTokensForTokens(sagBal, address(sag), address(usdc), address(this));
-                usdcBal += obtainedUsdc;
-            }
-        }
-
         require(usdcBal >= usdAmount, "Not enough USDC");
 
-        uint256 goldPrice = goldOracle.getPrice(); // 8-decimals
+        uint256 goldPrice = _requireGoldPrice8();
         // token wei conversion (USD6 -> token wei): goldWei = usd6 * 1e20 / price8
         uint256 goldAmount = (usdAmount * (10 ** 20)) / goldPrice;
         // Transfer gold to reserve
         require(gold.transfer(reserveAddress, goldAmount), "Gold transfer failed");
-        // Burn/spend USDC (MVP simulation)
-        require(usdc.transfer(address(0xdead), usdAmount), "USDC burned for MVP");
+        // Simulate USDC outflow by sending to dead address (MVP — replace with real swap in prod)
+        require(usdc.transfer(address(0xdead), usdAmount), "USDC transfer failed");
         emit GoldBought(usdAmount);
     }
 
     function _sellGoldForUsdc(uint256 usdAmount) internal {
-        uint256 goldPrice = goldOracle.getPrice(); // 8-decimals
+        uint256 goldPrice = _requireGoldPrice8();
         uint256 goldAmount = (usdAmount * (10 ** 20)) / goldPrice;
         require(gold.balanceOf(reserveAddress) >= goldAmount, "Not enough GOLD at reserve");
         // For MVP: pull GOLD from reserve back to treasury and emit event.
@@ -737,6 +872,500 @@ contract Treasury is Ownable {
                 continue;
             }
         }
+    }
+
+    /// @notice Manual admin payout of profit to the current receipt NFT owner (or deposit owner fallback).
+    /// @dev Sends USDC from Treasury to recipient without touching Vault principal state / NFT burn state.
+    /// @param receiptId Vault receipt token id
+    /// @param amountUsd USD amount in 6 decimals (e.g. $112.50 => 112500000)
+    function payProfitToReceiptOwner(uint256 receiptId, uint256 amountUsd) external onlyOwner {
+        require(amountUsd > 0, "amount must be > 0");
+        require(vault != address(0), "vault not set");
+        require(usdc.balanceOf(address(this)) >= amountUsd, "Treasury lacks USDC");
+
+        (uint256 batchId, uint256 dueUsd, uint256 alreadyPaidUsd, uint256 unpaidUsd, address recipient) =
+            previewReceiptProfitUsd(receiptId);
+        require(recipient != address(0), "recipient not found");
+
+        if (batchId != 0 && dueUsd > 0) {
+            require(amountUsd <= unpaidUsd, "amount exceeds unpaid batch profit");
+            uint256 newPaid = alreadyPaidUsd + amountUsd;
+            receiptBatchProfitPaidUsd[batchId][receiptId] = newPaid;
+            emit ReceiptProfitPaidDetailed(batchId, receiptId, recipient, amountUsd, newPaid, dueUsd);
+        }
+
+        usdc.safeTransfer(recipient, amountUsd);
+        emit ReceiptProfitPaid(receiptId, recipient, amountUsd);
+    }
+
+    /// @notice Preview exact batch-derived profit allocation for a receipt.
+    /// @dev due/unpaid are in USD6. If no batch mapping is found, returns zeros.
+    function previewReceiptProfitUsd(uint256 receiptId)
+        public
+        view
+        returns (
+            uint256 batchId,
+            uint256 dueUsd,
+            uint256 alreadyPaidUsd,
+            uint256 unpaidUsd,
+            address recipient
+        )
+    {
+        if (vault == address(0)) return (0, 0, 0, 0, address(0));
+        IVaultForTreasury vaultContract = IVaultForTreasury(vault);
+        recipient = _resolveProfitRecipient(vaultContract, receiptId);
+
+        if (escrow == address(0)) return (0, 0, 0, 0, recipient);
+        IEscrowForTreasury escrowContract = IEscrowForTreasury(escrow);
+
+        // Resolve receipt -> batch mapping.
+        try escrowContract.receiptBatchId(receiptId) returns (uint256 bid) {
+            batchId = bid;
+        } catch {
+            return (0, 0, 0, 0, recipient);
+        }
+        if (batchId == 0) return (0, 0, 0, 0, recipient);
+
+        uint256 userProfitUsd = batchProfitUsd[batchId];
+        alreadyPaidUsd = receiptBatchProfitPaidUsd[batchId][receiptId];
+        if (userProfitUsd == 0) {
+            return (batchId, 0, alreadyPaidUsd, 0, recipient);
+        }
+
+        uint256 totalShares = 0;
+        try escrowContract.batches(batchId) returns (
+            uint256 /*id*/,
+            uint256 /*startTime*/,
+            uint256 /*endTime*/,
+            uint256 /*totalCollateralUsd*/,
+            uint256 sharesTotal,
+            uint256 /*finalNavPerShare*/,
+            uint8 /*status*/,
+            bool /*distributed*/
+        ) {
+            totalShares = sharesTotal;
+        } catch {
+            return (batchId, 0, alreadyPaidUsd, 0, recipient);
+        }
+        if (totalShares == 0) return (batchId, 0, alreadyPaidUsd, 0, recipient);
+
+        uint256 receiptShares = 0;
+        try vaultContract.depositInfo(receiptId) returns (
+            address /*user*/,
+            address /*asset*/,
+            uint256 /*amount*/,
+            uint256 /*amountUsd6*/,
+            uint256 shares,
+            uint64 /*createdAt*/,
+            uint64 /*lockUntil*/,
+            bool /*withdrawn*/
+        ) {
+            receiptShares = shares;
+        } catch {
+            return (batchId, 0, alreadyPaidUsd, 0, recipient);
+        }
+        if (receiptShares == 0) return (batchId, 0, alreadyPaidUsd, 0, recipient);
+
+        dueUsd = (userProfitUsd * receiptShares) / totalShares;
+        unpaidUsd = dueUsd > alreadyPaidUsd ? dueUsd - alreadyPaidUsd : 0;
+        return (batchId, dueUsd, alreadyPaidUsd, unpaidUsd, recipient);
+    }
+
+    /// @notice Pay exact unpaid batch-derived profit to the current receipt owner.
+    /// @dev Uses previewReceiptProfitUsd() and updates per-receipt paid tracking.
+    function payReceiptProfit(uint256 receiptId) external onlyOwner {
+        require(vault != address(0), "vault not set");
+        require(escrow != address(0), "escrow not set");
+
+        (uint256 batchId, uint256 dueUsd, uint256 alreadyPaidUsd, uint256 unpaidUsd, address recipient) =
+            previewReceiptProfitUsd(receiptId);
+        require(batchId != 0, "receipt batch not found");
+        require(recipient != address(0), "recipient not found");
+        require(unpaidUsd > 0, "no unpaid profit");
+        require(usdc.balanceOf(address(this)) >= unpaidUsd, "Treasury lacks USDC");
+
+        uint256 newPaid = alreadyPaidUsd + unpaidUsd;
+        receiptBatchProfitPaidUsd[batchId][receiptId] = newPaid;
+        usdc.safeTransfer(recipient, unpaidUsd);
+
+        emit ReceiptProfitPaid(receiptId, recipient, unpaidUsd);
+        emit ReceiptProfitPaidDetailed(batchId, receiptId, recipient, unpaidUsd, newPaid, dueUsd);
+    }
+
+    function _resolveProfitRecipient(IVaultForTreasury vaultContract, uint256 receiptId) internal view returns (address recipient) {
+        // Fallback: deposit owner from Vault storage (works even if receipt NFT is not configured).
+        try vaultContract.depositInfo(receiptId) returns (
+            address user,
+            address /*asset*/,
+            uint256 /*amount*/,
+            uint256 /*amountUsd6*/,
+            uint256 /*shares*/,
+            uint64 /*createdAt*/,
+            uint64 /*lockUntil*/,
+            bool /*withdrawn*/
+        ) {
+            recipient = user;
+        } catch {
+            recipient = address(0);
+        }
+
+        // Preferred recipient: current NFT owner.
+        try vaultContract.receiptNFT() returns (address nft) {
+            if (nft != address(0)) {
+                try IReceiptNFTForTreasury(nft).ownerOf(receiptId) returns (address nftOwner) {
+                    if (nftOwner != address(0)) {
+                        recipient = nftOwner;
+                    }
+                } catch {
+                    // keep fallback recipient from depositInfo
+                }
+            }
+        } catch {
+            // keep fallback recipient from depositInfo
+        }
+    }
+
+    function _syncStressState() internal returns (StressState state, uint256 flags) {
+        StressMetrics memory metrics = _computeStressMetrics();
+        StressState previousState = stressState;
+        uint256 previousDegradedRecovery = degradedRecoveryWindowStartedAt;
+        uint256 previousRecapRecovery = recapOnlyRecoveryWindowStartedAt;
+        uint256 previousEmergencyRecovery = emergencyRecoveryWindowStartedAt;
+        uint256 nextDegradedRecovery;
+        uint256 nextRecapRecovery;
+        uint256 nextEmergencyRecovery;
+        (
+            state,
+            flags,
+            nextDegradedRecovery,
+            nextRecapRecovery,
+            nextEmergencyRecovery
+        ) = _previewStressState(metrics);
+
+        if (state != previousState) {
+            stressState = state;
+            stressStateSince = block.timestamp;
+        }
+
+        degradedRecoveryWindowStartedAt = nextDegradedRecovery;
+        recapOnlyRecoveryWindowStartedAt = nextRecapRecovery;
+        emergencyRecoveryWindowStartedAt = nextEmergencyRecovery;
+
+        if (state != previousState) {
+            emit StressStateTransition(
+                previousState,
+                state,
+                flags,
+                block.timestamp,
+                nextDegradedRecovery,
+                nextRecapRecovery,
+                nextEmergencyRecovery
+            );
+            return (state, flags);
+        }
+
+        if (
+            nextDegradedRecovery != previousDegradedRecovery
+                || nextRecapRecovery != previousRecapRecovery
+                || nextEmergencyRecovery != previousEmergencyRecovery
+        ) {
+            emit StressRecoveryWindowsUpdated(
+                state,
+                flags,
+                nextDegradedRecovery,
+                nextRecapRecovery,
+                nextEmergencyRecovery
+            );
+        }
+    }
+
+    function _previewStressState(StressMetrics memory metrics)
+        internal
+        view
+        returns (
+            StressState nextState,
+            uint256 flags,
+            uint256 nextDegradedRecovery,
+            uint256 nextRecapRecovery,
+            uint256 nextEmergencyRecovery
+        )
+    {
+        (StressState instantaneousState, uint256 instantaneousFlags) = _deriveInstantaneousStressState(metrics);
+        StressState currentState = stressState;
+        nextDegradedRecovery = degradedRecoveryWindowStartedAt;
+        nextRecapRecovery = recapOnlyRecoveryWindowStartedAt;
+        nextEmergencyRecovery = emergencyRecoveryWindowStartedAt;
+
+        if (_severity(instantaneousState) > _severity(currentState)) {
+            nextDegradedRecovery = 0;
+            nextRecapRecovery = 0;
+            nextEmergencyRecovery = 0;
+            return (instantaneousState, instantaneousFlags, nextDegradedRecovery, nextRecapRecovery, nextEmergencyRecovery);
+        }
+
+        if (instantaneousState == currentState) {
+            if (currentState == StressState.Degraded) {
+                nextDegradedRecovery = 0;
+            } else if (currentState == StressState.RecapOnly) {
+                nextRecapRecovery = 0;
+            } else if (currentState == StressState.Emergency) {
+                nextEmergencyRecovery = 0;
+            }
+            return (currentState, instantaneousFlags, nextDegradedRecovery, nextRecapRecovery, nextEmergencyRecovery);
+        }
+
+        if (currentState == StressState.Emergency) {
+            nextDegradedRecovery = 0;
+            nextRecapRecovery = 0;
+            if (nextEmergencyRecovery == 0) {
+                nextEmergencyRecovery = block.timestamp;
+                return (currentState, instantaneousFlags, nextDegradedRecovery, nextRecapRecovery, nextEmergencyRecovery);
+            }
+            if (block.timestamp < nextEmergencyRecovery + EMERGENCY_RECOVERY_DELAY) {
+                return (currentState, instantaneousFlags, nextDegradedRecovery, nextRecapRecovery, nextEmergencyRecovery);
+            }
+            nextEmergencyRecovery = 0;
+            nextRecapRecovery = block.timestamp;
+            return (StressState.RecapOnly, instantaneousFlags, nextDegradedRecovery, nextRecapRecovery, nextEmergencyRecovery);
+        }
+
+        if (currentState == StressState.RecapOnly) {
+            nextDegradedRecovery = 0;
+            nextEmergencyRecovery = 0;
+            if (nextRecapRecovery == 0) {
+                nextRecapRecovery = block.timestamp;
+                return (currentState, instantaneousFlags, nextDegradedRecovery, nextRecapRecovery, nextEmergencyRecovery);
+            }
+            if (block.timestamp < nextRecapRecovery + RECOVERY_DELAY) {
+                return (currentState, instantaneousFlags, nextDegradedRecovery, nextRecapRecovery, nextEmergencyRecovery);
+            }
+            nextRecapRecovery = 0;
+            nextDegradedRecovery = block.timestamp;
+            return (StressState.Degraded, instantaneousFlags, nextDegradedRecovery, nextRecapRecovery, nextEmergencyRecovery);
+        }
+
+        if (currentState == StressState.Degraded) {
+            nextRecapRecovery = 0;
+            nextEmergencyRecovery = 0;
+            if (nextDegradedRecovery == 0) {
+                nextDegradedRecovery = block.timestamp;
+                return (currentState, instantaneousFlags, nextDegradedRecovery, nextRecapRecovery, nextEmergencyRecovery);
+            }
+            if (block.timestamp < nextDegradedRecovery + RECOVERY_DELAY) {
+                return (currentState, instantaneousFlags, nextDegradedRecovery, nextRecapRecovery, nextEmergencyRecovery);
+            }
+            nextDegradedRecovery = 0;
+            return (StressState.Healthy, instantaneousFlags, nextDegradedRecovery, nextRecapRecovery, nextEmergencyRecovery);
+        }
+
+        return (instantaneousState, instantaneousFlags, nextDegradedRecovery, nextRecapRecovery, nextEmergencyRecovery);
+    }
+
+    function _deriveInstantaneousStressState(StressMetrics memory metrics)
+        internal
+        pure
+        returns (StressState state, uint256 flags)
+    {
+        flags = _collectStressFlags(
+            metrics,
+            EMERGENCY_COVERAGE_MIN_BPS,
+            EMERGENCY_RESERVE_MIN_BPS,
+            EMERGENCY_LIQUIDITY_MIN_BPS,
+            EMERGENCY_DEPEG_MAX_BPS
+        );
+        if (!metrics.oracleFresh) {
+            return (StressState.Emergency, flags | FLAG_ORACLE);
+        }
+        if (flags != 0) {
+            return (StressState.Emergency, flags);
+        }
+
+        flags = _collectStressFlags(
+            metrics,
+            RECAP_COVERAGE_MIN_BPS,
+            RECAP_RESERVE_MIN_BPS,
+            RECAP_LIQUIDITY_MIN_BPS,
+            RECAP_DEPEG_MAX_BPS
+        );
+        if (flags != 0) {
+            return (StressState.RecapOnly, flags);
+        }
+
+        flags = _collectStressFlags(
+            metrics,
+            DEGRADED_COVERAGE_MIN_BPS,
+            DEGRADED_RESERVE_MIN_BPS,
+            DEGRADED_LIQUIDITY_MIN_BPS,
+            DEGRADED_DEPEG_MAX_BPS
+        );
+        if (flags != 0) {
+            return (StressState.Degraded, flags);
+        }
+
+        return (StressState.Healthy, 0);
+    }
+
+    function _computeStressMetrics() internal view returns (StressMetrics memory metrics) {
+        metrics.treasuryUsd = getTreasuryValueUsd();
+        metrics.reserveUsd = getReserveValueUsd();
+        metrics.safeBackingUsd = getSafeBackingUsd();
+        metrics.liquidStableUsd = getLiquidStableUsd();
+        metrics.liabilitiesUsd = getLiabilitiesUsd();
+        metrics.immediateObligationsUsd = getImmediateObligationsUsd();
+
+        bool primaryValid;
+        bool secondaryValid;
+        bool goldValid;
+
+        (metrics.primaryStablePrice8, metrics.primaryStableUpdatedAt, primaryValid) =
+            _readOraclePrice8(address(priceOracle), false);
+        (metrics.goldPrice8, metrics.goldOracleUpdatedAt, goldValid) =
+            _readOraclePrice8(address(goldOracle), true);
+
+        if (secondaryStableOracle != address(0)) {
+            (metrics.secondaryStablePrice8, metrics.secondaryStableUpdatedAt, secondaryValid) =
+                _readOraclePrice8(secondaryStableOracle, false);
+        } else {
+            metrics.secondaryStablePrice8 = PRICE_SCALE;
+            metrics.secondaryStableUpdatedAt = block.timestamp;
+            secondaryValid = true;
+        }
+
+        metrics.backingCoverageBps = _ratioBps(metrics.safeBackingUsd, metrics.liabilitiesUsd);
+        metrics.reserveSupportBps = _ratioBps(metrics.reserveUsd, metrics.treasuryUsd);
+        metrics.liquidityRunwayBps = _ratioBps(metrics.liquidStableUsd, metrics.immediateObligationsUsd);
+
+        uint256 primaryDiff = _absDiff(metrics.primaryStablePrice8, PRICE_SCALE);
+        uint256 secondaryDiff = secondaryStableOracle == address(0)
+            ? 0
+            : _absDiff(metrics.secondaryStablePrice8, PRICE_SCALE);
+        metrics.stableDepegBps = (_max(primaryDiff, secondaryDiff) * BPS_SCALE) / PRICE_SCALE;
+
+        bool primaryFresh = _isOracleFresh(primaryValid, metrics.primaryStableUpdatedAt);
+        bool secondaryFresh = secondaryStableOracle == address(0)
+            ? true
+            : _isOracleFresh(secondaryValid, metrics.secondaryStableUpdatedAt);
+        bool goldFresh_ = _isOracleFresh(goldValid, metrics.goldOracleUpdatedAt);
+        metrics.oracleFresh = primaryFresh && secondaryFresh && goldFresh_;
+    }
+
+    function _collectStressFlags(
+        StressMetrics memory metrics,
+        uint256 minCoverageBps,
+        uint256 minReserveSupportBps,
+        uint256 minLiquidityRunwayBps,
+        uint256 maxStableDepegBps
+    ) internal pure returns (uint256 flags) {
+        if (metrics.backingCoverageBps < minCoverageBps) {
+            flags |= FLAG_COVERAGE;
+        }
+        if (metrics.reserveSupportBps < minReserveSupportBps) {
+            flags |= FLAG_RESERVE;
+        }
+        if (metrics.liquidityRunwayBps < minLiquidityRunwayBps) {
+            flags |= FLAG_LIQUIDITY;
+        }
+        if (metrics.stableDepegBps > maxStableDepegBps) {
+            flags |= FLAG_DEPEG;
+        }
+    }
+
+    function _readOraclePrice8(address oracle, bool preferGoldLegacy)
+        internal
+        view
+        returns (uint256 price8, uint256 updatedAt_, bool isValid)
+    {
+        if (oracle == address(0)) {
+            return (0, 0, false);
+        }
+
+        try IOracleLatest(oracle).latest() returns (uint256 latestPrice8, uint256 ts, bool valid_) {
+            return (latestPrice8, ts, valid_ && latestPrice8 > 0);
+        } catch {}
+
+        try IOracleUpdatedAt(oracle).updatedAt() returns (uint256 ts) {
+            updatedAt_ = ts;
+        } catch {
+            updatedAt_ = 0;
+        }
+
+        try IOracleValidity(oracle).valid() returns (bool valid_) {
+            isValid = valid_;
+        } catch {
+            isValid = true;
+        }
+
+        if (price8 == 0) {
+            try IPriceOracle(oracle).getPrice() returns (uint256 latestPrice8) {
+                price8 = latestPrice8;
+            } catch {}
+        }
+
+        if (price8 == 0 && preferGoldLegacy) {
+            try IGoldOracleLegacy(oracle).getGoldPrice() returns (uint256 price6) {
+                price8 = price6 * 100;
+            } catch {}
+        }
+
+        if (updatedAt_ == 0 || price8 == 0) {
+            isValid = false;
+        }
+
+        return (price8, updatedAt_, isValid);
+    }
+
+    function _requireGoldPrice8() internal view returns (uint256 goldPrice8) {
+        bool isValid;
+        (goldPrice8,, isValid) = _readOraclePrice8(address(goldOracle), true);
+        require(isValid && goldPrice8 > 0, "goldOracle invalid");
+    }
+
+    function _isOracleFresh(bool isValid, uint256 updatedAt_) internal view returns (bool) {
+        if (!isValid || updatedAt_ == 0) {
+            return false;
+        }
+        return block.timestamp <= updatedAt_ + MAX_ORACLE_AGE;
+    }
+
+    function _ratioBps(uint256 numerator, uint256 denominator) internal pure returns (uint256) {
+        if (denominator == 0) {
+            return type(uint256).max;
+        }
+        return (numerator * BPS_SCALE) / denominator;
+    }
+
+    function _applyHaircut(uint256 value, uint256 haircutBps) internal pure returns (uint256) {
+        return (value * haircutBps) / BPS_SCALE;
+    }
+
+    function _severity(StressState state) internal pure returns (uint8) {
+        return uint8(state);
+    }
+
+    function _assertCategoryAllowed(PolicyCategory category, StressState state, uint256 flags) internal pure {
+        if (!_isCategoryAllowed(category, state)) {
+            revert PolicyCategoryNotAllowed(category, state, flags);
+        }
+    }
+
+    function _isCategoryAllowed(PolicyCategory category, StressState state) internal pure returns (bool) {
+        if (state == StressState.Healthy || state == StressState.Degraded) {
+            return true;
+        }
+        if (state == StressState.RecapOnly) {
+            return category == PolicyCategory.Recapitalization
+                || category == PolicyCategory.BuybackBurn
+                || category == PolicyCategory.IdleBurn;
+        }
+        return false;
+    }
+
+    function _absDiff(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a >= b ? a - b : b - a;
+    }
+
+    function _max(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a >= b ? a : b;
     }
 
 }

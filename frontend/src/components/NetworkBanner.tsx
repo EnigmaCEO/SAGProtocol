@@ -1,32 +1,48 @@
 import { useEffect, useState } from 'react';
-import { useNetwork, useSwitchNetwork } from 'wagmi';
 
-const VALID_CHAIN_IDS = [1337, 1287]; // Local and Moonbase Alpha
+const VALID_CHAIN_IDS = [1337, 1287];
 
 export default function NetworkBanner() {
-  const { chain } = useNetwork();
-  const { switchNetwork } = useSwitchNetwork();
   const [isWrongNetwork, setIsWrongNetwork] = useState(false);
+  const [chainId, setChainId] = useState<number | null>(null);
 
   useEffect(() => {
-    if (chain?.id) {
-      setIsWrongNetwork(!VALID_CHAIN_IDS.includes(chain.id));
-    }
-  }, [chain?.id]);
+    if (typeof window === 'undefined' || !(window as any).ethereum) return;
+
+    let active = true;
+    const ethereum = (window as any).ethereum;
+
+    const refreshChain = async () => {
+      try {
+        const hexChainId = await ethereum.request({ method: 'eth_chainId' });
+        const nextChainId = Number.parseInt(hexChainId, 16);
+        if (!active) return;
+        setChainId(nextChainId);
+        setIsWrongNetwork(!VALID_CHAIN_IDS.includes(nextChainId));
+      } catch {
+        if (!active) return;
+        setChainId(null);
+        setIsWrongNetwork(false);
+      }
+    };
+
+    refreshChain();
+    ethereum.on?.('chainChanged', refreshChain);
+
+    return () => {
+      active = false;
+      ethereum.removeListener?.('chainChanged', refreshChain);
+    };
+  }, []);
 
   const switchToMoonbase = async () => {
-    if (switchNetwork) {
-      switchNetwork(1287);
-    } else {
-      // Fallback for manual switch
-      try {
-        await (window as any).ethereum.request({
-          method: 'wallet_switchEthereumChain',
-          params: [{ chainId: '0x507' }], // 1287 in hex
-        });
-      } catch (err: any) {
-        alert(err.message || 'Failed to switch network');
-      }
+    try {
+      await (window as any).ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0x507' }],
+      });
+    } catch (err: any) {
+      alert(err.message || 'Failed to switch network');
     }
   };
 
@@ -34,7 +50,7 @@ export default function NetworkBanner() {
 
   return (
     <div className="bg-yellow-600 text-white px-4 py-3 mb-4 rounded flex items-center justify-between">
-      <span className="font-medium">⚠️ Wrong Network - Please switch to Moonbase Alpha (1287) or Local (1337)</span>
+      <span className="font-medium">Wrong network ({chainId ?? 'unknown'}) - switch to Moonbase Alpha (1287) or Local (1337)</span>
       <button
         onClick={switchToMoonbase}
         className="bg-white text-yellow-700 px-4 py-1 rounded font-medium hover:bg-gray-100"

@@ -1,20 +1,24 @@
 import React, { useEffect, useState } from 'react';
-import MetricGrid from '../ui/MetricGrid';
 import MetricCard from '../ui/MetricCard';
-import { Clock, ShieldCheck, Handshake } from 'lucide-react';
+import { Clock } from 'lucide-react';
 
 // NEW imports for on-chain interactions
 import { JsonRpcProvider, Contract, Wallet, Interface } from 'ethers';
 import INVESTMENT_ESCROW_ABI from '../../lib/abis/InvestmentEscrow.json';
-import { CONTRACT_ADDRESSES } from '../../lib/addresses';
 import TREASURY_ABI from '../../lib/abis/Treasury.json';
-import { RefreshCw } from 'lucide-react';
+import { getRuntimeAddress, isValidAddress, setRuntimeAddress } from '../../lib/runtime-addresses';
+import { emitUiRefresh } from '../../lib/ui-refresh';
+import useRoleAccess from '../../hooks/useRoleAccess';
+import useProtocolPause from '../../hooks/useProtocolPause';
+import PageHeader from '../ui/PageHeader';
+import { RPC_URL } from '../../lib/network';
 
 export default function EscrowTab() {
+  const { isPaused } = useProtocolPause();
+  const { isOperator, role } = useRoleAccess();
   // On-chain constants
-  const LOCALHOST_RPC = "http://127.0.0.1:8545";
+  const LOCALHOST_RPC = RPC_URL;
   const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
-  const ESCROW_ADDRESS = (CONTRACT_ADDRESSES as any).InvestmentEscrow;
 
   const [provider, setProvider] = useState<JsonRpcProvider | null>(null);
   const [escrow, setEscrow] = useState<Contract | null>(null);
@@ -41,35 +45,205 @@ export default function EscrowTab() {
   const [allBatchesDebug, setAllBatchesDebug] = useState<Array<{ id:number; ok:boolean; batch:any; error?:string }>>([]);
   const [dumpLimit, setDumpLimit] = useState<number>(40);
 
-  // NEW: EscrowTab state for keeper/owner controls
-  const [escrowAddr, setEscrowAddr] = useState<string | null>(CONTRACT_ADDRESSES.InvestmentEscrow || null);
+  // Escrow runtime config + linking controls
+  const [escrowAddr, setEscrowAddr] = useState<string>(() => getRuntimeAddress('InvestmentEscrow'));
+  const [escrowAddrInput, setEscrowAddrInput] = useState<string>(escrowAddr);
+  const [vaultLinkInput, setVaultLinkInput] = useState<string>(() => getRuntimeAddress('Vault'));
+  const [keeperInput, setKeeperInput] = useState<string>(() => getRuntimeAddress('Treasury'));
+  const [linkedVaultAddress, setLinkedVaultAddress] = useState<string | null>(null);
+  const [linkedKeeperAddress, setLinkedKeeperAddress] = useState<string | null>(null);
+  const [linkConfigLoading, setLinkConfigLoading] = useState(false);
+  const [linkConfigStatus, setLinkConfigStatus] = useState<string | null>(null);
+
+  // NEW: EscrowTab state for batch operations
   const [escrowUsdc, setEscrowUsdc] = useState<number>(0);
   const [batchIdInput, setBatchIdInput] = useState('');
   const [navInput, setNavInput] = useState('1.10');
+  const [batchFilter, setBatchFilter] = useState('');
+  const [batchPageSize, setBatchPageSize] = useState<number>(6);
+  const [activePage, setActivePage] = useState<number>(1);
+  const [investedPage, setInvestedPage] = useState<number>(1);
+  const [closedPage, setClosedPage] = useState<number>(1);
 
   useEffect(() => {
     const rp = new JsonRpcProvider(LOCALHOST_RPC);
     const w = new Wallet(TEST_PRIVATE_KEY, rp);
     setProvider(rp);
     setSigner(w);
-    if (ESCROW_ADDRESS && ESCROW_ADDRESS !== '0x0000000000000000000000000000000000000000') {
-      const c = new Contract(ESCROW_ADDRESS, INVESTMENT_ESCROW_ABI, rp);
-      setEscrow(c);
-    } else {
-      setLog(l => [`No InvestmentEscrow address in CONTRACT_ADDRESSES`, ...l]);
-    }
   }, []);
+
+  useEffect(() => {
+    if (!provider) return;
+    if (!isValidAddress(escrowAddr)) {
+      setEscrow(null);
+      setLinkedVaultAddress(null);
+      setLinkedKeeperAddress(null);
+      return;
+    }
+    const c = new Contract(escrowAddr, INVESTMENT_ESCROW_ABI, provider);
+    setEscrow(c);
+  }, [provider, escrowAddr]);
+
+  useEffect(() => {
+    setEscrowAddrInput(escrowAddr);
+  }, [escrowAddr]);
 
   // React to new blocks so UI reflects simulation actions immediately
   useEffect(() => {
     if (!provider) return;
     const onBlock = async (_blockNumber: number) => {
       // lightweight refresh when a new block is mined
-      try { await refreshBatchSummary(); } catch (_) {}
+      try {
+        await Promise.allSettled([refreshBatchSummary(), refresh()]);
+      } catch (_) {}
     };
     provider.on('block', onBlock);
     return () => { provider.off('block', onBlock); };
   }, [provider]);
+
+  useEffect(() => {
+    if (!escrow) return;
+    refreshEscrowLinks();
+  }, [escrow]);
+
+  async function refreshEscrowLinks() {
+    if (!escrow) return;
+    try {
+      const [vaultAddr, keeperAddr] = await Promise.all([
+        (escrow as any).vault?.().catch(() => null),
+        (escrow as any).keeper?.().catch(() => null),
+      ]);
+      if (typeof vaultAddr === 'string' && vaultAddr !== '0x0000000000000000000000000000000000000000') {
+        setLinkedVaultAddress(vaultAddr);
+        setVaultLinkInput(vaultAddr);
+      } else {
+        setLinkedVaultAddress(null);
+      }
+
+      if (typeof keeperAddr === 'string' && keeperAddr !== '0x0000000000000000000000000000000000000000') {
+        setLinkedKeeperAddress(keeperAddr);
+        setKeeperInput(keeperAddr);
+      } else {
+        setLinkedKeeperAddress(null);
+      }
+    } catch {
+      // ignore read failures
+    }
+  }
+
+  async function postWriteRefresh(reason: string) {
+    await Promise.allSettled([refresh(), refreshBatchSummary(), refreshEscrowLinks()]);
+    emitUiRefresh(`escrow:${reason}`);
+  }
+
+  function handleUseEscrowAddress() {
+    const next = escrowAddrInput.trim();
+    if (!setRuntimeAddress('InvestmentEscrow', next)) {
+      setLinkConfigStatus('Invalid Escrow address');
+      return;
+    }
+    setEscrowAddr(next);
+    setLinkConfigStatus(`Using Escrow ${next}`);
+  }
+
+  async function handleSetEscrowVaultLink() {
+    if (!signer || !isValidAddress(escrowAddr) || !isValidAddress(vaultLinkInput.trim())) {
+      setLinkConfigStatus('Invalid Escrow or Vault address');
+      return;
+    }
+    try {
+      setLinkConfigLoading(true);
+      const nextVault = vaultLinkInput.trim();
+      const escrowWrite = new Contract(
+        escrowAddr,
+        ['function setVault(address _vault) external'],
+        signer
+      );
+      const tx = await escrowWrite.setVault(nextVault);
+      await tx.wait();
+      setRuntimeAddress('Vault', nextVault);
+      setLinkedVaultAddress(nextVault);
+      setLinkConfigStatus('Escrow -> Vault linked');
+      await postWriteRefresh('link-vault');
+    } catch (e: any) {
+      setLinkConfigStatus(`Vault link failed: ${String(e?.message || e)}`);
+    } finally {
+      setLinkConfigLoading(false);
+    }
+  }
+
+  async function handleSetEscrowKeeper() {
+    if (!signer || !isValidAddress(escrowAddr) || !isValidAddress(keeperInput.trim())) {
+      setLinkConfigStatus('Invalid Escrow or Keeper address');
+      return;
+    }
+    try {
+      setLinkConfigLoading(true);
+      const nextKeeper = keeperInput.trim();
+      const escrowWrite = new Contract(
+        escrowAddr,
+        ['function setKeeper(address _keeper) external'],
+        signer
+      );
+      const tx = await escrowWrite.setKeeper(nextKeeper);
+      await tx.wait();
+      setLinkedKeeperAddress(nextKeeper);
+      setLinkConfigStatus('Escrow keeper updated');
+      await postWriteRefresh('set-keeper');
+    } catch (e: any) {
+      setLinkConfigStatus(`Keeper update failed: ${String(e?.message || e)}`);
+    } finally {
+      setLinkConfigLoading(false);
+    }
+  }
+
+  function toBigIntSafe(v: any): bigint {
+    try {
+      return BigInt(v?.toString?.() ?? String(v ?? '0'));
+    } catch {
+      return 0n;
+    }
+  }
+
+  function deriveClosedResultFromBatch(batch: any) {
+    const principalUsd = toBigIntSafe(batch?.totalCollateralUsd);
+    const finalNavPerShare = toBigIntSafe(batch?.finalNavPerShare);
+    if (principalUsd <= 0n || finalNavPerShare <= 0n) return null;
+
+    const finalValueUsd = (principalUsd * finalNavPerShare) / 1000000000000000000n; // 1e18
+    const profitUsd = finalValueUsd > principalUsd ? finalValueUsd - principalUsd : 0n;
+    const userProfitUsd = (profitUsd * 80n) / 100n;
+    const feeUsd = profitUsd - userProfitUsd;
+
+    return {
+      principalUsd: principalUsd.toString(),
+      finalNavPerShare: finalNavPerShare.toString(),
+      finalValueUsd: finalValueUsd.toString(),
+      profitUsd: profitUsd.toString(),
+      userProfitUsd: userProfitUsd.toString(),
+      feeUsd: feeUsd.toString(),
+      _derived: true,
+    };
+  }
+
+  async function resolveClosedBatchResult(batch: any) {
+    const id = Number(batch?.id ?? 0);
+    if (!escrow || !Number.isFinite(id) || id <= 0) {
+      return deriveClosedResultFromBatch(batch);
+    }
+
+    try {
+      const anyEscrow: any = escrow;
+      if (typeof anyEscrow.getClosedBatchResult === 'function') {
+        const res = await anyEscrow.getClosedBatchResult(id);
+        if (res) return res;
+      }
+    } catch {
+      // fall through to deterministic derivation
+    }
+
+    return deriveClosedResultFromBatch(batch);
+  }
 
   async function refreshBatchSummary() {
     if (!escrow || !provider) return;
@@ -202,13 +376,8 @@ export default function EscrowTab() {
           // rebuild closedWithResults from cList
           const closedWithResults: Array<{ batch: any; result: any }> = [];
           for (const b of cList) {
-            const id = Number(b.id);
-            try {
-              const res = await escrow.getClosedBatchResult(id);
-              closedWithResults.push({ batch: b, result: res });
-            } catch {
-              closedWithResults.push({ batch: b, result: null });
-            }
+            const res = await resolveClosedBatchResult(b);
+            closedWithResults.push({ batch: b, result: res });
           }
           setClosedBatches(closedWithResults);
         } else {
@@ -220,13 +389,8 @@ export default function EscrowTab() {
           // for closed batches fetch result details
           const closedWithResults: Array<{ batch: any; result: any }> = [];
           for (const b of closed || []) {
-            const id = Number(b.id);
-            try {
-              const res = await escrow.getClosedBatchResult(id);
-              closedWithResults.push({ batch: b, result: res });
-            } catch {
-              closedWithResults.push({ batch: b, result: null });
-            }
+            const res = await resolveClosedBatchResult(b);
+            closedWithResults.push({ batch: b, result: res });
           }
           setClosedBatches(closedWithResults);
         }
@@ -261,13 +425,8 @@ export default function EscrowTab() {
         setInvestedBatches(normalizeBatches(iList));
         const closedWithResults: Array<{ batch: any; result: any }> = [];
         for (const b of cList) {
-          const id = Number(b.id);
-          try {
-            const res = await escrow.getClosedBatchResult(id);
-            closedWithResults.push({ batch: b, result: res });
-          } catch {
-            closedWithResults.push({ batch: b, result: null });
-          }
+          const res = await resolveClosedBatchResult(b);
+          closedWithResults.push({ batch: b, result: res });
         }
         setClosedBatches(closedWithResults);
       }
@@ -282,23 +441,23 @@ export default function EscrowTab() {
       // raw may be BigNumber or numeric string
       const s = raw?.toString?.() ?? String(raw ?? '0');
       // use ethers utils to format with 6 decimals
-      return `$${(Number(s) / 1e6).toLocaleString(undefined, {maximumFractionDigits: 6})}`;
+      return `$${(Number(s) / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     } catch {
-      return '$0';
+      return '$0.00';
     }
   }
 
   useEffect(() => {
     // initial load (no periodic timer)
     refreshBatchSummary();
-    // no interval — avoid noisy periodic refreshes/log spam
+    // no interval â€” avoid noisy periodic refreshes/log spam
     return;
   }, [escrow]);
 
   // Debug helper: probe and collect batches 1..limit (best-effort, tolerant to ABI mismatch)
   async function dumpBatches(limit = 40) {
     if (!provider || !escrow) {
-      // provider or escrow not ready — silently return (no dump log)
+      // provider or escrow not ready â€” silently return (no dump log)
       return;
     }
     setLoading(true);
@@ -361,6 +520,14 @@ export default function EscrowTab() {
   }
 
   async function handleStartBatch() {
+    if (isPaused) {
+      setLog(l => ['[escrow] protocol is paused; batch actions are disabled', ...l]);
+      return;
+    }
+    if (!isOperator) {
+      setLog(l => ['[escrow] operator or owner role required to start batches', ...l]);
+      return;
+    }
     if (!escrow || !signer) return alert('Escrow contract or signer not ready');
 
     // read current pending id
@@ -401,7 +568,7 @@ export default function EscrowTab() {
         }
       }
 
-      await refreshBatchSummary();
+      await postWriteRefresh('start-batch');
     } catch (e: any) {
       const msg = String(e?.message || e);
       setLog(l => [`[roll batch ERROR] ${msg}`, ...l]);
@@ -434,7 +601,7 @@ export default function EscrowTab() {
         throw new Error('Contract does not expose closeBatch or closePendingBatch');
       }
 
-      await refreshBatchSummary();
+      await postWriteRefresh('close-batch');
     } catch (e: any) {
       setLog(l => [`[closeBatch ERROR] ${String(e?.message || e)}`, ...l]);
     } finally {
@@ -468,7 +635,7 @@ export default function EscrowTab() {
         throw new Error('Contract does not expose createPendingBatch or createBatch');
       }
 
-      await refreshBatchSummary();
+      await postWriteRefresh('create-pending-batch');
     } catch (e: any) {
       setLog(l => [`[createPendingBatch ERROR] ${String(e?.message || e)}`, ...l]);
     } finally {
@@ -505,7 +672,7 @@ export default function EscrowTab() {
         throw new Error('Contract does not expose rollBatch or rollSpecificBatch');
       }
 
-      await refreshBatchSummary();
+      await postWriteRefresh('roll-specific-batch');
     } catch (e: any) {
       setLog(l => [`[rollBatch ERROR] ${String(e?.message || e)}`, ...l]);
     } finally {
@@ -519,7 +686,7 @@ export default function EscrowTab() {
     setLoading(true);
     try {
       // read usdc token from escrow by probing treasury for usdc (fallback to addresses)
-      const treasuryAddr = CONTRACT_ADDRESSES.Treasury;
+      const treasuryAddr = getRuntimeAddress('Treasury');
       let usdcAddr: string | null = null;
       try {
         const tre = new Contract(treasuryAddr, TREASURY_ABI, provider);
@@ -529,7 +696,7 @@ export default function EscrowTab() {
       }
       if (!usdcAddr) {
         // try common frontend address
-        usdcAddr = CONTRACT_ADDRESSES.MockUSDC ?? null;
+        usdcAddr = getRuntimeAddress('MockUSDC');
       }
       if (usdcAddr) {
         const usdc = new Contract(usdcAddr, ['function balanceOf(address) view returns (uint256)'], provider);
@@ -548,6 +715,14 @@ export default function EscrowTab() {
   useEffect(() => { refresh(); }, [provider, escrowAddr]);
 
   async function depositReturnForBatch() {
+    if (isPaused) {
+      setLog(l => ['[escrow] protocol is paused; return deposit is disabled', ...l]);
+      return;
+    }
+    if (!isOperator) {
+      setLog(l => ['[escrow] operator or owner role required to deposit returns', ...l]);
+      return;
+    }
     if (!provider || !signer || !escrowAddr) return;
     const escrow = new Contract(escrowAddr, INVESTMENT_ESCROW_ABI, signer);
     const batchId = Number(batchIdInput);
@@ -567,7 +742,7 @@ export default function EscrowTab() {
       const tx = await escrow.depositReturnForBatch(batchId, navBn);
       await tx.wait();
       setLog(l => [`[escrow] depositReturnForBatch tx=${tx.hash}`, ...l]);
-      await refresh();
+      await postWriteRefresh('deposit-return');
     } catch (e) {
       setLog(l => [`[escrow] depositReturnForBatch failed: ${String(e)}`, ...l]);
     } finally {
@@ -606,13 +781,13 @@ export default function EscrowTab() {
       } else {
         setLog(l => [`[escrow] distributeBatchBurn(batch=${batchId}) executed -> burned ${batchId} funds (tx=${tx.hash})`, ...l]);
       }
-      await refresh();
+      await postWriteRefresh('distribute-batch-burn');
     } catch (e: any) {
       const msg = String(e?.message || e);
       // If the deployed contract is still the old version it will revert "Batch not closed".
       // As a last-resort admin recovery, attempt owner-only forceSetBatchInvested if available and if signer is the owner.
       if (msg.includes('Batch not closed') || msg.includes('Batch not running')) {
-        setLog(l => [`[escrow] distributeBatchBurn reverted: ${msg} — attempting owner-only forceSetBatchInvested() as fallback`, ...l]);
+        setLog(l => [`[escrow] distributeBatchBurn reverted: ${msg} â€” attempting owner-only forceSetBatchInvested() as fallback`, ...l]);
         try {
           const escrowWithSigner = escrow.connect(signer);
           if (typeof escrowWithSigner.forceSetBatchInvested === 'function') {
@@ -624,7 +799,7 @@ export default function EscrowTab() {
                 const tx2 = await escrowWithSigner.forceSetBatchInvested(batchId);
                 await tx2.wait();
                 setLog(l => [`[escrow] forceSetBatchInvested(${batchId}) succeeded (tx=${tx2.hash})`, ...l]);
-                await refresh();
+                await postWriteRefresh('force-set-invested');
                 setLoading(false);
                 return;
               } else {
@@ -649,6 +824,14 @@ export default function EscrowTab() {
 
   // New: invest batch -> burns escrow USDC and marks batch Invested
   async function investBatch() {
+    if (isPaused) {
+      setLog(l => ['[escrow] protocol is paused; investment actions are disabled', ...l]);
+      return;
+    }
+    if (!isOperator) {
+      setLog(l => ['[escrow] operator or owner role required to invest batches', ...l]);
+      return;
+    }
     if (!provider || !signer || !escrowAddr) return;
     const escrow = new Contract(escrowAddr, INVESTMENT_ESCROW_ABI, signer);
     const batchId = Number(batchIdInput);
@@ -674,7 +857,7 @@ export default function EscrowTab() {
         const tx = await escrow.investBatch(batchId);
         await tx.wait();
         setLog(l => [`[${new Date().toLocaleTimeString()}] investBatch(${batchId}) executed (tx=${tx.hash})`, ...l]);
-        await refresh();
+        await postWriteRefresh('invest-batch');
         return;
       }
 
@@ -683,7 +866,7 @@ export default function EscrowTab() {
         const tx2 = await escrow.distributeBatchBurn(batchId);
         await tx2.wait();
         setLog(l => [`[${new Date().toLocaleTimeString()}] distributeBatchBurn(batch=${batchId}) executed (compat) tx=${tx2.hash}`, ...l]);
-        await refresh();
+        await postWriteRefresh('invest-batch-compat');
         return;
       }
 
@@ -700,7 +883,7 @@ export default function EscrowTab() {
           const txpb = await escrowWithSigner.publicBurnBatch(batchId);
           await txpb.wait();
           setLog(l => [`[escrow] publicBurnBatch(${batchId}) succeeded (tx=${txpb.hash})`, ...l]);
-          await refresh();
+          await postWriteRefresh('public-burn-batch');
           setLoading(false);
           return;
         }
@@ -715,7 +898,7 @@ export default function EscrowTab() {
           const txm = await escrow.markBatchInvestedWithoutTransfer(batchId);
           await txm.wait();
           setLog(l => [`[escrow] markBatchInvestedWithoutTransfer(${batchId}) succeeded (tx=${txm.hash})`, ...l]);
-          await refresh();
+          await postWriteRefresh('mark-invested-without-transfer');
           setLoading(false);
           return;
         }
@@ -723,14 +906,14 @@ export default function EscrowTab() {
         setLog(l => [`[escrow] markBatchInvestedWithoutTransfer fallback failed: ${String(markErr?.message || markErr)}`, ...l]);
       }
 
-      // TRY SAFE PUBLIC FALLBACK: investBatchIfFunded (any caller) — only succeeds if Escrow already holds the batch's USDC.
+      // TRY SAFE PUBLIC FALLBACK: investBatchIfFunded (any caller) â€” only succeeds if Escrow already holds the batch's USDC.
       try {
         if (typeof escrow.investBatchIfFunded === 'function') {
           setLog(l => ['[escrow] attempting investBatchIfFunded() fallback (public-funded path)', ...l]);
           const txf = await escrow.investBatchIfFunded(batchId);
           await txf.wait();
           setLog(l => [`[escrow] investBatchIfFunded(${batchId}) succeeded (tx=${txf.hash})`, ...l]);
-          await refresh();
+          await postWriteRefresh('invest-batch-if-funded');
           setLoading(false);
           return;
         }
@@ -750,16 +933,16 @@ export default function EscrowTab() {
         const onchainKeeper = await escrow.keeper?.().catch(() => null);
         const signerAddr = await signer.getAddress?.() ?? signer.address ?? null;
 
-        // find USDC address via Treasury (fallback to CONTRACT_ADDRESSES.MockUSDC)
+        // find USDC address via Treasury (fallback to runtime MockUSDC)
         let usdcAddr: string | null = null;
         try {
-          const treAddr = (CONTRACT_ADDRESSES as any).Treasury;
+          const treAddr = getRuntimeAddress('Treasury');
           if (treAddr) {
             const tre = new Contract(treAddr, TREASURY_ABI, provider);
             usdcAddr = await tre.usdc().catch(() => null);
           }
         } catch { usdcAddr = null; }
-        if (!usdcAddr) usdcAddr = (CONTRACT_ADDRESSES as any).MockUSDC ?? null;
+        if (!usdcAddr) usdcAddr = getRuntimeAddress('MockUSDC');
 
         let escrowUsdcBal: string = 'n/a';
         if (usdcAddr) {
@@ -788,7 +971,7 @@ export default function EscrowTab() {
               const txf = await escrowWithSigner.forceSetBatchInvested(batchId);
               await txf.wait();
               setLog(l => [`[escrow:diag] forceSetBatchInvested succeeded (tx=${txf.hash})`, ...l]);
-              await refresh();
+              await postWriteRefresh('diag-force-set-invested');
               setLoading(false);
               return;
             } else {
@@ -798,7 +981,7 @@ export default function EscrowTab() {
             setLog(l => [`[escrow:diag] forceSetBatchInvested failed: ${String(e2?.message || e2)}`, ...l]);
           }
         } else {
-          setLog(l => ['[escrow:diag] signer is not owner — cannot perform owner-only recovery', ...l]);
+          setLog(l => ['[escrow:diag] signer is not owner â€” cannot perform owner-only recovery', ...l]);
         }
 
         // If we reach here, provide actionable instructions
@@ -836,7 +1019,7 @@ export default function EscrowTab() {
       const tx = await escrowWrite.publicBurnBatch(batchId);
       await tx.wait();
       setLog(l => [`[escrow] publicBurnBatch(${batchId}) executed (tx=${tx.hash})`, ...l]);
-      await refresh();
+      await postWriteRefresh('manual-public-burn-batch');
     } catch (e:any) {
       setLog(l => [`[escrow] publicBurnBatch failed: ${String(e?.message || e)}`, ...l]);
     } finally {
@@ -871,152 +1054,373 @@ export default function EscrowTab() {
     return Array.from(map.values()).sort((a,b) => a.id - b.id);
   }
 
+  function formatAddressShort(addr: string | null) {
+    if (!addr || addr === 'not set') return 'not set';
+    if (addr.length < 16) return addr;
+    return `${addr.slice(0, 10)}...${addr.slice(-6)}`;
+  }
+
+  function formatUsd6Value(raw: number) {
+    return `$${(raw / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  function matchBatchFilter(batchId: number, filter: string) {
+    const query = filter.trim();
+    if (!query) return true;
+    return String(batchId).includes(query);
+  }
+
+  const activeSortedFiltered = [...activeBatches]
+    .sort((a: any, b: any) => Number(b?.id ?? 0) - Number(a?.id ?? 0))
+    .filter((b: any) => matchBatchFilter(Number(b?.id ?? 0), batchFilter));
+
+  const investedSortedFiltered = [...investedBatches]
+    .sort((a: any, b: any) => Number(b?.id ?? 0) - Number(a?.id ?? 0))
+    .filter((b: any) => matchBatchFilter(Number(b?.id ?? 0), batchFilter));
+
+  const closedSortedFiltered = [...closedBatches]
+    .sort((a: any, b: any) => Number((b as any)?.batch?.id ?? 0) - Number((a as any)?.batch?.id ?? 0))
+    .filter(({ batch }: any) => matchBatchFilter(Number(batch?.id ?? 0), batchFilter));
+
+  const activeTotalPages = Math.max(1, Math.ceil(activeSortedFiltered.length / batchPageSize));
+  const investedTotalPages = Math.max(1, Math.ceil(investedSortedFiltered.length / batchPageSize));
+  const closedTotalPages = Math.max(1, Math.ceil(closedSortedFiltered.length / batchPageSize));
+
+  const safeActivePage = Math.min(activePage, activeTotalPages);
+  const safeInvestedPage = Math.min(investedPage, investedTotalPages);
+  const safeClosedPage = Math.min(closedPage, closedTotalPages);
+
+  const activeVisible = activeSortedFiltered.slice((safeActivePage - 1) * batchPageSize, safeActivePage * batchPageSize);
+  const investedVisible = investedSortedFiltered.slice((safeInvestedPage - 1) * batchPageSize, safeInvestedPage * batchPageSize);
+  const closedVisible = closedSortedFiltered.slice((safeClosedPage - 1) * batchPageSize, safeClosedPage * batchPageSize);
+
+  useEffect(() => {
+    setActivePage(1);
+    setInvestedPage(1);
+    setClosedPage(1);
+  }, [batchFilter, batchPageSize]);
+
+  const runningCount = activeBatches.filter((b: any) => Number(b?.id) > 0).length;
+  const investedCount = investedBatches.filter((b: any) => Number(b?.id) > 0).length;
+  const closedCount = closedBatches.filter((b: any) => Number((b as any)?.batch?.id) > 0).length;
+
   return (
-    <div className="space-y-8 animate-fadeIn">
-      <div className="sagitta-hero">
-        <div className="sagitta-cell">
-          <h2 style={{ marginBlockStart: '0.3em' }}>Escrow Management</h2>
-          <div className="text-slate-400 text-sm mt-1">Monitor escrow batches and investments.</div>
-          <div style={{ height: 12 }} />
-          <div className="flex items-center gap-2 text-sm text-slate-400">
-          <Clock size={16} />
-            <span>Last updated: {new Date().toLocaleTimeString()}</span>
+    <div className="tab-screen">
+      <PageHeader
+        title="Escrow Management"
+        description="Track pending, invested, and closed batches while driving batch lifecycle actions from the escrow surface."
+        meta={
+          <>
+            <span className="data-chip"><Clock size={12} /> Updated: {new Date().toLocaleTimeString()}</span>
+            <span className="data-chip">Escrow: {formatAddressShort(escrowAddr)}</span>
+            <span className="data-chip">Pending batch: {currentPendingId ?? 'n/a'}</span>
+            <span className="data-chip" data-tone={isOperator ? 'warning' : 'neutral'}>Role: {role}</span>
+            <span className="data-chip" data-tone={runningCount > 0 ? 'warning' : 'success'}>
+              {runningCount > 0 ? `${runningCount} running` : 'No running batches'}
+            </span>
+          </>
+        }
+      />
+
+      
+      <section className="grid grid-cols-12 gap-5">
+        <div className="sagitta-cell col-span-12 lg:col-span-4">
+          <h3 className="section-title">Escrow Snapshot</h3>
+          <div className="space-y-3">
+            <MetricCard title="Escrow USDC Balance" value={formatUsd6Value(escrowUsdc ?? 0)} tone="neutral" />
+            <div className="rounded-xl border border-slate-700/45 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.005)),rgba(12,20,33,0.88)] p-4">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400 font-semibold">Escrow Address</div>
+              <div className="mt-3 text-lg text-slate-100 font-mono">{formatAddressShort(escrowAddr)}</div>
+              <div className="mt-2 text-xs text-slate-400 break-all">{escrowAddr ?? 'not set'}</div>
+            </div>
           </div>
         </div>
-      </div>
-      
-      <div>
-        <div className="sagitta-grid">
-          {/* Cell 1 */}
-          <div className="sagitta-cell" style={{ minHeight: '200px' }}>
-            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Details</h3>
-            <MetricGrid>
-              <div className="col-span-1"><MetricCard title="Escrow Address" value={escrowAddr ?? 'not set'} tone="neutral" /></div>
-              <div style={{ height: 12 }} />
-              <div className="col-span-1"><MetricCard title="Escrow USDC Balance" value={escrowUsdc ? `$${(escrowUsdc / 1e6).toFixed(2)}` : '$0'} tone="neutral" /></div>
-            </MetricGrid>
-          </div>
 
-          {/* Cell 2 */}
-          <div className="sagitta-cell" style={{ minHeight: '200px' }}>
-            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Start Batch Manually</h3>
-            <p className="text-sm text-slate-400 mb-2">Roll the current pending batch into an active batch and request funds from Treasury (admin only).</p>
-            <button
-              onClick={handleStartBatch}
-              disabled={loading}
-              className="w-full px-6 py-3 rounded-full bg-gradient-to-r from-sky-500 to-indigo-600 text-white font-bold disabled:opacity-60"
-            >
-              {loading ? 'Submitting...' : 'Start Batch'}
-            </button>
+        <div className="sagitta-cell col-span-12 md:col-span-6 lg:col-span-4">
+          <h3 className="section-title">Batch Status</h3>
+          <div className="panel-stack text-sm">
+            <div className="panel-row">
+              <span className="panel-row__label">Current pending batch</span>
+              <span className="panel-row__value">{currentPendingId ?? 'n/a'}</span>
+            </div>
+            <div className="panel-row">
+              <span className="panel-row__label">Pending principal</span>
+              <span className="panel-row__value">{pendingTotalUsd !== null ? fmtUsd6(pendingTotalUsd) : '$0.00'}</span>
+            </div>
+            <div className="panel-row">
+              <span className="panel-row__label">Running / Invested / Closed</span>
+              <span className="panel-row__value">{runningCount} / {investedCount} / {closedCount}</span>
+            </div>
           </div>
+          <p className="text-xs text-slate-500 mt-3">Verify these before running batch actions.</p>
+        </div>
 
-          {/* Cell 3 */}
-          <div className="sagitta-cell" style={{ minHeight: '200px' }}>
-            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Investment Escrow</h3>
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div>
-                <div className="text-sm text-slate-300 mb-2">Final NAV per share (1.10 = 10% Profit)</div>
-                <div style={{ height: 12 }} />
-                <label className="text-sm text-slate-300">Batch ID </label>
-                <input className="w-full mt-1 p-2 rounded bg-slate-900" value={batchIdInput} onChange={e => setBatchIdInput(e.target.value)} placeholder="Batch ID" />
-                <label className="text-sm text-slate-300 mt-2 block"> </label>
-                <input className="w-full mt-1 p-2 rounded bg-slate-900" value={navInput} onChange={e => setNavInput(e.target.value)} placeholder="1.05" />
-                <div style={{ height: 12 }} />
-                <div className="flex gap-2 mt-3">
+        <div className="sagitta-cell col-span-12 md:col-span-6 lg:col-span-4">
+          <h3 className="section-title">Start Batch</h3>
+          {isOperator ? (
+            <>
+              <p className="text-sm text-slate-400 mb-4">
+                {isPaused
+                  ? 'Protocol is paused. Batch creation is disabled until the protocol is resumed.'
+                  : 'Roll pending into running and request treasury funding (admin path).'}
+              </p>
+              <button
+                onClick={handleStartBatch}
+                disabled={isPaused || loading}
+                className="action-button action-button--primary w-full"
+              >
+                {loading ? 'Submitting...' : 'Start Batch'}
+              </button>
+            </>
+          ) : (
+            <div className="panel-note">
+              Escrow write controls are hidden for viewer wallets. Connect an operator or owner wallet to reveal batch actions.
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="grid grid-cols-12 gap-5">
+        <div className="sagitta-cell col-span-12 xl:col-span-8">
+          <h3 className="section-title">Investment Actions</h3>
+          {isOperator ? (
+            <>
+              <p className="section-subtitle">
+                {isPaused
+                  ? 'Protocol is paused. Investment and return posting are disabled until the protocol is resumed.'
+                  : 'Advance a running batch into investment, then deposit the final result using the closing NAV.'}
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-slate-300">Batch ID</label>
+                  <input
+                    className="w-full mt-1 p-2 rounded bg-slate-900"
+                    value={batchIdInput}
+                    onChange={e => setBatchIdInput(e.target.value)}
+                    placeholder="Batch ID"
+                    disabled={isPaused || loading}
+                  />
+                  <label className="text-sm text-slate-300 mt-3 block">Final NAV per share (1.10 = 10% Profit)</label>
+                  <input
+                    className="w-full mt-1 p-2 rounded bg-slate-900"
+                    value={navInput}
+                    onChange={e => setNavInput(e.target.value)}
+                    placeholder="1.10"
+                    disabled={isPaused || loading}
+                  />
+                </div>
+                <div className="flex flex-col justify-end gap-3">
                   <button
-                    className="px-4 py-2 bg-rose-600 text-white rounded"
+                    className="action-button action-button--danger w-full"
                     onClick={investBatch}
-                    disabled={loading}
+                    disabled={isPaused || loading}
                   >
                     Invest Batch (burn escrow USDC)
                   </button>
+                  <button
+                    className="action-button action-button--success w-full"
+                    onClick={depositReturnForBatch}
+                    disabled={isPaused || loading}
+                  >
+                    Deposit Returns
+                  </button>
+                  <p className="text-xs text-slate-500">
+                    Invest when status is Running. Deposit returns after investment outcome is known.
+                  </p>
                 </div>
-                <div style={{ height: 12 }} />
               </div>
-              <div>
-                <div className="text-sm text-slate-300 mb-2">Investments return USDC to the Escrow contract</div>
-                <div style={{ height: 12 }} />
-                <div className="flex gap-2 mt-3">
-                  <button className="px-4 py-2 bg-emerald-600 text-white rounded" onClick={depositReturnForBatch} disabled={loading}>Deposit Returns</button>
-                </div>
-              </div>
+            </>
+          ) : (
+            <div className="panel-note mt-3">
+              Escrow lifecycle controls are hidden for viewer wallets. Batch lists remain visible for monitoring only.
             </div>
-          </div>
-
-          {/* Cell 4 */}
-          <div className="sagitta-cell" style={{ minHeight: '200px' }}>
-            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Active Batches</h3>
-            {activeBatches.filter((b:any)=>Number(b?.id)>0).length === 0 && <div className="text-slate-500 text-sm">No running batches</div>}
-            <div className="grid gap-3 mt-3">
-              {/* Running batches */}
-              {activeBatches.map((b: any, i: number) => (
-                <div key={`running-${b?.id}-${i}`} className="p-3 bg-slate-800/50 rounded-lg border border-slate-700/40">
-                  <div className="text-sm text-slate-200 font-mono">Batch #{String(b?.id ?? '0')}</div>
-                  <div className="text-xs text-slate-400">Started: {b.startTime ? new Date(Number(b.startTime) * 1000).toLocaleString() : 'n/a'}</div>
-                  <div className="text-sm mt-1">Collateral: {fmtUsd6(b.totalCollateralUsd)}</div>
-                  <div className="text-xs text-slate-400">Shares: {String(b?.totalShares ?? '0')}</div>
-                </div>
-              ))}
-              </div>
-          </div>
-
-          {/* Cell 5 */}
-          <div className="sagitta-cell" style={{ minHeight: '200px' }}>
-            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Invested Batches</h3>
-            {investedBatches.length === 0 && <div className="text-slate-500 text-sm">No invested batches</div>}
-            <div className="grid gap-3 mt-3">
-              {investedBatches.map((b: any, i: number) => (
-                <div key={`invested-${b?.id}-${i}`} className="p-3 bg-emerald-900/10 rounded-lg border border-emerald-700/20">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-slate-200 font-mono">Batch #{String(b?.id ?? '0')}</div>
-                    <div className="text-xs text-emerald-300 font-semibold">Invested</div>
-                  </div>
-                  <div className="text-xs text-slate-400">Started: {b.startTime ? new Date(Number(b.startTime) * 1000).toLocaleString() : 'n/a'}</div>
-                  <div className="text-sm mt-1">Collateral: {fmtUsd6(b.totalCollateralUsd)}</div>
-                  <div className="text-xs text-slate-400">Shares: {String(b?.totalShares ?? '0')}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Cell 6 */}
-          <div className="sagitta-cell" style={{ minHeight: '200px' }}>
-            <h3 style={{ margin: '0 0 12px 0', fontSize: 20, fontWeight: 600, color: 'rgb(226,232,240)' }}>Closed Batches</h3>
-            {closedBatches.length === 0 && <div className="text-slate-500 text-sm">No closed batches</div>}
-            <div className="grid gap-3 mt-3">
-              {closedBatches.map(({ batch, result }, i) => (
-                <div key={batch.id.toString() + i} className="p-3 bg-slate-800/50 rounded-lg border border-slate-700/40">
-                  <div className="flex justify-between items-center">
-                    <div className="text-sm text-slate-200 font-mono">Batch #{batch.id.toString()}</div>
-                    <div className="text-xs text-slate-400">Closed: {new Date(Number(batch.endTime) * 1000).toLocaleString()}</div>
-                  </div>
-                  <div className="mt-1 text-sm">Principal: {fmtUsd6(batch.totalCollateralUsd)}</div>
-                  {result ? (
-                    <div className="text-sm mt-1">
-                      Final Value: {fmtUsd6(result.finalValueUsd)} • Profit: {fmtUsd6(result.profitUsd)} • User: {fmtUsd6(result.userProfitUsd)} • Fee: {fmtUsd6(result.feeUsd)}
-                    </div>
-                  ) : (
-                    <div className="text-sm mt-1 text-slate-400">Result unavailable</div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
+          )}
         </div>
-      </div>
+
+        <div className="sagitta-cell col-span-12 xl:col-span-4">
+          <h3 className="section-title">Operator Notes</h3>
+          <ul className="note-list">
+            <li>Start a pending batch.</li>
+            <li>Invest the running batch.</li>
+            <li>Deposit returns with final NAV.</li>
+            <li>Confirm closed-batch results below.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-12 gap-5">
+        <div className="sagitta-cell col-span-12">
+          <div className="filter-toolbar">
+            <div className="min-w-[220px] grow">
+              <label className="text-xs uppercase tracking-[0.16em] text-slate-400">Batch Filter (ID)</label>
+              <input
+                className="w-full mt-1 p-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
+                value={batchFilter}
+                onChange={(e) => setBatchFilter(e.target.value)}
+                placeholder="e.g. 12"
+              />
+            </div>
+            <div className="w-[160px]">
+              <label className="text-xs uppercase tracking-[0.16em] text-slate-400">Rows / Column</label>
+              <select
+                className="w-full mt-1 p-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
+                value={String(batchPageSize)}
+                onChange={(e) => setBatchPageSize(Number(e.target.value))}
+              >
+                <option value="4">4</option>
+                <option value="6">6</option>
+                <option value="10">10</option>
+                <option value="20">20</option>
+              </select>
+            </div>
+            <div className="text-xs text-slate-400 pb-1">
+              Newest batches are shown first.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-12 gap-5">
+        <div className="sagitta-cell col-span-12 lg:col-span-4" style={{ minHeight: '220px' }}>
+          <div className="flex items-center justify-between">
+            <h3 className="section-title !mb-0">Active Batches</h3>
+            <span className="text-xs text-slate-400">
+              {activeVisible.length} / {activeSortedFiltered.length}
+            </span>
+          </div>
+          {runningCount === 0 && <div className="text-slate-500 text-sm">No running batches</div>}
+          {runningCount > 0 && activeSortedFiltered.length === 0 && (
+            <div className="text-slate-500 text-sm">No running batches match the current filter.</div>
+          )}
+          <div className="grid gap-3 mt-3 max-h-72 overflow-y-auto pr-1">
+            {activeVisible.map((b: any, i: number) => (
+              <div key={`running-${b?.id}-${i}`} className="p-3 bg-slate-800/50 rounded-lg border border-slate-700/40">
+                <div className="text-sm text-slate-200 font-mono">Batch #{String(b?.id ?? '0')}</div>
+                <div className="text-xs text-slate-400">Started: {b.startTime ? new Date(Number(b.startTime) * 1000).toLocaleString() : 'n/a'}</div>
+                <div className="text-sm mt-1">Collateral: {fmtUsd6(b.totalCollateralUsd)}</div>
+                <div className="text-xs text-slate-400">Shares: {String(b?.totalShares ?? '0')}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+            <button
+              className="pagination-button"
+              onClick={() => setActivePage(Math.max(1, safeActivePage - 1))}
+              disabled={safeActivePage <= 1}
+            >
+              Prev
+            </button>
+            <span>Page {safeActivePage} / {activeTotalPages}</span>
+            <button
+              className="pagination-button"
+              onClick={() => setActivePage(Math.min(activeTotalPages, safeActivePage + 1))}
+              disabled={safeActivePage >= activeTotalPages}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+
+        <div className="sagitta-cell col-span-12 lg:col-span-4" style={{ minHeight: '220px' }}>
+          <div className="flex items-center justify-between">
+            <h3 className="section-title !mb-0">Invested Batches</h3>
+            <span className="text-xs text-slate-400">
+              {investedVisible.length} / {investedSortedFiltered.length}
+            </span>
+          </div>
+          {investedCount === 0 && <div className="text-slate-500 text-sm">No invested batches</div>}
+          {investedCount > 0 && investedSortedFiltered.length === 0 && (
+            <div className="text-slate-500 text-sm">No invested batches match the current filter.</div>
+          )}
+          <div className="grid gap-3 mt-3 max-h-72 overflow-y-auto pr-1">
+            {investedVisible.map((b: any, i: number) => (
+              <div key={`invested-${b?.id}-${i}`} className="p-3 bg-emerald-900/10 rounded-lg border border-emerald-700/20">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-slate-200 font-mono">Batch #{String(b?.id ?? '0')}</div>
+                  <div className="text-xs text-emerald-300 font-semibold">Invested</div>
+                </div>
+                <div className="text-xs text-slate-400">Started: {b.startTime ? new Date(Number(b.startTime) * 1000).toLocaleString() : 'n/a'}</div>
+                <div className="text-sm mt-1">Collateral: {fmtUsd6(b.totalCollateralUsd)}</div>
+                <div className="text-xs text-slate-400">Shares: {String(b?.totalShares ?? '0')}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+            <button
+              className="pagination-button"
+              onClick={() => setInvestedPage(Math.max(1, safeInvestedPage - 1))}
+              disabled={safeInvestedPage <= 1}
+            >
+              Prev
+            </button>
+            <span>Page {safeInvestedPage} / {investedTotalPages}</span>
+            <button
+              className="pagination-button"
+              onClick={() => setInvestedPage(Math.min(investedTotalPages, safeInvestedPage + 1))}
+              disabled={safeInvestedPage >= investedTotalPages}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+
+        <div className="sagitta-cell col-span-12 lg:col-span-4" style={{ minHeight: '220px' }}>
+          <div className="flex items-center justify-between">
+            <h3 className="section-title !mb-0">Closed Batches</h3>
+            <span className="text-xs text-slate-400">
+              {closedVisible.length} / {closedSortedFiltered.length}
+            </span>
+          </div>
+          {closedCount === 0 && <div className="text-slate-500 text-sm">No closed batches</div>}
+          {closedCount > 0 && closedSortedFiltered.length === 0 && (
+            <div className="text-slate-500 text-sm">No closed batches match the current filter.</div>
+          )}
+          <div className="grid gap-3 mt-3 max-h-72 overflow-y-auto pr-1">
+            {closedVisible.map(({ batch, result }, i) => (
+              <div key={batch.id.toString() + i} className="p-3 bg-slate-800/50 rounded-lg border border-slate-700/40">
+                <div className="flex justify-between items-center">
+                  <div className="text-sm text-slate-200 font-mono">Batch #{batch.id.toString()}</div>
+                  <div className="text-xs text-slate-400">Closed: {new Date(Number(batch.endTime) * 1000).toLocaleString()}</div>
+                </div>
+                <div className="mt-1 text-sm">Principal: {fmtUsd6(batch.totalCollateralUsd)}</div>
+                {result ? (
+                  <div className="text-sm mt-1">
+                    Final: {fmtUsd6(result.finalValueUsd)} - Profit: {fmtUsd6(result.profitUsd)} - User: {fmtUsd6(result.userProfitUsd)} - Fee: {fmtUsd6(result.feeUsd)}
+                  </div>
+                ) : (
+                  <div className="text-sm mt-1 text-slate-400">Result unavailable (missing final NAV/result data on this deployment)</div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+            <button
+              className="pagination-button"
+              onClick={() => setClosedPage(Math.max(1, safeClosedPage - 1))}
+              disabled={safeClosedPage <= 1}
+            >
+              Prev
+            </button>
+            <span>Page {safeClosedPage} / {closedTotalPages}</span>
+            <button
+              className="pagination-button"
+              onClick={() => setClosedPage(Math.min(closedTotalPages, safeClosedPage + 1))}
+              disabled={safeClosedPage >= closedTotalPages}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      </section>
 
       {/* Engine Log */}
       <div className="sagitta-hero">
         <div className="sagitta-cell">
-          <div className="bg-slate-900/80 rounded-xl p-4 border border-slate-700/50 max-h-56 overflow-y-auto text-xs text-slate-300 font-mono">
-            
-            <h3 className="text-lg font-semibold mb-6 text-slate-200 flex items-center gap-2">
-            Escrow Log
-            </h3>
+          <div className="log-shell">
+            <h3 className="log-shell__title">Escrow Log</h3>
             {log.length === 0 && <div className="text-slate-500">No actions yet.</div>}
             {log.map((entry, i) => (
-              <div key={i} className="mb-1">{entry}</div>
+              <div key={i} className="log-shell__entry">{entry}</div>
             ))}
           </div>
         </div>

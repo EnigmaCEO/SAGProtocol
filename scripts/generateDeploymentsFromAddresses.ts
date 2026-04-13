@@ -36,14 +36,13 @@ async function main() {
     process.exit(1);
   }
 
-  // Normalize keys we expect (Vault, MockDOT, Treasury, MockOracle) and include chain metadata if present
+  // Normalize keys we expect and include chain metadata if present
   const deployments: Record<string, any> = {
     network: data.network ?? "localhost",
     chainId: data.chainId ?? 1337,
     SAGToken: data.SAGToken ?? data.SAG ?? null,
     MockUSDC: data.MockUSDC ?? null,
     MockGOLD: data.MockGOLD ?? null,
-    MockDOT: data.MockDOT ?? null,
     Vault: data.Vault ?? null,
     Treasury: data.Treasury ?? null,
     ReserveController: data.ReserveController ?? null,

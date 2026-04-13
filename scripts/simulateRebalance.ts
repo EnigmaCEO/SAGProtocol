@@ -419,18 +419,16 @@ async function onchainStressFlow({
   }
 
   // Validate addresses file contains required contract addresses
-  if (!ADDR || !ADDR.Vault || !ADDR.Treasury || !ADDR.InvestmentEscrow || !ADDR.MockDOT || !ADDR.MockUSDC) {
-    throw new Error('addresses.ts missing required entries (Vault, Treasury, InvestmentEscrow, MockDOT, MockUSDC). Update frontend/src/lib/addresses.ts.');
+  if (!ADDR || !ADDR.Vault || !ADDR.Treasury || !ADDR.InvestmentEscrow || !ADDR.MockUSDC) {
+    throw new Error('addresses.ts missing required entries (Vault, Treasury, InvestmentEscrow, MockUSDC). Update frontend/src/lib/addresses.ts.');
   }
 
   const VAULT_ADDR = ADDR.Vault;
   const TREASURY_ADDR = ADDR.Treasury;
   const ESCROW_ADDR = ADDR.InvestmentEscrow;
-  const MDOT_ADDR = ADDR.MockDOT;
   const USDC_ADDR = ADDR.MockUSDC;
-  const DOT_ORACLE = ADDR.DotOracle;
 
-  console.log('On-chain stress run using addresses:', { VAULT_ADDR, TREASURY_ADDR, ESCROW_ADDR, MDOT_ADDR, USDC_ADDR });
+  console.log('On-chain stress run using addresses:', { VAULT_ADDR, TREASURY_ADDR, ESCROW_ADDR, USDC_ADDR });
 
   // Minimal ABIs for the actions we need
   const VaultABI = [
@@ -470,9 +468,7 @@ async function onchainStressFlow({
   const vaultWithKeeper = new ethers.Contract(VAULT_ADDR, VaultABI, keeper);
   const escrow = new ethers.Contract(ESCROW_ADDR, EscrowABI, keeper);
   const treasury = new ethers.Contract(TREASURY_ADDR, TreasuryABI, keeper);
-  const mdot = new ethers.Contract(MDOT_ADDR, ERC20ABI, depositor);
-  const usdc = new ethers.Contract(USDC_ADDR, ERC20ABI, keeper);
-  const dotOracle = DOT_ORACLE ? new ethers.Contract(DOT_ORACLE, OracleABI, provider) : null;
+  const usdc = new ethers.Contract(USDC_ADDR, ERC20ABI, depositor);
 
   // Pre-wire vault->escrow on-chain (owner action) so Vault.deposit calls Escrow.registerDeposit
   try {
@@ -484,24 +480,16 @@ async function onchainStressFlow({
     console.warn('vault.setEscrow failed or already set:', String(e?.message || e));
   }
 
-  // Read token decimals and oracle price to compute token amount equivalent to depositPerWeek
-  const mdotDecimals: number = Number(await mdot.decimals());
-  const dotPrice8: ethers.BigNumber = dotOracle ? (await dotOracle.getPrice()) : ethers.BigNumber.from('100000000'); // fallback $1
-  // helper to compute token units for a USD amount
+  // USDC is $1 with 6 decimals — token amount equals USD amount scaled by 1e6
   function usdToTokenAmountUnits(depositUsd: number) {
-    // depositUsd in whole USD -> convert to USD6
-    const usd6 = BigInt(Math.round(depositUsd * 1_000_000));
-    const price8 = BigInt(dotPrice8.toString());
-    const numerator = usd6 * (10n ** BigInt(mdotDecimals + 2));
-    return ethers.BigNumber.from(numerator / price8);
+    return ethers.BigNumber.from(BigInt(Math.round(depositUsd * 1_000_000)));
   }
 
   // Pre-fund Treasury with enough USDC to collateralize all planned deposits
   try {
     const totalNeededUsd6 = ethers.BigNumber.from(BigInt(Math.round(depositPerWeek)) * 1_000_000n * BigInt(weeks));
     console.log('Minting total USDC to Treasury to cover all deposits (usd6):', totalNeededUsd6.toString());
-    // usdc.mint is called by keeper (assumes MockUSDC.mint is publicly available in test)
-    const mintTx = await usdc.connect(keeper).mint(TREASURY_ADDR, totalNeededUsd6);
+    const mintTx = await usdc.mint(TREASURY_ADDR, totalNeededUsd6);
     await mintTx.wait();
     console.log('Minted USDC to Treasury');
   } catch (e: any) {
@@ -537,20 +525,20 @@ async function onchainStressFlow({
       newBatchIdNum = null;
     }
 
-    // 1) Deposit from depositor to Vault (approve then deposit)
+    // 1) Deposit from depositor to Vault (mint USDC to depositor, approve, deposit)
     const tokenAmount = usdToTokenAmountUnits(depositPerWeek);
-    console.log(' Approving Vault to spend mDOT amount:', tokenAmount.toString());
-    let tx = await mdot.connect(depositor).approve(VAULT_ADDR, tokenAmount);
+    await (await usdc.mint(await depositor.getAddress(), tokenAmount)).wait();
+    console.log(' Approving Vault to spend USDC amount:', tokenAmount.toString());
+    let tx = await usdc.approve(VAULT_ADDR, tokenAmount);
     await tx.wait();
 
-    // Optional: debug pre-balances
     try {
-      const balBefore = await mdot.balanceOf(await depositor.getAddress());
-      console.log(' depositor mDOT balance before:', balBefore.toString());
+      const balBefore = await usdc.balanceOf(await depositor.getAddress());
+      console.log(' depositor USDC balance before:', balBefore.toString());
     } catch {}
 
     console.log(' Depositing into Vault:', depositPerWeek, 'USD -> token units', tokenAmount.toString());
-    tx = await vault.connect(depositor).deposit(MDOT_ADDR, tokenAmount);
+    tx = await vault.connect(depositor).deposit(USDC_ADDR, tokenAmount);
     await tx.wait();
     console.log(' Deposit tx mined');
 

@@ -8,29 +8,24 @@ interface AppShellProps {
 
 export default function AppShell({ sidebar, topbar, children }: AppShellProps) {
   return (
-    <div className="h-screen w-screen overflow-hidden bg-gradient-to-b from-slate-950 via-slate-900 to-slate-900 text-slate-100">
-      <div className="flex h-full w-full">
-        {/* Left Sidebar */}
-        <aside className="w-64 shrink-0 border-r border-slate-800 bg-slate-900/50 backdrop-blur-sm overflow-y-auto h-full scrollbar-thin">
-          <div className="p-6">
+    <div className="relative h-screen w-screen overflow-hidden text-slate-100">
+      <div className="pointer-events-none absolute inset-0 opacity-80 [background:radial-gradient(1100px_420px_at_10%_-12%,rgba(78,130,196,0.16),transparent_58%),radial-gradient(850px_380px_at_95%_-10%,rgba(30,159,126,0.1),transparent_55%),repeating-linear-gradient(90deg,rgba(255,255,255,0.02)_0px,rgba(255,255,255,0.02)_1px,transparent_1px,transparent_120px)]" />
+
+      <div className="shell-layout">
+        <header className="surface-frame shrink-0">
+          <div className="shell-header-nav">
             {sidebar}
           </div>
-        </aside>
-        
-        {/* Right side: TopBar + Content */}
-        <div className="flex-1 flex flex-col h-full overflow-hidden">
-          <header className="shrink-0 border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm">
-            <div className="px-8 py-4">{topbar}</div>
-          </header>
-          
-          <main className="flex-1 overflow-y-auto scrollbar-thin">
-            <div className="p-8 h-full">
-              <div className="w-full mx-auto h-full">
-                {children}
-              </div>
-            </div>
-          </main>
-        </div>
+          <div className="shell-header-status">
+            {topbar}
+          </div>
+        </header>
+
+        <main className="shell-main scrollbar-thin">
+          <div className="shell-main-inner">
+            {children}
+          </div>
+        </main>
       </div>
     </div>
   );

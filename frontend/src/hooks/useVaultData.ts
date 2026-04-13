@@ -6,7 +6,6 @@ import * as addresses from "../lib/addresses";
 export interface VaultState {
   userAddress: string;
   usdcBalance: string;
-  sagBalance: string;
   depositedUsd: string;
   receipts: any[];
   credits: any[];
@@ -105,7 +104,6 @@ export function useVaultData() {
 
       const [
         usdcBal,
-        sagBal,
         depositedUsd,
         receiptCount,
         creditCount,
@@ -114,7 +112,6 @@ export function useVaultData() {
         treasuryUsdBal,
       ] = await Promise.all([
         usdc.balanceOf(userAddress).catch(() => BigInt(0)),
-        vault.balanceOf(userAddress).catch(() => BigInt(0)),
         vault.depositedUsd ? vault.depositedUsd(userAddress).catch(() => BigInt(0)) : Promise.resolve(BigInt(0)),
         vault.receiptCount(userAddress).catch(() => BigInt(0)),
         vault.creditCount(userAddress).catch(() => BigInt(0)),
@@ -181,7 +178,6 @@ export function useVaultData() {
       setState({
         userAddress,
         usdcBalance: ethers.formatUnits(usdcBal, 6),
-        sagBalance: ethers.formatUnits(sagBal, 18),
         depositedUsd: ethers.formatUnits(depositedUsd, 6),
         receipts,
         credits,

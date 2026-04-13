@@ -1,17 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { ethers } from 'ethers';
-import MetricGrid from '../ui/MetricGrid';
 import MetricCard from '../ui/MetricCard';
 import { Clock, Scale, Gem, DollarSign, Globe } from 'lucide-react';
+import PageHeader from '../ui/PageHeader';
 import ReserveControllerAbi from '../../lib/abis/ReserveController.json';
 import GOLDAbiFile from '../../lib/abis/GOLD.json';
 import GoldOracleAbiFile from '../../lib/abis/GoldOracle.json';
 import { CONTRACT_ADDRESSES } from '../../lib/addresses';
 import { useWallet } from '../../hooks/useWallet'; // use wallet hook to know if wallet is connected
+import useRoleAccess from '../../hooks/useRoleAccess';
+import useProtocolPause from '../../hooks/useProtocolPause';
+import { getRuntimeAddress, isValidAddress, setRuntimeAddress } from '../../lib/runtime-addresses';
 
 export default function ReserveTab() {
   // wallet hook: we will only use injected provider/signer if the user connected
   const { provider: injectedProvider, account, connectWallet } = useWallet();
+  const { isPaused } = useProtocolPause();
+  const { isOperator, role } = useRoleAccess();
   // on-chain wired state
   const [oraclePrice, setOraclePrice] = useState<number>(1.0010);
   const [nav, setNav] = useState<number>(1.0012);
@@ -22,27 +27,32 @@ export default function ReserveTab() {
   const [uiError, setUiError] = useState<string | null>(null);
   const [networkInfo, setNetworkInfo] = useState<string | null>(null);
 
-  // runtime overrides (do NOT persist to files) for dev troubleshooting
-  const [overrideReserveAddress, setOverrideReserveAddress] = useState<string>('');
-  const [overrideOracleAddress, setOverrideOracleAddress] = useState<string>('');
-  const usedReserveAddress =
-    overrideReserveAddress || (CONTRACT_ADDRESSES as any)?.ReserveController || process.env.NEXT_PUBLIC_RESERVE_CONTROLLER_ADDRESS || '0x0000000000000000000000000000000000000000';
-  const usedOracleAddress =
-    overrideOracleAddress || process.env.NEXT_PUBLIC_GOLD_ORACLE || (CONTRACT_ADDRESSES as any)?.GoldOracle || '0x0000000000000000000000000000000000000000';
+  const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 
-  // resolve addresses like VaultTab/hooks do: prefer CONTRACT_ADDRESSES, then env, then zero address
+  // runtime config (persisted in browser localStorage)
+  const [reserveAddress, setReserveAddress] = useState<string>(() => getRuntimeAddress('ReserveController'));
+  const [reserveAddressInput, setReserveAddressInput] = useState<string>(reserveAddress);
+  const [goldOracleAddress, setGoldOracleAddress] = useState<string>(() => getRuntimeAddress('GoldOracle'));
+  const [goldOracleAddressInput, setGoldOracleAddressInput] = useState<string>(goldOracleAddress);
+  const [treasuryLinkInput, setTreasuryLinkInput] = useState<string>(() => getRuntimeAddress('Treasury'));
+  const [linkedTreasuryAddress, setLinkedTreasuryAddress] = useState<string | null>(null);
+  const [linkConfigLoading, setLinkConfigLoading] = useState(false);
+  const [linkConfigStatus, setLinkConfigStatus] = useState<string | null>(null);
+
+  // resolve addresses
   const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
-  const RESERVE_ADDRESS = usedReserveAddress;
+  const RESERVE_ADDRESS = reserveAddress;
   const GOLD_FALLBACK_ADDRESS =
     (CONTRACT_ADDRESSES as any)?.GOLD ||
     (CONTRACT_ADDRESSES as any)?.Gold ||
     process.env.NEXT_PUBLIC_GOLD_ADDRESS ||
     ZERO_ADDRESS;
-  const GOLD_ORACLE_ADDRESS = usedOracleAddress;
+  const GOLD_ORACLE_ADDRESS = goldOracleAddress;
   const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || 'http://localhost:8545';
+  const configuredTreasuryAddress = treasuryLinkInput.trim();
+  const hasConfiguredTreasury = isValidAddress(configuredTreasuryAddress);
 
-  const formatUsd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
-  const goldValueUsd = goldBalance * oraclePrice;
+  const formatUsd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   // --- safe helpers (work across ethers v5 / v6 and plain values) ---
   const toStringValue = (v: any) => {
@@ -80,6 +90,104 @@ export default function ReserveTab() {
   };
   // --- end helpers ---
 
+  useEffect(() => {
+    setReserveAddressInput(reserveAddress);
+  }, [reserveAddress]);
+
+  useEffect(() => {
+    setGoldOracleAddressInput(goldOracleAddress);
+  }, [goldOracleAddress]);
+
+  async function getWriteSigner() {
+    const providerAny: any = await getProvider();
+    if (providerAny && account && typeof providerAny.getSigner === 'function') {
+      return await providerAny.getSigner();
+    }
+
+    const JsonRpcProviderCtor = (ethers as any).JsonRpcProvider ?? (ethers as any).providers?.JsonRpcProvider;
+    if (!JsonRpcProviderCtor) {
+      throw new Error('No JSON-RPC provider constructor available');
+    }
+    const localProvider = new JsonRpcProviderCtor(RPC_URL);
+    return new ethers.Wallet(TEST_PRIVATE_KEY, localProvider);
+  }
+
+  async function refreshReserveLinks(providerOverride?: any) {
+    if (!isValidAddress(RESERVE_ADDRESS)) {
+      setLinkedTreasuryAddress(null);
+      return;
+    }
+    try {
+      const providerAny = providerOverride ?? await getProvider();
+      if (!providerAny) return;
+      const reserve = new ethers.Contract(RESERVE_ADDRESS, (ReserveControllerAbi as any), providerAny);
+      const linked = await reserve.treasury().catch(() => null);
+      if (typeof linked === 'string' && linked !== ZERO_ADDRESS) {
+        setLinkedTreasuryAddress(linked);
+        setTreasuryLinkInput(linked);
+      } else {
+        setLinkedTreasuryAddress(null);
+      }
+    } catch {
+      setLinkedTreasuryAddress(null);
+    }
+  }
+
+  function handleUseReserveAddress() {
+    const next = reserveAddressInput.trim();
+    if (!setRuntimeAddress('ReserveController', next)) {
+      setLinkConfigStatus('Invalid ReserveController address');
+      return;
+    }
+    setReserveAddress(next);
+    setLinkConfigStatus(`Using ReserveController ${next}`);
+  }
+
+  function handleUseGoldOracleAddress() {
+    const next = goldOracleAddressInput.trim();
+    if (!setRuntimeAddress('GoldOracle', next)) {
+      setLinkConfigStatus('Invalid GoldOracle address');
+      return;
+    }
+    setGoldOracleAddress(next);
+    setLinkConfigStatus(`Using GoldOracle ${next}`);
+  }
+
+  async function handleSetReserveTreasuryLink() {
+    if (isPaused) {
+      setLinkConfigStatus('Protocol is paused. Reserve write actions are disabled.');
+      return;
+    }
+    if (!isOperator) {
+      setLinkConfigStatus('Only operator or owner wallets can link Reserve to Treasury');
+      return;
+    }
+    const nextTreasury = treasuryLinkInput.trim();
+    if (!isValidAddress(RESERVE_ADDRESS) || !isValidAddress(nextTreasury)) {
+      setLinkConfigStatus('Invalid ReserveController or Treasury address');
+      return;
+    }
+    try {
+      setLinkConfigLoading(true);
+      const signerForWrite: any = await getWriteSigner();
+      const reserveWrite = new ethers.Contract(
+        RESERVE_ADDRESS,
+        ['function setTreasury(address _treasury) external'],
+        signerForWrite
+      );
+      const tx = await reserveWrite.setTreasury(nextTreasury);
+      await tx.wait();
+      setRuntimeAddress('Treasury', nextTreasury);
+      setLinkedTreasuryAddress(nextTreasury);
+      setLinkConfigStatus('ReserveController -> Treasury linked');
+      await refreshReserveLinks();
+    } catch (err: any) {
+      setLinkConfigStatus(`Treasury link failed: ${String(err?.message || err)}`);
+    } finally {
+      setLinkConfigLoading(false);
+    }
+  }
+
   async function getProvider() {
     // Do NOT request accounts here. Prefer the local JSON-RPC provider (localhost) by default.
     // Use injected provider only when the user has explicitly connected (account is present),
@@ -106,6 +214,18 @@ export default function ReserveTab() {
       try {
         setLoading(true);
         setUiError(null);
+
+        if (!isValidAddress(RESERVE_ADDRESS)) {
+          setUiError(`Invalid ReserveController address: ${RESERVE_ADDRESS}`);
+          setLoading(false);
+          return;
+        }
+        if (!isValidAddress(GOLD_ORACLE_ADDRESS)) {
+          setUiError(`Invalid GoldOracle address: ${GOLD_ORACLE_ADDRESS}`);
+          setLoading(false);
+          return;
+        }
+
         const provider: any = await getProvider();
         if (!provider) {
           setUiError('No JSON-RPC provider available (check NEXT_PUBLIC_RPC_URL or wallet).');
@@ -129,6 +249,8 @@ export default function ReserveTab() {
         } catch (err) {
           console.warn('getCode check failed', err);
         }
+
+        await refreshReserveLinks(provider);
 
         const reserveAbi = (ReserveControllerAbi as any);
         const reserve = new ethers.Contract(RESERVE_ADDRESS, reserveAbi, provider);
@@ -186,7 +308,7 @@ export default function ReserveTab() {
         // Fetch Treasury USD (use minimal ABI inline)
         let treasuryUsd6 = 0;
         try {
-          const treasuryAddr = (CONTRACT_ADDRESSES as any)?.Treasury || process.env.NEXT_PUBLIC_TREASURY_ADDRESS;
+          const treasuryAddr = getRuntimeAddress('Treasury');
           if (treasuryAddr && treasuryAddr !== ZERO_ADDRESS) {
             const TREASURY_ABI = [{ "inputs": [], "name": "getTreasuryValueUsd", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" }];
             const treasuryContract = new ethers.Contract(treasuryAddr, TREASURY_ABI, provider);
@@ -225,6 +347,14 @@ export default function ReserveTab() {
   // - if wallet is not connected, prompt user to connect (user-initiated).
   // - if wallet is connected, use its signer to send the tx.
   const onOperatorClick = async () => {
+    if (isPaused) {
+      setUiError('Protocol is paused. Reserve write actions are disabled.');
+      return;
+    }
+    if (!isOperator) {
+      setUiError('Only operator or owner wallets can update reserve controls');
+      return;
+    }
     const parsed = Number(priceInput);
     if (isNaN(parsed) || parsed <= 0) return;
 
@@ -273,41 +403,150 @@ export default function ReserveTab() {
   };
 
   return (
-    <div className="space-y-8 animate-fadeIn">
-      <div className="sagitta-hero">
+    <div className="tab-screen">
+      <PageHeader
+        title="Gold Reserve"
+        description="Track reserve valuation, oracle pricing, and the reserve-to-treasury cover ratio in one operator surface."
+        meta={
+          <>
+            <span className="data-chip"><Clock size={12} /> Updated: {new Date().toLocaleTimeString()}</span>
+            <span className="data-chip">Reserve: {RESERVE_ADDRESS ? `${RESERVE_ADDRESS.slice(0, 6)}...${RESERVE_ADDRESS.slice(-4)}` : 'Not set'}</span>
+            <span className="data-chip">
+              Treasury Link: {hasConfiguredTreasury ? `${configuredTreasuryAddress.slice(0, 6)}...${configuredTreasuryAddress.slice(-4)}` : 'Not set'}
+            </span>
+            <span className="data-chip" data-tone={linkedTreasuryAddress ? 'success' : 'warning'}>
+              Reserve Link: {linkedTreasuryAddress ? `${linkedTreasuryAddress.slice(0, 6)}...${linkedTreasuryAddress.slice(-4)}` : 'Not linked'}
+            </span>
+            <span className="data-chip" data-tone={isOperator ? 'warning' : 'neutral'}>
+              Role: {role}
+            </span>
+            <span className="data-chip" data-tone={account ? 'success' : 'warning'}>
+              {account ? 'Wallet Connected' : 'Wallet Needed For Writes'}
+            </span>
+          </>
+        }
+      />
+
+      {uiError && (
+        <div className="sagitta-hero">
+          <div className="sagitta-cell status-banner status-banner--danger">{uiError}</div>
+        </div>
+      )}
+
+      <div className="sagitta-grid sagitta-grid--quarters">
         <div className="sagitta-cell">
-          <h2 style={{ marginBlockStart: '0.3em' }}>Gold Reserve</h2>
-          <div className="text-slate-400 text-sm mt-1">Monitor gold reserves.</div>
-          <div style={{ height: 12 }} />
-          <div className="flex items-center gap-2 text-sm text-slate-400">
-            <Clock size={16} />
-            <span> Last updated: {new Date().toLocaleTimeString()}</span>
-          </div>
+          <h3 className="section-title">Reserve Value (USD)</h3>
+          <MetricCard value={formatUsd(nav)} tone="success" icon={<DollarSign />} />
+        </div>
+        <div className="sagitta-cell">
+          <h3 className="section-title">Gold Balance</h3>
+          <MetricCard value={`${goldBalance.toLocaleString()} oz`} tone="neutral" icon={<Gem />} />
+        </div>
+        <div className="sagitta-cell">
+          <h3 className="section-title">Oracle Price</h3>
+          <MetricCard value={formatUsd(oraclePrice)} tone="neutral" icon={<Globe />} />
+        </div>
+        <div className="sagitta-cell">
+          <h3 className="section-title">Reserve / Treasury %</h3>
+          <MetricCard value={`${coverageRatio.toFixed(1)}%`} tone="success" icon={<Scale />} />
         </div>
       </div>
-      <div className="sagitta-grid" style={{ gridTemplateColumns: 'repeat(4, 2fr)' }}>
-        {/* Cell 1 */}
+
+      <div className="sagitta-grid sagitta-grid--wide">
         <div className="sagitta-cell">
-        <h3>Reserve Value (USD)</h3>
-          <MetricGrid>
-          <MetricCard title="" value={formatUsd(nav)} tone="success" icon={<DollarSign />} />
-          
-            </MetricGrid>
+          <h3 className="section-title">Runtime Wiring</h3>
+          <p className="section-subtitle">Reserve health depends on contract links being accurate across the reserve controller, treasury, and oracle. The DAO address book can be populated even when the Reserve contract itself is still unlinked.</p>
+          <div className="panel-stack">
+            <div className="panel-row">
+              <span className="panel-row__label">Reserve controller</span>
+              <span className="panel-row__value">{RESERVE_ADDRESS || 'Not set'}</span>
+            </div>
+            <div className="panel-row">
+              <span className="panel-row__label">Gold oracle</span>
+              <span className="panel-row__value">{GOLD_ORACLE_ADDRESS || 'Not set'}</span>
+            </div>
+            <div className="panel-row">
+              <span className="panel-row__label">Configured treasury</span>
+              <span className="panel-row__value">{hasConfiguredTreasury ? configuredTreasuryAddress : 'Not set'}</span>
+            </div>
+            <div className="panel-row">
+              <span className="panel-row__label">Linked treasury</span>
+              <span className="panel-row__value">{linkedTreasuryAddress ?? 'Not linked'}</span>
+            </div>
+            <div className="panel-row">
+              <span className="panel-row__label">Network</span>
+              <span className="panel-row__value">{networkInfo ?? 'Unavailable'}</span>
+            </div>
+          </div>
+          {!linkedTreasuryAddress && hasConfiguredTreasury && (
+            <div className="mt-4 status-banner status-banner--warning">
+              The address book has a Treasury value, but `ReserveController.treasury()` is still unset on-chain. Link the Reserve controller to that Treasury address to remove the warning.
+            </div>
+          )}
+          {linkConfigStatus && <div className="mt-4 panel-note">{linkConfigStatus}</div>}
         </div>
-        {/* Cell 2 */}
+
         <div className="sagitta-cell">
-          <h3>Gold Balance</h3>
-          <MetricCard title="" value={`${goldBalance.toLocaleString()} oz`} tone="neutral" icon={<Gem />} />
-        </div>
-        {/* Cell 3 */}
-        <div className="sagitta-cell">
-          <h3>Oracle Price</h3>
-          <MetricCard title="" value={formatUsd(oraclePrice)} tone="neutral" icon={<Globe />} />
-        </div>
-        {/* Cell 4 */}
-        <div className="sagitta-cell">
-          <h3>Reserve / Treasury %</h3>
-          <MetricCard title="" value={`${coverageRatio.toFixed(1)}%`} tone="success" icon={<Scale />} />
+          <h3 className="section-title">Operator Controls</h3>
+          {isOperator ? (
+            <>
+              <p className="section-subtitle">Update the authoritative gold oracle price from a connected wallet, or link the Reserve controller to the configured Treasury address.</p>
+              <div className="panel-stack">
+                <div>
+                  <label className="block text-sm text-slate-300 mb-2">Gold Price (USD)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={priceInput}
+                    onChange={e => setPriceInput(e.target.value)}
+                    className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
+                    placeholder="4000"
+                    disabled={isPaused || loading}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={onOperatorClick}
+                  disabled={isPaused || loading || !priceInput}
+                  className="action-button action-button--warning"
+                >
+                  {loading ? 'Updating Price...' : 'Update Gold Price'}
+                </button>
+                <div className="panel-note">
+                  Price writes require a connected wallet with permission on the configured gold oracle.
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-300 mb-2">Treasury Link Address</label>
+                  <input
+                    type="text"
+                    value={treasuryLinkInput}
+                    onChange={e => setTreasuryLinkInput(e.target.value)}
+                    className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
+                    placeholder="0x... treasury"
+                    disabled={isPaused || loading || linkConfigLoading}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSetReserveTreasuryLink}
+                  disabled={isPaused || loading || linkConfigLoading || !isValidAddress(treasuryLinkInput.trim())}
+                  className="action-button action-button--primary"
+                >
+                  {linkConfigLoading ? 'Linking Treasury...' : 'Link Reserve To Treasury'}
+                </button>
+                <div className="panel-note">
+                  {isPaused
+                    ? 'Protocol is paused. Oracle and reserve-link updates are disabled until the protocol is resumed.'
+                    : 'This writes `ReserveController.setTreasury(...)` on-chain. It is separate from storing an address in the DAO address matrix.'}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="panel-note mt-3">
+              Reserve write controls are hidden for viewer wallets. Connect an operator or owner wallet to reveal oracle and linking actions.
+            </div>
+          )}
         </div>
       </div>
     </div>

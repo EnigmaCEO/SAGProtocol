@@ -84,11 +84,10 @@ async function main() {
     if (addrs) {
       // common keys written by deploy.ts
       candidates = [
-        addrs.DotOracle,
         addrs.SagOracle,
         addrs.GoldOracle,
+        addrs.UsdcOracle,
         addrs.MockOracle,
-        addrs.MockDOT,
         addrs.Vault,
         addrs.Treasury
       ].filter(Boolean) as string[];

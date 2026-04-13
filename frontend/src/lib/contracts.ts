@@ -13,17 +13,11 @@ function pick(...vals: (string | undefined)[]) {
 export const CONTRACTS = {
   // canonical names used across the frontend
   VAULT: pick(CONTRACT_ADDRESSES.Vault, CONTRACT_ADDRESSES.VAULT),
-  MOCK_DOT: pick(CONTRACT_ADDRESSES.MockDOT, CONTRACT_ADDRESSES.MockDot, CONTRACT_ADDRESSES.MOCK_DOT),
+  MOCK_USDC: pick(CONTRACT_ADDRESSES.MockUSDC),
   TREASURY: pick(CONTRACT_ADDRESSES.Treasury, CONTRACT_ADDRESSES.TREASURY),
 
-  // per-asset oracle aliases (some code expects these exact keys)
-  DotOracle: pick(CONTRACT_ADDRESSES.DotOracle, CONTRACT_ADDRESSES.DotOracle, CONTRACT_ADDRESSES.DotOracleAddress),
-  SagOracle: pick(CONTRACT_ADDRESSES.SagOracle, CONTRACT_ADDRESSES.SagOracle, CONTRACT_ADDRESSES.SAGOracle),
-  GoldOracle: pick(CONTRACT_ADDRESSES.GoldOracle, CONTRACT_ADDRESSES.GoldOracle),
-
-  // also export lowercase-ish fallbacks used elsewhere
-  Dot_Oracle: pick(CONTRACT_ADDRESSES.DotOracle, CONTRACT_ADDRESSES.MockOracle),
-  Sag_Oracle: pick(CONTRACT_ADDRESSES.SagOracle, CONTRACT_ADDRESSES.MockOracle),
+  // per-asset oracle aliases
+  GoldOracle: pick(CONTRACT_ADDRESSES.GoldOracle),
   Gold_Oracle: pick(CONTRACT_ADDRESSES.GoldOracle, CONTRACT_ADDRESSES.MockOracle),
 
   // spread raw addresses so consumers can still access other keys

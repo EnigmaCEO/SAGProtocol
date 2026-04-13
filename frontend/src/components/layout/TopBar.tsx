@@ -1,32 +1,52 @@
-import Tag from '../ui/Tag';
-import Button from '../ui/Button';
+import useRoleAccess from '../../hooks/useRoleAccess';
 
 interface TopBarProps {
-  network: string;
   chainId?: number;
   address?: string;
-  paused?: boolean;
+  ownerAddress?: string;
   onSwitch?: () => void;
 }
 
-export default function TopBar({ address, paused, network }: TopBarProps) {
+function roleLabel(role: 'viewer' | 'operator' | 'owner') {
+  if (role === 'owner') return 'Owner';
+  if (role === 'operator') return 'Operator';
+  return 'Viewer';
+}
+
+export default function TopBar({ address, ownerAddress }: TopBarProps) {
+  void address;
+  void ownerAddress;
+  const {
+    address: activeAddress,
+    role,
+    actualRole,
+    isActualOwner,
+    setRolePreview,
+  } = useRoleAccess();
+
   return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-4">
-        {paused && (
-          <div className="px-3 py-1 rounded-full bg-rose-500/20 border border-rose-500/30 text-rose-400 text-sm font-medium flex items-center gap-2">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
-            </span>
-            Protocol Paused
-          </div>
-        )}
-      </div>
-      
-      <div className="flex items-center gap-4">
-        <div className="px-4 py-2 rounded-full bg-slate-800/60 border border-slate-700 text-sm font-mono text-slate-300">
-          {address ? `Connected Wallet: ${address.slice(0, 6)}...${address.slice(-4)}` : 'Not Connected'}
+    <div className="topbar-row">
+      <div className="topbar-right">
+        <span className="data-chip">Role: {roleLabel(role)}</span>
+        {isActualOwner && role !== actualRole ? (
+          <span className="data-chip" data-tone="warning">Actual: {roleLabel(actualRole)}</span>
+        ) : null}
+        {isActualOwner ? (
+          <label className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-600/60 bg-slate-900/65 text-xs text-slate-300">
+            <span>View As</span>
+            <select
+              value={role}
+              onChange={e => setRolePreview(e.target.value as 'viewer' | 'operator' | 'owner')}
+              className="bg-transparent text-slate-100 outline-none"
+            >
+              <option value="owner">Owner</option>
+              <option value="operator">Operator</option>
+              <option value="viewer">Viewer</option>
+            </select>
+          </label>
+        ) : null}
+        <div className="px-5 py-2 rounded-full border border-slate-600/60 bg-slate-900/65 text-sm kpi-value text-slate-200">
+          {activeAddress ? `Wallet ${activeAddress.slice(0, 6)}...${activeAddress.slice(-4)}` : "Wallet Not Connected"}
         </div>
       </div>
     </div>

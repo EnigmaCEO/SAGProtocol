@@ -5,6 +5,7 @@ import AppShell from '../components/layout/AppShell';
 import TopBar from '../components/layout/TopBar';
 import SidebarTabs from '../components/navigation/SidebarTabs';
 import { getSigner, getContract } from '../lib/ethers';
+import useProtocolPause from '../hooks/useProtocolPause';
 
 // Dynamic imports for tab components
 const UserTab = dynamic(() => import('../components/tabs/UserTab'), { ssr: false });
@@ -18,8 +19,9 @@ export default function Home() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'user' | 'vault' | 'treasury' | 'escrow' | 'reserve' | 'dao'>('user');
   const [address, setAddress] = useState<string>('');
-  const [isPaused, setIsPaused] = useState(false);
+  const [ownerAddress, setOwnerAddress] = useState<string>('');
   const [network, setNetwork] = useState<string>('');
+  const { isPaused } = useProtocolPause();
 
   useEffect(() => {
     loadAccountData();
@@ -41,8 +43,8 @@ export default function Home() {
       }
 
       const vault = await getContract('vault') as any;
-      const paused = await vault.paused().catch(() => false);
-      setIsPaused(paused);
+      const owner = await vault.owner().catch(() => '');
+      setOwnerAddress(owner);
     } catch (error) {
       console.error('Failed to load account data:', error);
     }
@@ -69,8 +71,8 @@ export default function Home() {
 
   return (
     <AppShell
-      topbar={<TopBar address={address} paused={isPaused} network={network} />}
-      sidebar={<SidebarTabs active={activeTab} onChange={setActiveTab} />}
+      topbar={<TopBar address={address} ownerAddress={ownerAddress} />}
+      sidebar={<SidebarTabs active={activeTab} paused={isPaused} network={network} onChange={setActiveTab} />}
     >
       {renderTab()}
     </AppShell>

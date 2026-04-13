@@ -26,6 +26,26 @@ interface IVault {
     );
 }
 
+/**
+ * @title InvestmentEscrow
+ * @notice Manages batched USDC deposits from the Vault into off-chain investment rounds.
+ * @dev Lifecycle per batch:
+ *      Pending → Running (rollToNewBatch) → Invested (investBatch) → Closed (depositReturnForBatch)
+ *      → Distributed (distributeBatch) or the Treasury's reportBatchResult handles distribution.
+ *
+ *      Profit split: USER_PROFIT_BPS of gross profit goes to depositors, PROTOCOL_FEE_BPS to the
+ *      protocol (via Treasury). Both constants are defined as public immutables for audit clarity.
+ *
+ *      SECURITY — CUSTODY RISK:
+ *        When investBatch() is called, principal USDC is transferred to 0x000...dEaD representing
+ *        an irrecoverable off-chain outflow. Ensure the operator has an authenticated off-chain
+ *        channel to signal returns before calling this function.
+ *
+ *      SECURITY — KEEPER KEY:
+ *        The keeper address can roll, invest, and close batches. Compromise of this key can
+ *        trigger premature batch rolls but cannot steal funds without also controlling the
+ *        Treasury and Vault. Rotate keeper promptly if compromised.
+ */
 contract InvestmentEscrow is Ownable {
     using SafeERC20 for IERC20;
 
@@ -42,8 +62,14 @@ contract InvestmentEscrow is Ownable {
     uint256 public lastBatchRollTime;
     uint256 public nextBatchCounter; // for generating new batch ids
 
-    // NOTE: appended Invested last to avoid changing numeric values of existing statuses
+    // NOTE: appended Invested last to avoid changing numeric values of existing statuses.
     enum BatchStatus { Pending, Running, Closed, Distributed, Invested }
+
+    /// @dev Percentage of batch profit allocated to depositors (basis points).
+    uint256 public constant USER_PROFIT_BPS = 8_000; // 80%
+    /// @dev Protocol fee retained from batch profit (basis points). Must equal BPS_SCALE - USER_PROFIT_BPS.
+    uint256 public constant PROTOCOL_FEE_BPS = 2_000; // 20%
+    uint256 private constant BPS_SCALE = 10_000;
 
     struct Batch {
         uint256 id;
@@ -74,23 +100,8 @@ contract InvestmentEscrow is Ownable {
     event BatchInvested(uint256 indexed batchId, uint256 burnedUsd);
     // NEW diagnostic event emitted immediately before attempting the USDC burn
     event PreInvestDiagnostics(uint256 indexed batchId, uint256 principalUsd, uint256 escrowUsdcBalance, address usdcToken);
-    // NEW: admin-only emergency burn event
+    // Emitted when admin burns escrow USDC for a running batch
     event AdminBatchBurned(uint256 indexed batchId, uint256 burnedUsd, address executor);
-
-    // NEW owner toggle to allow marking Invested without successfully burning USDC (test/dev convenience)
-    bool public allowMarkInvestedWithoutBurn;
-    event TransferFailedMarkedInvested(uint256 indexed batchId, uint256 principalUsd, string reason);
-
-    function setAllowMarkInvestedWithoutBurn(bool v) external onlyOwner {
-        allowMarkInvestedWithoutBurn = v;
-    }
-
-    // NEW owner toggle to allow public marking Invested without burn (test/dev convenience)
-    bool public allowPublicMarkInvested;
-
-    function setAllowPublicMarkInvested(bool v) external onlyOwner {
-        allowPublicMarkInvested = v;
-    }
 
     // Pass deploying account as initial owner to OpenZeppelin Ownable (compatible with current Ownable impl)
     constructor(address _usdc, address _treasury) Ownable(msg.sender) {
@@ -133,6 +144,14 @@ contract InvestmentEscrow is Ownable {
 
     modifier onlyKeeperOrOwner() {
         require(msg.sender == owner() || msg.sender == keeper, "Only keeper or owner");
+        _;
+    }
+
+    modifier onlyKeeperOwnerOrTreasury() {
+        require(
+            msg.sender == owner() || msg.sender == keeper || msg.sender == address(treasury),
+            "Only keeper, owner, or treasury"
+        );
         _;
     }
 
@@ -202,7 +221,7 @@ contract InvestmentEscrow is Ownable {
 
     // --- Weekly roll: move pending batch to running and request funds from Treasury ---
     /// @notice Roll the default current pending batch into Running and create a new default pending batch (backward-compatible)
-    function rollToNewBatch() public onlyKeeperOrOwner {
+    function rollToNewBatch() public onlyKeeperOwnerOrTreasury {
         Batch storage cur = batches[currentBatchId];
 
         // If no collateral in current batch, just advance time (no-op)
@@ -237,7 +256,7 @@ contract InvestmentEscrow is Ownable {
     }
 
     /// @notice Roll a specific pending batch (does not change current default pending batch)
-    function rollBatch(uint256 batchId) external onlyKeeperOrOwner {
+    function rollBatch(uint256 batchId) external onlyKeeperOwnerOrTreasury {
         Batch storage b = batches[batchId];
         require(b.id == batchId, "Batch not found");
         require(b.status == BatchStatus.Pending, "Batch not pending");
@@ -266,8 +285,8 @@ contract InvestmentEscrow is Ownable {
         uint256 finalValueUsd = (principalUsd * finalNavPerShare) / 1e18;
         uint256 profitUsd = finalValueUsd > principalUsd ? finalValueUsd - principalUsd : 0;
 
-        uint256 userProfitUsd = (profitUsd * 80) / 100; // 80%
-        uint256 feeUsd = profitUsd - userProfitUsd;     // 20%
+        uint256 userProfitUsd = (profitUsd * USER_PROFIT_BPS) / BPS_SCALE;
+        uint256 feeUsd = profitUsd - userProfitUsd;
 
         uint256 totalReturnUsd = principalUsd + profitUsd;
 
@@ -384,7 +403,13 @@ contract InvestmentEscrow is Ownable {
         emit BatchDistributed(batchId, totalDistributed);
     }
 
-    // New: canonical invest action. Burns the escrow USDC for a Running batch and marks it Invested.
+    /**
+     * @notice Burn the escrow USDC for a Running batch and mark it Invested.
+     * @dev Transfers principal USDC to the dead address (0x000...dEaD), representing
+     *      the funds leaving the protocol for an off-chain investment. The return of
+     *      capital is handled via depositReturnForBatch() when the investment matures.
+     * @param batchId ID of a Running batch with positive collateral.
+     */
     function investBatch(uint256 batchId) public onlyKeeperOrOwner {
         require(batches[batchId].id == batchId, "Batch not found");
         Batch storage b = batches[batchId];
@@ -397,48 +422,17 @@ contract InvestmentEscrow is Ownable {
         uint256 escrowBal = usdc.balanceOf(address(this));
         require(escrowBal >= principalUsd, "Escrow lacks USDC to invest");
 
-        // Emit pre-transfer diagnostics so off-chain logs show balances and token address
         emit PreInvestDiagnostics(batchId, principalUsd, escrowBal, address(usdc));
 
+        // Transfer USDC to the dead address to represent off-chain investment outflow.
+        // In production this would be replaced by a bridge / custodian transfer.
         address burnAddr = 0x000000000000000000000000000000000000dEaD;
-        // Low-level transfer call and robust return-data handling (supports tokens that return no data)
-        (bool ok, bytes memory returnData) = address(usdc).call(abi.encodeWithSelector(IERC20.transfer.selector, burnAddr, principalUsd));
-        if (!ok) {
-            // fallback: if owner enabled the test convenience, mark Invested despite transfer failure
-            if (allowMarkInvestedWithoutBurn) {
-                b.distributed = true;
-                b.status = BatchStatus.Invested;
-                emit TransferFailedMarkedInvested(batchId, principalUsd, "transfer call reverted - marked Invested per owner flag");
-                emit BatchInvested(batchId, principalUsd);
-                return;
-            }
-            revert("USDC transfer call reverted");
-        }
-        // if returnData is non-empty, attempt to decode bool and ensure true
-        if (returnData.length > 0) {
-            // expect a single bool (32 bytes)
-            if (returnData.length >= 32) {
-                bool success = abi.decode(returnData, (bool));
-                if (!success) {
-                    if (allowMarkInvestedWithoutBurn) {
-                        b.distributed = true;
-                        b.status = BatchStatus.Invested;
-                        emit TransferFailedMarkedInvested(batchId, principalUsd, "transfer returned false - marked Invested per owner flag");
-                        emit BatchInvested(batchId, principalUsd);
-                        return;
-                    }
-                    revert("USDC transfer returned false");
-                }
-            } else {
-                if (allowMarkInvestedWithoutBurn) {
-                    b.distributed = true;
-                    b.status = BatchStatus.Invested;
-                    emit TransferFailedMarkedInvested(batchId, principalUsd, "unexpected return data - marked Invested per owner flag");
-                    emit BatchInvested(batchId, principalUsd);
-                    return;
-                }
-                revert("USDC transfer returned unexpected data");
-            }
+        (bool ok, bytes memory returnData) = address(usdc).call(
+            abi.encodeWithSelector(IERC20.transfer.selector, burnAddr, principalUsd)
+        );
+        require(ok, "USDC transfer call reverted");
+        if (returnData.length >= 32) {
+            require(abi.decode(returnData, (bool)), "USDC transfer returned false");
         }
 
         b.distributed = true;
@@ -446,66 +440,11 @@ contract InvestmentEscrow is Ownable {
         emit BatchInvested(batchId, principalUsd);
     }
 
-    /// @notice Public helper: if Escrow already holds the required USDC for a Running batch, anyone may call to mark Invested and burn.
-    /// @dev This is a safe permissive fallback: it only succeeds when the contract already holds the exact funds (pre-funded).
-    function investBatchIfFunded(uint256 batchId) external {
-        require(batches[batchId].id == batchId, "Batch not found");
-        Batch storage b = batches[batchId];
-        require(b.status == BatchStatus.Running, "Batch not running");
-        require(!b.distributed, "Already distributed/invested");
-
-        uint256 principalUsd = b.totalCollateralUsd;
-        require(principalUsd > 0, "No collateral");
-
-        uint256 escrowBal = usdc.balanceOf(address(this));
-        require(escrowBal >= principalUsd, "Escrow lacks USDC to invest");
-
-        emit PreInvestDiagnostics(batchId, principalUsd, escrowBal, address(usdc));
-
-        address burnAddr = 0x000000000000000000000000000000000000dEaD;
-        (bool ok, bytes memory returnData) = address(usdc).call(abi.encodeWithSelector(IERC20.transfer.selector, burnAddr, principalUsd));
-        if (!ok) {
-            if (allowMarkInvestedWithoutBurn) {
-                b.distributed = true;
-                b.status = BatchStatus.Invested;
-                emit TransferFailedMarkedInvested(batchId, principalUsd, "transfer call reverted - marked Invested per owner flag");
-                emit BatchInvested(batchId, principalUsd);
-                return;
-            }
-            revert("USDC transfer call reverted");
-        }
-        if (returnData.length > 0) {
-            if (returnData.length >= 32) {
-                bool success = abi.decode(returnData, (bool));
-                if (!success) {
-                    if (allowMarkInvestedWithoutBurn) {
-                        b.distributed = true;
-                        b.status = BatchStatus.Invested;
-                        emit TransferFailedMarkedInvested(batchId, principalUsd, "transfer returned false - marked Invested per owner flag");
-                        emit BatchInvested(batchId, principalUsd);
-                        return;
-                    }
-                    revert("USDC transfer returned false");
-                }
-            } else {
-                if (allowMarkInvestedWithoutBurn) {
-                    b.distributed = true;
-                    b.status = BatchStatus.Invested;
-                    emit TransferFailedMarkedInvested(batchId, principalUsd, "unexpected return data - marked Invested per owner flag");
-                    emit BatchInvested(batchId, principalUsd);
-                    return;
-                }
-                revert("USDC transfer returned unexpected data");
-            }
-        }
-
-        b.distributed = true;
-        b.status = BatchStatus.Invested;
-        emit BatchInvested(batchId, principalUsd);
-    }
-
-    /// @notice Owner-only emergency: burn escrow USDC assigned to a running batch and mark Invested.
-    /// @dev Useful for admin recovery/testing when token behaves unexpectedly.
+    /**
+     * @notice Owner-only emergency path: burn escrow USDC for a Running batch and mark it Invested.
+     * @dev Equivalent to investBatch but restricted to the owner for additional safety in recovery scenarios.
+     * @param batchId ID of a Running batch with positive collateral.
+     */
     function adminBurnBatch(uint256 batchId) external onlyOwner {
         require(batches[batchId].id == batchId, "Batch not found");
         Batch storage b = batches[batchId];
@@ -520,32 +459,12 @@ contract InvestmentEscrow is Ownable {
         emit PreInvestDiagnostics(batchId, principalUsd, escrowBal, address(usdc));
 
         address burnAddr = 0x000000000000000000000000000000000000dEaD;
-        (bool ok, bytes memory returnData) = address(usdc).call(abi.encodeWithSelector(IERC20.transfer.selector, burnAddr, principalUsd));
-        if (!ok) {
-            // fallback: if owner enabled the test convenience, mark Invested despite transfer failure
-            if (allowMarkInvestedWithoutBurn) {
-                b.distributed = true;
-                b.status = BatchStatus.Invested;
-                emit TransferFailedMarkedInvested(batchId, principalUsd, "transfer call reverted - marked Invested per owner flag");
-                emit AdminBatchBurned(batchId, principalUsd, msg.sender);
-                emit BatchInvested(batchId, principalUsd);
-                return;
-            }
-            revert("USDC transfer call reverted (admin)");
-        }
-        if (returnData.length > 0) {
-            bool success = abi.decode(returnData, (bool));
-            if (!success) {
-                if (allowMarkInvestedWithoutBurn) {
-                    b.distributed = true;
-                    b.status = BatchStatus.Invested;
-                    emit TransferFailedMarkedInvested(batchId, principalUsd, "transfer returned false - marked Invested per owner flag");
-                    emit AdminBatchBurned(batchId, principalUsd, msg.sender);
-                    emit BatchInvested(batchId, principalUsd);
-                    return;
-                }
-                revert("USDC transfer returned false (admin)");
-            }
+        (bool ok, bytes memory returnData) = address(usdc).call(
+            abi.encodeWithSelector(IERC20.transfer.selector, burnAddr, principalUsd)
+        );
+        require(ok, "USDC transfer call reverted (admin)");
+        if (returnData.length >= 32) {
+            require(abi.decode(returnData, (bool)), "USDC transfer returned false (admin)");
         }
 
         b.distributed = true;
@@ -578,8 +497,14 @@ contract InvestmentEscrow is Ownable {
         emit BatchDistributed(batchId, 0);
     }
 
-    /// @notice Owner-only emergency: force a batch into Invested state.
-    /// @dev Use only for migration/admin recovery. This bypasses status checks.
+    /**
+     * @notice Owner-only emergency: force a batch into Invested state bypassing status checks.
+     * @dev SECURITY: This function intentionally skips status validation to unblock stuck
+     *      migrations. It must not be used in normal operations — always prefer investBatch()
+     *      or setBatchInvested() which enforce the correct state machine. Only call this when
+     *      a batch is genuinely stuck and you have verified the underlying USDC accounting.
+     * @param batchId The batch to force into Invested state.
+     */
     function forceSetBatchInvested(uint256 batchId) external onlyOwner {
         require(batches[batchId].id == batchId, "Batch not found");
         Batch storage b = batches[batchId];
@@ -587,9 +512,14 @@ contract InvestmentEscrow is Ownable {
         emit BatchDistributed(batchId, 0);
     }
 
-    /// @notice Mark a running batch Invested without performing the USDC transfer/burn.
-    /// @dev Allowed when Escrow already holds the required USDC. Caller must be owner/keeper OR allowPublicMarkInvested must be true.
-    function markBatchInvestedWithoutTransfer(uint256 batchId) external {
+    /**
+     * @notice Mark a Running batch as Invested without performing the USDC burn/transfer.
+     * @dev Use when the USDC has already been transferred out-of-band (e.g. custodian wire).
+     *      Requires keeper or owner authorisation. The Escrow must already hold the required USDC
+     *      balance as a sanity check before accounting can move forward.
+     * @param batchId ID of a Running batch with positive collateral.
+     */
+    function markBatchInvestedWithoutTransfer(uint256 batchId) external onlyKeeperOrOwner {
         require(batches[batchId].id == batchId, "Batch not found");
         Batch storage b = batches[batchId];
         require(b.status == BatchStatus.Running, "Batch not running");
@@ -599,50 +529,7 @@ contract InvestmentEscrow is Ownable {
         require(principalUsd > 0, "No collateral");
 
         uint256 escrowBal = usdc.balanceOf(address(this));
-        require(escrowBal >= principalUsd, "Escrow lacks USDC to invest");
-
-        // authorize: keeper/owner OR owner-enabled public path
-        if (!(msg.sender == owner() || msg.sender == keeper || allowPublicMarkInvested)) {
-            revert("Not authorized to mark invested without transfer");
-        }
-
-        // Mark Invested (accounting-only, no token movement)
-        b.distributed = true;
-        b.status = BatchStatus.Invested;
-
-        emit TransferFailedMarkedInvested(batchId, principalUsd, "Marked Invested without token transfer");
-        emit BatchInvested(batchId, principalUsd);
-    }
-
-    /// @notice Dev: public helper to burn Escrow USDC for a Running batch (NO AUTH). Test/dev only.
-    /// @dev Use only on local/test networks. Checks that Escrow already holds required USDC.
-    function publicBurnBatch(uint256 batchId) external {
-        require(batches[batchId].id == batchId, "Batch not found");
-        Batch storage b = batches[batchId];
-        require(b.status == BatchStatus.Running, "Batch not running");
-        require(!b.distributed, "Already distributed/invested");
-
-        uint256 principalUsd = b.totalCollateralUsd;
-        require(principalUsd > 0, "No collateral");
-
-        uint256 escrowBal = usdc.balanceOf(address(this));
-        require(escrowBal >= principalUsd, "Escrow lacks USDC to burn");
-
-        emit PreInvestDiagnostics(batchId, principalUsd, escrowBal, address(usdc));
-
-        address burnAddr = 0x000000000000000000000000000000000000dEaD;
-        (bool ok, bytes memory returnData) = address(usdc).call(abi.encodeWithSelector(IERC20.transfer.selector, burnAddr, principalUsd));
-        if (!ok) {
-            revert("publicBurnBatch: USDC transfer call reverted");
-        }
-        if (returnData.length > 0) {
-            if (returnData.length >= 32) {
-                bool success = abi.decode(returnData, (bool));
-                require(success, "publicBurnBatch: USDC transfer returned false");
-            } else {
-                revert("publicBurnBatch: USDC transfer returned unexpected data");
-            }
-        }
+        require(escrowBal >= principalUsd, "Escrow lacks USDC");
 
         b.distributed = true;
         b.status = BatchStatus.Invested;

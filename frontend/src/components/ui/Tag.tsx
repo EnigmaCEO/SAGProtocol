@@ -6,15 +6,15 @@ interface TagProps {
 }
 
 const toneClasses = {
-  neutral: 'bg-slate-700/60 text-slate-200',
-  success: 'bg-emerald-600/30 text-emerald-300',
-  warning: 'bg-amber-600/30 text-amber-300',
-  danger: 'bg-rose-600/30 text-rose-300',
+  neutral: 'bg-slate-900/75 border border-slate-600/45 text-slate-200',
+  success: 'bg-emerald-950/55 border border-emerald-500/45 text-emerald-300',
+  warning: 'bg-amber-950/55 border border-amber-500/45 text-amber-300',
+  danger: 'bg-rose-950/55 border border-rose-500/45 text-rose-300',
 };
 
 export default function Tag({ tone = 'neutral', children }: TagProps) {
   return (
-    <span className={`px-3 py-1 rounded-full text-xs font-medium ${toneClasses[tone]}`}>
+    <span className={`px-3 py-1 rounded-full text-[11px] uppercase tracking-[0.16em] font-semibold ${toneClasses[tone]}`}>
       {children}
     </span>
   );

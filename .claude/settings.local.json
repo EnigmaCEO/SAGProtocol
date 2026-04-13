@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx|js|jsx\\)$\")",
+      "Bash(grep -E \"\\\\.\\(tsx?|jsx?\\)$\")",
+      "Bash(find /d/Projects/Sagitta/SAGProtocol/frontend/src/components/tabs -name \"*.tsx\" -exec grep -l \"chainId\\\\|LOCAL_CHAIN\\\\|LOCALHOST\" {} \\\\;)",
+      "Bash(wc -l /d/Projects/Sagitta/SAGProtocol/frontend/src/lib/abis/*.json)",
+      "Bash(find /d/Projects/Sagitta/SAGProtocol/contracts -name \"*.sol\" -type f -exec grep -l \"^import\" {} \\\\;)",
+      "Bash(ls -la /d/Projects/Sagitta/SAGProtocol/frontend/src/lib/abis/*.json)",
+      "Bash(npx hardhat:*)",
+      "Bash(ls d:/Projects/Sagitta/SAGProtocol/contracts/*.sol)",
+      "Bash(ls d:/Projects/Sagitta/SAGProtocol/*.env* d:/Projects/Sagitta/SAGProtocol/.env*)",
+      "Bash(ls d:/Projects/Sagitta/SAGProtocol/frontend/.env*)",
+      "Bash(node -e \"require\\('dotenv'\\).config\\(\\); console.log\\('PRIVATE_KEY set:', !!process.env.PRIVATE_KEY, '| MOONBASE_PRIVATE_KEY_0 set:', !!process.env.MOONBASE_PRIVATE_KEY_0\\)\")",
+      "Bash(node -e ':*)"
+    ]
+  }
+}

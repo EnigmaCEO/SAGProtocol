@@ -4,8 +4,8 @@ const ethers = hre.ethers;
 
 describe("Full coverage test suite", function () {
   let deployer, owner, keeper, user, other;
-  let MockUSDC, MockGOLD, MockDOT, MockOracle, MockAmmPair, SagittaVaultReceipt, ReserveController, PriceOracleRouter, InvestmentEscrow, GoldOracle;
-  let usdc, gold, dot, oracle, ammPair, receipt, reserve, router, escrow, goldOracle;
+  let MockUSDC, MockGOLD, MockOracle, MockAmmPair, SagittaVaultReceipt, ReserveController, InvestmentEscrow, GoldOracle;
+  let usdc, gold, oracle, ammPair, receipt, reserve, api3Proxy, router, escrow, goldOracle;
   let TestTreasury, TestVault, treasury, vault;
 
   before(async function () {
@@ -20,10 +20,6 @@ describe("Full coverage test suite", function () {
     await gold.waitForDeployment();
     const goldAddr = await gold.getAddress();
 
-    dot = await ethers.deployContract("MockDOT");
-    await dot.waitForDeployment();
-    const dotAddr = await dot.getAddress();
-
     oracle = await ethers.deployContract("MockOracle");
     await oracle.waitForDeployment();
     const oracleAddr = await oracle.getAddress();
@@ -32,8 +28,12 @@ describe("Full coverage test suite", function () {
     await goldOracle.waitForDeployment();
     const goldOracleAddr = await goldOracle.getAddress();
 
-    // deploy router / reserve with explicit address values to prevent null/target resolution issues
-    router = await ethers.deployContract("PriceOracleRouter", [oracleAddr, goldOracleAddr]);
+    // deploy API3 mock proxy and adapter (replaces PriceOracleRouter)
+    // MockApi3Proxy stores prices as int224 with 18 dec; $2000 gold = 2000n * 10n**18n
+    api3Proxy = await ethers.deployContract("MockApi3Proxy", [2000n * 10n ** 18n]);
+    await api3Proxy.waitForDeployment();
+    const api3ProxyAddr = await api3Proxy.getAddress();
+    router = await ethers.deployContract("API3PriceAdapter", [api3ProxyAddr]);
     await router.waitForDeployment();
     const routerAddr = await router.getAddress();
 
@@ -45,7 +45,7 @@ describe("Full coverage test suite", function () {
     await receipt.waitForDeployment();
     const receiptAddr = await receipt.getAddress();
 
-    ammPair = await ethers.deployContract("MockAmmPair", [usdcAddr, dotAddr]);
+    ammPair = await ethers.deployContract("MockAmmPair", [usdcAddr, goldAddr]);
     await ammPair.waitForDeployment();
     const ammPairAddr = await ammPair.getAddress();
 
@@ -63,7 +63,7 @@ describe("Full coverage test suite", function () {
 
     // expose frequently used addresses for the rest of the test via local bindings
     this.addrs = {
-      usdcAddr, goldAddr, dotAddr, oracleAddr, goldOracleAddr, routerAddr, reserveAddr, receiptAddr, ammPairAddr, treasuryAddr, vaultAddr, escrowAddr
+      usdcAddr, goldAddr, oracleAddr, goldOracleAddr, routerAddr, reserveAddr, receiptAddr, ammPairAddr, treasuryAddr, vaultAddr, escrowAddr
     };
   });
 
@@ -157,12 +157,12 @@ describe("Full coverage test suite", function () {
     const userAddr = await user.getAddress();
     await usdc.faucetMint(userAddr, ethers.parseUnits("100000", 6));
     await usdc.connect(user).approve(ammPairAddr, 10000);
-    // swap USDC -> DOT
+    // swap USDC -> GOLD
     const amountIn = 10000;
-    const beforeDot = await dot.balanceOf(userAddr);
-    await ammPair.connect(user).swapExactTokensForTokens(amountIn, this.addrs.usdcAddr, this.addrs.dotAddr, userAddr);
-    const afterDot = await dot.balanceOf(userAddr);
-    expect(afterDot).to.be.gt(beforeDot);
+    const beforeGold = await gold.balanceOf(userAddr);
+    await ammPair.connect(user).swapExactTokensForTokens(amountIn, this.addrs.usdcAddr, this.addrs.goldAddr, userAddr);
+    const afterGold = await gold.balanceOf(userAddr);
+    expect(afterGold).to.be.gt(beforeGold);
 
     // pre-funded fallback: transfer tokens into pair and call swap without approval
     const preFundAmount = 5000;
@@ -170,7 +170,7 @@ describe("Full coverage test suite", function () {
     await usdc.faucetMint(userAddr, ethers.parseUnits(String(preFundAmount), 6));
     await usdc.connect(user).transfer(ammPairAddr, preFundAmount);
     // call swap without approve - transferFrom will revert but afterBalance check will accept
-    await ammPair.connect(user).swapExactTokensForTokens(preFundAmount, this.addrs.usdcAddr, this.addrs.dotAddr, userAddr);
+    await ammPair.connect(user).swapExactTokensForTokens(preFundAmount, this.addrs.usdcAddr, this.addrs.goldAddr, userAddr);
   });
 
   it("InvestmentEscrow batch lifecycle: register, roll, invest (burn), deposit return, close, distribute", async function () {
@@ -318,7 +318,7 @@ describe("Full coverage test suite", function () {
     // ensure escrow has USDC
     await usdc.mint(escrowAddr, ethers.parseUnits("50", 6));
     await escrow.connect(deployer).adminBurnBatch(batch6Id);
-    // publicBurnBatch dev helper
+    // investBatch (keeper/owner path for batch burn coverage)
     const txCreateB7 = await escrow.createPendingBatch();
     const rB7 = await txCreateB7.wait();
     let batch7Id = undefined;
@@ -337,6 +337,6 @@ describe("Full coverage test suite", function () {
     await vault.forwardRegisterDepositTo(escrowAddr, batch7Id, 7, ethers.parseUnits("10", 6), ethers.parseEther("1"));
     await escrow.rollBatch(batch7Id);
     await usdc.mint(escrowAddr, ethers.parseUnits("10", 6));
-    await escrow.publicBurnBatch(batch7Id);
+    await escrow.connect(deployer).investBatch(batch7Id);
   });
 });

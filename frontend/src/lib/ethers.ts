@@ -6,14 +6,56 @@ import InvestmentEscrowABI from "./abis/InvestmentEscrow.json";
 import GOLDABI from "./abis/GOLD.json";
 import TreasuryABI from "./abis/Treasury.json";
 import { CONTRACT_ADDRESSES } from "./addresses";
+import { getRuntimeAddress, isValidAddress } from "./runtime-addresses";
+import { RPC_URL } from "./network";
 
 // Demo mode configuration
 const DEMO_MODE = true;
 const DEMO_PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"; // Hardhat account #0
-const RPC_URL = "http://127.0.0.1:8545";
 
 let _provider: ethers.JsonRpcProvider | null = null;
 let _signer: ethers.Wallet | null = null;
+
+function normalizeAbi(abiModule: any): any[] {
+  let mod: any = abiModule;
+  for (let i = 0; i < 4; i++) {
+    if (Array.isArray(mod)) return mod;
+    if (mod && Array.isArray(mod.abi)) return mod.abi;
+    if (!mod || mod.default === undefined) break;
+    mod = mod.default;
+  }
+  throw new Error("Invalid ABI format: expected ABI array or { abi: ABI[] }");
+}
+
+const ABIS = {
+  usdc: normalizeAbi(MockUSDCABI),
+  vault: normalizeAbi(VaultABI),
+  treasury: normalizeAbi(TreasuryABI),
+  reserve: normalizeAbi(ReserveControllerABI),
+  gold: normalizeAbi(GOLDABI),
+  escrow: normalizeAbi(InvestmentEscrowABI),
+};
+
+export const A = {
+  MockUSDC: resolveAddress(CONTRACT_ADDRESSES.MockUSDC, "MockUSDC"),
+  Vault: resolveAddress(CONTRACT_ADDRESSES.Vault, "Vault"),
+  Treasury: resolveAddress(CONTRACT_ADDRESSES.Treasury, "Treasury"),
+  ReserveController: resolveAddress(CONTRACT_ADDRESSES.ReserveController, "ReserveController"),
+  InvestmentEscrow: resolveAddress(CONTRACT_ADDRESSES.InvestmentEscrow, "InvestmentEscrow"),
+} as const;
+
+function resolveAddress(
+  staticAddress: string,
+  runtimeKey?: "MockUSDC" | "Vault" | "Treasury" | "ReserveController" | "InvestmentEscrow"
+): string {
+  if (runtimeKey) {
+    const runtimeAddress = getRuntimeAddress(runtimeKey);
+    if (isValidAddress(runtimeAddress) && runtimeAddress !== "0x0000000000000000000000000000000000000000") {
+      return runtimeAddress;
+    }
+  }
+  return staticAddress;
+}
 
 export function getProvider(): ethers.JsonRpcProvider {
   if (!_provider) {
@@ -34,26 +76,26 @@ export async function getSigner(): Promise<ethers.Wallet> {
 export async function getContracts() {
   const signer = await getSigner();
 
-  const usdc = new ethers.Contract(CONTRACT_ADDRESSES.MockUSDC, MockUSDCABI.abi, signer);
-  const vault = new ethers.Contract(CONTRACT_ADDRESSES.Vault, VaultABI, signer);
-  const treasury = new ethers.Contract(CONTRACT_ADDRESSES.Treasury, TreasuryABI.abi, signer);
-  const reserve = new ethers.Contract(CONTRACT_ADDRESSES.ReserveController, ReserveControllerABI, signer);
-  const gold = new ethers.Contract(CONTRACT_ADDRESSES.MockGOLD, GOLDABI.abi, signer);
-  const escrow = new ethers.Contract(CONTRACT_ADDRESSES.InvestmentEscrow, InvestmentEscrowABI.abi, signer);
+  const usdc = new ethers.Contract(A.MockUSDC, ABIS.usdc, signer);
+  const vault = new ethers.Contract(A.Vault, ABIS.vault, signer);
+  const treasury = new ethers.Contract(A.Treasury, ABIS.treasury, signer);
+  const reserve = new ethers.Contract(A.ReserveController, ABIS.reserve, signer);
+  const gold = new ethers.Contract(CONTRACT_ADDRESSES.MockGOLD, ABIS.gold, signer);
+  const escrow = new ethers.Contract(A.InvestmentEscrow, ABIS.escrow, signer);
 
-  return { usdc, vault, treasury, reserve, gold, escrow };
+  return { usdc, vault, treasury, reserve, gold, escrow, A };
 }
 
 export async function getContract(name: string) {
   const signer = await getSigner();
   
   const contractMap: Record<string, { address: string; abi: any }> = {
-    usdc: { address: CONTRACT_ADDRESSES.MockUSDC, abi: MockUSDCABI.abi || MockUSDCABI },
-    vault: { address: CONTRACT_ADDRESSES.Vault, abi: VaultABI },
-    treasury: { address: CONTRACT_ADDRESSES.Treasury, abi: TreasuryABI.abi || TreasuryABI },
-    reserve: { address: CONTRACT_ADDRESSES.ReserveController, abi: ReserveControllerABI },
-    gold: { address: CONTRACT_ADDRESSES.MockGOLD, abi: GOLDABI.abi || GOLDABI },
-    escrow: { address: CONTRACT_ADDRESSES.InvestmentEscrow, abi: InvestmentEscrowABI.abi || InvestmentEscrowABI },
+    usdc: { address: resolveAddress(CONTRACT_ADDRESSES.MockUSDC, "MockUSDC"), abi: ABIS.usdc },
+    vault: { address: resolveAddress(CONTRACT_ADDRESSES.Vault, "Vault"), abi: ABIS.vault },
+    treasury: { address: resolveAddress(CONTRACT_ADDRESSES.Treasury, "Treasury"), abi: ABIS.treasury },
+    reserve: { address: resolveAddress(CONTRACT_ADDRESSES.ReserveController, "ReserveController"), abi: ABIS.reserve },
+    gold: { address: CONTRACT_ADDRESSES.MockGOLD, abi: ABIS.gold },
+    escrow: { address: resolveAddress(CONTRACT_ADDRESSES.InvestmentEscrow, "InvestmentEscrow"), abi: ABIS.escrow },
   };
 
   const config = contractMap[name.toLowerCase()];
@@ -61,11 +103,27 @@ export async function getContract(name: string) {
     throw new Error(`Unknown contract: ${name}`);
   }
 
-  return new ethers.Contract(config.address, config.abi, signer);
+  return new ethers.Contract(config.address, normalizeAbi(config.abi), signer);
 }
 
 export function bpsToPct(bps: bigint): number {
   return Number(bps) / 100;
+}
+
+export function fmt6(value: bigint | number | string): number {
+  try {
+    return Number(ethers.formatUnits(value, 6));
+  } catch {
+    return 0;
+  }
+}
+
+export function to6(value: number | string): bigint {
+  try {
+    return ethers.parseUnits(String(value), 6);
+  } catch {
+    return 0n;
+  }
 }
 
 export async function detectNetwork(): Promise<{ chainId: number; name: string } | null> {
@@ -91,4 +149,3 @@ export async function detectNetwork(): Promise<{ chainId: number; name: string }
     return null;
   }
 }
-
