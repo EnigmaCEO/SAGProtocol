@@ -519,6 +519,23 @@ export default function EscrowTab() {
     return out;
   }
 
+  /** Preflight check before rolling a batch. Returns { ok, reason }. */
+  async function canRollBatch(batchId: number): Promise<{ ok: boolean; reason: string }> {
+    if (!escrow) return { ok: false, reason: 'escrow not ready' };
+    try {
+      const batch = await escrow.getBatch(batchId);
+      const status = Number(batch.status ?? batch[6] ?? -1);
+      // BatchStatus.Pending == 0
+      if (status !== 0) return { ok: false, reason: `batch ${batchId} is not Pending (status=${status})` };
+      const collateral = BigInt(batch.totalCollateralUsd?.toString?.() ?? batch[3]?.toString?.() ?? '0');
+      if (collateral === 0n) return { ok: false, reason: `batch ${batchId} has no collateral` };
+      return { ok: true, reason: '' };
+    } catch {
+      // If getBatch fails we can't confirm — allow the attempt and let the contract revert if needed
+      return { ok: true, reason: '' };
+    }
+  }
+
   async function handleStartBatch() {
     if (isPaused) {
       setLog(l => ['[escrow] protocol is paused; batch actions are disabled', ...l]);
@@ -545,7 +562,7 @@ export default function EscrowTab() {
 
     setLoading(true);
     try {
-      const escrowWithSigner = escrow.connect(signer);
+      const escrowWithSigner = escrow.connect(signer) as any;
 
       // Try primary function first
       try {
@@ -587,7 +604,7 @@ export default function EscrowTab() {
     const finalNavPerShareBn = BigInt(Math.round(navFloat * 1e18));
     setLoading(true);
     try {
-      const escrowWithSigner = escrow.connect(signer);
+      const escrowWithSigner = escrow.connect(signer) as any;
 
       if (typeof escrowWithSigner.closeBatch === 'function') {
         const tx = await escrowWithSigner.closeBatch(batchIdNum, finalNavPerShareBn);
@@ -621,7 +638,7 @@ export default function EscrowTab() {
 
     setLoading(true);
     try {
-      const escrowWithSigner = escrow.connect(signer);
+      const escrowWithSigner = escrow.connect(signer) as any;
 
       if (typeof escrowWithSigner.createPendingBatch === 'function') {
         const tx = await escrowWithSigner.createPendingBatch();
@@ -658,7 +675,7 @@ export default function EscrowTab() {
 
     setLoading(true);
     try {
-      const escrowWithSigner = escrow.connect(signer);
+      const escrowWithSigner = escrow.connect(signer) as any;
 
       if (typeof (escrowWithSigner as any).rollBatch === 'function') {
         const tx = await (escrowWithSigner as any).rollBatch(batchIdNum);
@@ -789,7 +806,7 @@ export default function EscrowTab() {
       if (msg.includes('Batch not closed') || msg.includes('Batch not running')) {
         setLog(l => [`[escrow] distributeBatchBurn reverted: ${msg} â€” attempting owner-only forceSetBatchInvested() as fallback`, ...l]);
         try {
-          const escrowWithSigner = escrow.connect(signer);
+          const escrowWithSigner = escrow.connect(signer) as any;
           if (typeof escrowWithSigner.forceSetBatchInvested === 'function') {
             // Optional: estimate owner by calling owner() first; attempt call only if signer address equals owner
             try {
@@ -875,21 +892,6 @@ export default function EscrowTab() {
       const errMsg = String(e?.message || e);
       setLog(l => [`[escrow] investBatch failed: ${errMsg}`, ...l]);
 
-      // TRY DEV PUBLIC BURN FALLBACK: publicBurnBatch (no auth) - useful when token transfer paths revert
-      try {
-        if (typeof escrow.publicBurnBatch === 'function') {
-          setLog(l => ['[escrow] attempting publicBurnBatch() fallback (dev public burn)', ...l]);
-          const escrowWithSigner = escrow.connect(signer);
-          const txpb = await escrowWithSigner.publicBurnBatch(batchId);
-          await txpb.wait();
-          setLog(l => [`[escrow] publicBurnBatch(${batchId}) succeeded (tx=${txpb.hash})`, ...l]);
-          await postWriteRefresh('public-burn-batch');
-          setLoading(false);
-          return;
-        }
-      } catch (pubBurnErr:any) {
-        setLog(l => [`[escrow] publicBurnBatch fallback failed: ${String(pubBurnErr?.message || pubBurnErr)}`, ...l]);
-      }
 
       // TRY SAFE PUBLIC FALLBACK: markBatchInvestedWithoutTransfer (accounting-only, no ERC20 transfer)
       try {
@@ -965,9 +967,9 @@ export default function EscrowTab() {
         // If the signer is the owner, try owner-only recovery forceSetBatchInvested (best-effort)
         if (signerAddr && onchainOwner && signerAddr.toLowerCase() === onchainOwner.toLowerCase()) {
           try {
-            if (typeof escrow.forceSetBatchInvested === 'function') {
+            if (typeof (escrow as any).forceSetBatchInvested === 'function') {
               setLog(l => [`[escrow:diag] signer is owner -> attempting forceSetBatchInvested(${batchId})`, ...l]);
-              const escrowWithSigner = escrow.connect(signer);
+              const escrowWithSigner = escrow.connect(signer) as any;
               const txf = await escrowWithSigner.forceSetBatchInvested(batchId);
               await txf.wait();
               setLog(l => [`[escrow:diag] forceSetBatchInvested succeeded (tx=${txf.hash})`, ...l]);

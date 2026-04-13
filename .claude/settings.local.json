@@ -14,7 +14,9 @@
       "Bash(ls d:/Projects/Sagitta/SAGProtocol/*.env* d:/Projects/Sagitta/SAGProtocol/.env*)",
       "Bash(ls d:/Projects/Sagitta/SAGProtocol/frontend/.env*)",
       "Bash(node -e \"require\\('dotenv'\\).config\\(\\); console.log\\('PRIVATE_KEY set:', !!process.env.PRIVATE_KEY, '| MOONBASE_PRIVATE_KEY_0 set:', !!process.env.MOONBASE_PRIVATE_KEY_0\\)\")",
-      "Bash(node -e ':*)"
+      "Bash(node -e ':*)",
+      "Bash(node -e \"console.log\\(require\\('d:/Projects/Sagitta/SAGProtocol/node_modules/viem/package.json'\\).version\\)\")",
+      "Bash(echo \"EXIT:$?\")"
     ]
   }
 }

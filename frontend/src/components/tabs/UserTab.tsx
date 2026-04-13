@@ -40,10 +40,11 @@ const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae78
 const account = privateKeyToAccount(TEST_PRIVATE_KEY);
 
 // Create clients using env-aware chain config from network.ts
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const publicClient = createPublicClient({
   chain: ACTIVE_CHAIN as Chain,
   transport: http(RPC_URL),
-});
+}) as any; // viem 2.x added authorizationList to ReadContractParameters; cast avoids spurious TS errors
 
 const walletClient = createWalletClient({
   account,
@@ -589,7 +590,7 @@ export default function UserTab() {
         abi: MOCK_USDC_ABI,
         functionName: 'mint',
         args: [address, parseUnits('1000', tokenDecimals)],
-        chain: LOCALHOST_CHAIN,
+        chain: ACTIVE_CHAIN as Chain,
       });
       
       await publicClient.waitForTransactionReceipt({ hash });
@@ -615,7 +616,7 @@ export default function UserTab() {
         abi: MOCK_USDC_ABI,
         functionName: 'approve',
         args: [VAULT_ADDRESS, parseUnits(depositAmount, tokenDecimals)],
-        chain: LOCALHOST_CHAIN,
+        chain: ACTIVE_CHAIN as Chain,
       });
       
       await publicClient.waitForTransactionReceipt({ hash });
@@ -643,7 +644,7 @@ export default function UserTab() {
         abi: MOCK_USDC_ABI,
         functionName: 'approve',
         args: [VAULT_ADDRESS, MAX_UINT256],
-        chain: LOCALHOST_CHAIN,
+        chain: ACTIVE_CHAIN as Chain,
       });
       await publicClient.waitForTransactionReceipt({ hash });
       await fetchData();
@@ -681,7 +682,7 @@ export default function UserTab() {
         abi: VAULT_ABI,
         functionName: 'deposit',
         args: [assetArg, amountArg],
-        chain: LOCALHOST_CHAIN,
+        chain: ACTIVE_CHAIN as Chain,
       });
       
       await publicClient.waitForTransactionReceipt({ hash });

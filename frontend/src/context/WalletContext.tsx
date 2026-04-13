@@ -7,7 +7,7 @@ interface WalletContextProps {
 
 const WalletContext = createContext<WalletContextProps | undefined>(undefined);
 
-export const WalletProvider: React.FC = ({ children }) => {
+export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [account, setAccount] = useState<string | null>(null);
 
     return (
