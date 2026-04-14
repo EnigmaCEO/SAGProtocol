@@ -4,14 +4,13 @@
  */
 import hre from "hardhat";
 const { ethers } = hre;
-import { CONTRACT_ADDRESSES } from "../frontend/src/lib/addresses";
-
 async function main() {
   const [deployer] = await ethers.getSigners();
   console.log("Signer:", deployer.address);
 
-  const reserveAddress = (CONTRACT_ADDRESSES as any).ReserveController;
-  const treasuryAddress = (CONTRACT_ADDRESSES as any).Treasury;
+  // Deployed on Moonbase Alpha — update these if you redeploy.
+  const reserveAddress = "0xa715D7C3722Aaf4F8198469C18c4398aE7890441";
+  const treasuryAddress = "0x1a4E34797f1951F4037ccCE8E5D2d275fF2a18C8";
 
   if (!reserveAddress || !treasuryAddress) {
     throw new Error("Addresses missing from frontend/src/lib/addresses.ts — run deploy first");
