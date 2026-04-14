@@ -141,7 +141,8 @@ export default function useVaultMetrics(
       try {
         // Query a limited block range to avoid long running queries on big chains.
         const currentBlock = await provider.getBlockNumber().catch(() => null);
-        const fromBlock = currentBlock ? Math.max(0, currentBlock - 100_000) : 0;
+        // Moonbase Alpha (and many testnets) cap eth_getLogs at 1024 blocks per request.
+        const fromBlock = currentBlock ? Math.max(0, currentBlock - 1000) : 0;
         // Use defensive individual requests so we can set clear errors per query
         let depositEvents = [];
         let withdrawnEvents = [];
