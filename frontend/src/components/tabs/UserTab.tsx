@@ -15,7 +15,7 @@ import { emitUiRefresh } from '../../lib/ui-refresh';
 import useProtocolPause from '../../hooks/useProtocolPause';
 import PageHeader from '../ui/PageHeader';
 import QRConnectModal, { type ConnectedWallet } from '../ui/QRConnectModal';
-import { RPC_URL, ACTIVE_CHAIN } from '../../lib/network';
+import { RPC_URL, ACTIVE_CHAIN, CHAIN_ID } from '../../lib/network';
 
 // Helper to cast ABI and normalize JSON shape { abi: [...] } vs [...]
 function normalizeAbi(x: any) {
@@ -597,9 +597,37 @@ export default function UserTab() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  // Ensure MetaMask is on the correct chain before signing. Switches automatically.
+  async function ensureCorrectChain() {
+    const ethereum = (window as any).ethereum;
+    if (!ethereum) return;
+    const hexChainId = await ethereum.request({ method: 'eth_chainId' });
+    const current = Number.parseInt(hexChainId, 16);
+    if (current === CHAIN_ID) return; // already correct
+    try {
+      await ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x507' }] });
+    } catch (err: any) {
+      if (err?.code === 4902 || err?.code === -32603) {
+        await ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: '0x507',
+            chainName: 'Moonbase Alpha',
+            nativeCurrency: { name: 'DEV', symbol: 'DEV', decimals: 18 },
+            rpcUrls: ['https://rpc.api.moonbase.moonbeam.network'],
+            blockExplorerUrls: ['https://moonbase.moonscan.io'],
+          }],
+        });
+      } else {
+        throw new Error('Please switch MetaMask to Moonbase Alpha before continuing.');
+      }
+    }
+  }
+
   // Returns an ethers signer: MetaMask when injected, demo key as fallback.
   async function getEthersSigner() {
     if (connectedWallet.mode === 'injected' && typeof window !== 'undefined' && (window as any).ethereum) {
+      await ensureCorrectChain();
       const { ethers } = await import('ethers');
       const provider = new ethers.BrowserProvider((window as any).ethereum);
       return provider.getSigner();
