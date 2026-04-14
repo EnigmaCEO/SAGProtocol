@@ -408,7 +408,8 @@ export default function TreasuryTab() {
     (async () => {
       try {
         const latest = await provider.getBlockNumber();
-        const fromBlock = Math.max(0, latest - 5000);
+        // Moonbase Alpha (and many testnets) cap eth_getLogs at 1024 blocks per request.
+        const fromBlock = Math.max(0, latest - 1000);
 
         const historical: Array<{ key: string; block: number; index: number; msg: string }> = [];
         for (const eventName of TREASURY_ENGINE_EVENTS) {
