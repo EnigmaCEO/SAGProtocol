@@ -7,8 +7,7 @@
 import hre from "hardhat";
 const { ethers } = hre;
 
-const RECEIPT_NFT   = "0x658Ea3E7B328aED1dF8C1cDedBD2a0f3278A97d1";
-// New owner after browser reset: 0xc643A9e5780420A939ced80E537f19BbE2D7c500
+const RECEIPT_NFT   = "0xc4De25E97594690002707D92a9d2b72a57704DaF";
 const NEW_BASE_URI  = "https://protocol.sagitta.systems/api/metadata/";
 
 const ABI = [

@@ -13,9 +13,9 @@ async function main() {
   console.log("Signer:", deployer.address);
 
   // Deployed on Moonbase Alpha — update these if you redeploy.
-  const reserveAddress  = "0xa715D7C3722Aaf4F8198469C18c4398aE7890441";
-  const treasuryAddress = "0x1a4E34797f1951F4037ccCE8E5D2d275fF2a18C8";
-  const goldOracleAddress = "0x85bcD72B49f3CFABCF3682E0a847e92EeC77F0e3"; // MockOracle for gold
+  const reserveAddress  = "0x2776824AAC4D8B800B61aa03706753D9dE9bC1f6";
+  const treasuryAddress = "0x79910F5CA368Bb466C82dFf296b493bCf0dF1D1c";
+  const goldOracleAddress = "0x5932D7140eFFAeb694B56018C95153AF902F63Ef"; // MockOracle for gold
 
   console.log("ReserveController:", reserveAddress);
   console.log("Treasury:         ", treasuryAddress);

@@ -9,12 +9,12 @@ const NEW_OWNER = "0xc643A9e5780420A939ced80E537f19BbE2D7c500";
 
 // Deployed on Moonbase Alpha
 const CONTRACTS: Record<string, string> = {
-  Vault:              "0x6724FD4AbaD94551dec470278E2e1bC388360Ba2",
-  Treasury:           "0x1a4E34797f1951F4037ccCE8E5D2d275fF2a18C8",
-  ReserveController:  "0xa715D7C3722Aaf4F8198469C18c4398aE7890441",
-  InvestmentEscrow:   "0x84933929d92Bf33074FA8EC3fE25a5798454F0fa",
-  ReceiptNFT:         "0x658Ea3E7B328aED1dF8C1cDedBD2a0f3278A97d1",
-  GoldOracle:         "0x85bcD72B49f3CFABCF3682E0a847e92EeC77F0e3",
+  Vault:              "0x56CA19417448F5E9E8Ef4fB245330B63D29eb8Bf",
+  Treasury:           "0x79910F5CA368Bb466C82dFf296b493bCf0dF1D1c",
+  ReserveController:  "0x2776824AAC4D8B800B61aa03706753D9dE9bC1f6",
+  InvestmentEscrow:   "0xF645e0edb3a098D0f0ef6233FD338DF4bBE78d7B",
+  ReceiptNFT:         "0xc4De25E97594690002707D92a9d2b72a57704DaF",
+  GoldOracle:         "0x5932D7140eFFAeb694B56018C95153AF902F63Ef",
 };
 
 const OWNABLE_ABI = [
