@@ -230,6 +230,15 @@ async function main() {
   await (await treasury.setGoldOracle(addr(oracleGold))).wait();
 
   try {
+    if (typeof (reserve as any).setTreasury === "function") {
+      await (await (reserve as any).setTreasury(addr(treasury))).wait();
+      console.log("ReserveController.treasury linked to Treasury");
+    }
+  } catch (e) {
+    console.warn("reserve.setTreasury failed (non-fatal):", e);
+  }
+
+  try {
     await (await treasury.setEscrow(addr(escrow))).wait();
   } catch (e) {
     console.warn("treasury.setEscrow failed (non-fatal):", e);
