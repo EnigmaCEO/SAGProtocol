@@ -297,8 +297,8 @@ export default function ReserveTab() {
         const goldOz = Number(safeFormatUnits(goldBalRaw, 18)); // oz if token uses 18 decimals
         const ratioNum = safeToNumber(toStringValue(reserveRatioBps)) / 100; // percent (existing reserve ratio)
 
-        // Oracle price (preferred). If missing, fallback to 4000.
-        let oracleNum = safeToNumber(toStringValue(oraclePriceUsd6_fromOracle)) / 1e6;
+        // Oracle price: MockOracle / GoldOracle return 8-decimal values (price * 1e8).
+        let oracleNum = safeToNumber(toStringValue(oraclePriceUsd6_fromOracle)) / 1e8;
         if (!oracleNum || oracleNum <= 0) oracleNum = 4000;
 
         // Compute GOLD value (USD) and use as NAV
@@ -382,17 +382,20 @@ export default function ReserveTab() {
       }
       const oracleAbi = (GoldOracleAbiFile as any).abi ?? (GoldOracleAbiFile as any);
       const oracleWithSigner = new ethers.Contract(GOLD_ORACLE_ADDRESS, oracleAbi, signer);
-      const price6Str = Math.round(parsed * 1e6).toString();
-      // Most oracle implementations use a setGoldPrice(uint256) owner-only call
-      if (typeof oracleWithSigner.setGoldPrice === 'function') {
-        const tx = await oracleWithSigner.setGoldPrice(price6Str);
+      const price6Str = Math.round(parsed * 1e8).toString(); // oracle uses 8 decimal precision
+      // Try setGoldPrice (GoldOracle) then setPrice (MockOracle)
+      if (typeof (oracleWithSigner as any).setGoldPrice === 'function') {
+        const tx = await (oracleWithSigner as any).setGoldPrice(price6Str);
+        await tx.wait();
+      } else if (typeof (oracleWithSigner as any).setPrice === 'function') {
+        const tx = await (oracleWithSigner as any).setPrice(price6Str);
         await tx.wait();
       } else {
-        throw new Error('Gold oracle does not expose setGoldPrice');
+        throw new Error('Gold oracle does not expose setGoldPrice or setPrice');
       }
       // refresh on-chain price from oracle
       const goldPriceUsd6 = await oracleWithSigner.getGoldPrice();
-      const oracleNum = safeToNumber(toStringValue(goldPriceUsd6)) / 1e6;
+      const oracleNum = safeToNumber(toStringValue(goldPriceUsd6)) / 1e8;
       setOraclePrice(oracleNum);
       setNav((n) => oracleNum + 0.0002);
     } catch (err) {
