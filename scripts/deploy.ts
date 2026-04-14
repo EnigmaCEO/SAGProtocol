@@ -154,20 +154,8 @@ async function main() {
   const vault = await deployAndVerify(Vault);
   console.log("Vault:", addr(vault));
 
-  const reserveCtorInputs = getConstructorInputs(ReserveController);
-  const reserveCtx = { gold, usdc, vault, deployer };
-  let reserve: any;
-  try {
-    const reserveCtorArgs = buildArgsForConstructor(reserveCtorInputs, reserveCtx);
-    reserve = await deployAndVerify(ReserveController, ...reserveCtorArgs);
-  } catch (e) {
-    console.warn("ReserveController inferred constructor deploy failed, retrying with zero args");
-    reserve = await deployAndVerify(ReserveController);
-  }
-  console.log("ReserveController:", addr(reserve));
-
-  // On localhost/testnet we deploy MockOracle instances.
-  // On mainnet replace these with API3PriceAdapter contracts pointed at live dAPI proxies:
+  // Deploy oracles first so ReserveController constructor gets the real oracle address.
+  // On mainnet replace MockOracle with API3PriceAdapter contracts pointed at live dAPI proxies:
   //   const API3Adapter = await getFactorySafe("API3PriceAdapter", "contracts/API3PriceAdapter.sol:API3PriceAdapter");
   //   const oracleGold = await deployAndVerify(API3Adapter, process.env.API3_GOLD_PROXY);  // e.g. XAU/USD
   //   const oracleUsdc = await deployAndVerify(API3Adapter, process.env.API3_USDC_PROXY);  // e.g. USDC/USD
@@ -178,6 +166,10 @@ async function main() {
 
   await (await oracleGold.setPrice(400_000_000_000n)).wait(); // $4000 (8 dec)
   await (await oracleUsdc.setPrice(100_000_000n)).wait();     // $1    (8 dec)
+
+  // Deploy ReserveController after oracles so the goldOracle arg is the real oracle.
+  const reserve = await deployAndVerify(ReserveController, addr(gold), addr(oracleGold));
+  console.log("ReserveController:", addr(reserve));
 
   const treasury = await deployAndVerify(
     Treasury,
