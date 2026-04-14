@@ -1,6 +1,10 @@
 node_modules
 artifacts/
 .env
+.env.local
+.env.*.local
+frontend/.env.local
+frontend/.env.*.local
 cache/
 frontend/.next/
 deployments.json
