@@ -7,19 +7,62 @@ declare global {
     }
 }
 
+const WALLET_STORAGE_KEY = 'sagitta.connectedAccount';
+
+function readPersistedAccount(): string | null {
+    try {
+        return typeof window !== 'undefined'
+            ? window.localStorage.getItem(WALLET_STORAGE_KEY)
+            : null;
+    } catch { return null; }
+}
+
+function persistAccount(address: string | null): void {
+    try {
+        if (address) {
+            window.localStorage.setItem(WALLET_STORAGE_KEY, address);
+        } else {
+            window.localStorage.removeItem(WALLET_STORAGE_KEY);
+        }
+    } catch { /* ignore */ }
+}
+
 export const useWallet = () => {
     // provider will represent the injected provider (only set after user connects)
     const [provider, setProvider] = useState<any | null>(null);
-    const [account, setAccount] = useState<string | null>(null);
+    const [account, setAccount] = useState<string | null>(() => readPersistedAccount());
 
     useEffect(() => {
-        // keep lightweight: do not create injected provider or request accounts on mount
-        // but if a wallet is already connected and exposes selectedAddress, capture it
         const eth = (window as any).ethereum;
         if (!eth) return;
+
+        // Try synchronous selectedAddress first (available immediately in some wallets)
         const selected = eth.selectedAddress ?? eth._selectedAddress ?? null;
-        if (selected) setAccount(String(selected));
-        // don't instantiate ethers providers here to avoid Web3Provider undefined errors
+        if (selected) {
+            setAccount(String(selected));
+            persistAccount(String(selected));
+            return;
+        }
+
+        // Fall back to eth_accounts (no prompt — returns already-granted accounts)
+        if (typeof eth.request === 'function') {
+            eth.request({ method: 'eth_accounts' })
+                .then((accounts: string[]) => {
+                    if (Array.isArray(accounts) && accounts.length > 0) {
+                        setAccount(accounts[0]);
+                        persistAccount(accounts[0]);
+                    }
+                })
+                .catch(() => { /* wallet locked or not connected */ });
+        }
+
+        const handleAccountsChanged = (accounts: string[]) => {
+            const next = Array.isArray(accounts) && accounts.length > 0 ? accounts[0] : null;
+            setAccount(next);
+            persistAccount(next);
+        };
+        eth.on?.('accountsChanged', handleAccountsChanged);
+        return () => { eth.removeListener?.('accountsChanged', handleAccountsChanged); };
     }, []);
 
     const connectWallet = async () => {
@@ -66,6 +109,7 @@ export const useWallet = () => {
 
         setProvider(p);
         setAccount(accounts[0]);
+        persistAccount(accounts[0]);
         return accounts[0];
     };
 

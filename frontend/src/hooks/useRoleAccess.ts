@@ -15,16 +15,44 @@ function normalizeAddress(value: unknown): string | null {
   return ethers.getAddress(value);
 }
 
+const WALLET_STORAGE_KEY = 'sagitta.connectedAccount';
+
 function readSelectedAddress(): string | null {
   if (typeof window === 'undefined') return null;
   const eth = (window as any).ethereum;
   return normalizeAddress(eth?.selectedAddress ?? eth?._selectedAddress ?? null);
 }
 
+function readPersistedAddress(): string | null {
+  try {
+    return typeof window !== 'undefined'
+      ? normalizeAddress(window.localStorage.getItem(WALLET_STORAGE_KEY))
+      : null;
+  } catch { return null; }
+}
+
 async function resolveSessionAddress(): Promise<string | null> {
+  // 1. MetaMask synchronous selectedAddress (available when wallet is unlocked)
   const injected = readSelectedAddress();
   if (injected) return injected;
 
+  // 2. eth_accounts — non-prompting, returns already-granted accounts after page refresh
+  const eth = typeof window !== 'undefined' ? (window as any).ethereum : null;
+  if (eth?.request) {
+    try {
+      const accounts: string[] = await eth.request({ method: 'eth_accounts' });
+      const fromEth = Array.isArray(accounts) && accounts.length > 0
+        ? normalizeAddress(accounts[0])
+        : null;
+      if (fromEth) return fromEth;
+    } catch { /* wallet locked */ }
+  }
+
+  // 3. localStorage — address persisted by useWallet on last connect
+  const persisted = readPersistedAddress();
+  if (persisted) return persisted;
+
+  // 4. Last resort: demo signer (localhost only — gives viewer role on live chains)
   try {
     const signer = await getSigner();
     return normalizeAddress(await signer.getAddress());
