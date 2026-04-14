@@ -597,38 +597,32 @@ export default function UserTab() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  // Returns a walletClient that signs via MetaMask when connected, demo key otherwise.
-  function getActiveWalletClient() {
+  // Returns an ethers signer: MetaMask when injected, demo key as fallback.
+  async function getEthersSigner() {
     if (connectedWallet.mode === 'injected' && typeof window !== 'undefined' && (window as any).ethereum) {
-      return createWalletClient({
-        account: connectedWallet.address as `0x${string}`,
-        chain: ACTIVE_CHAIN as Chain,
-        transport: custom((window as any).ethereum),
-      });
+      const { ethers } = await import('ethers');
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      return provider.getSigner();
     }
-    return walletClient;
+    const { getSigner } = await import('../../lib/ethers');
+    return getSigner();
   }
 
   const handleMintUSDC = async () => {
     if (isPaused) return;
     try {
       setIsLoading(true);
-      const hash = await getActiveWalletClient().writeContract({
-        account: connectedWallet.address as `0x${string}`,
-        address: MOCK_USDC_ADDRESS as `0x${string}`,
-        abi: MOCK_USDC_ABI,
-        functionName: 'mint',
-        args: [address, parseUnits('1000', tokenDecimals)],
-        chain: ACTIVE_CHAIN as Chain,
-      });
-      
-      await publicClient.waitForTransactionReceipt({ hash });
+      const { ethers } = await import('ethers');
+      const signer = await getEthersSigner();
+      const usdc = new ethers.Contract(MOCK_USDC_ADDRESS, normalizeAbi(MockUSDCABI), signer);
+      const tx = await (usdc as any).mint(address, parseUnits('1000', tokenDecimals));
+      await tx.wait();
       await fetchData();
       emitUiRefresh('user:mint-usdc');
       setToast({ tone: 'success', message: 'Minted 1,000.00 USDC successfully.' });
     } catch (error) {
       console.error('Error minting USDC:', error);
-      setToast({ tone: 'danger', message: 'Failed to mint USDC.' });
+      setToast({ tone: 'danger', message: `Failed to mint USDC: ${(error as any)?.message ?? error}` });
     } finally {
       setIsLoading(false);
     }
@@ -639,23 +633,17 @@ export default function UserTab() {
     if (!depositAmount) return;
     try {
       setIsLoading(true);
-      const hash = await getActiveWalletClient().writeContract({
-        account: connectedWallet.address as `0x${string}`,
-        address: MOCK_USDC_ADDRESS as `0x${string}`,
-        abi: MOCK_USDC_ABI,
-        functionName: 'approve',
-        args: [VAULT_ADDRESS, parseUnits(depositAmount, tokenDecimals)],
-        chain: ACTIVE_CHAIN as Chain,
-      });
-      
-      await publicClient.waitForTransactionReceipt({ hash });
-      await publicClient.waitForTransactionReceipt({ hash });
+      const { ethers } = await import('ethers');
+      const signer = await getEthersSigner();
+      const usdc = new ethers.Contract(MOCK_USDC_ADDRESS, normalizeAbi(MockUSDCABI), signer);
+      const tx = await (usdc as any).approve(VAULT_ADDRESS, parseUnits(depositAmount, tokenDecimals));
+      await tx.wait();
       await fetchData();
       emitUiRefresh('user:approve-usdc');
       setToast({ tone: 'success', message: 'Approval successful.' });
     } catch (error) {
       console.error('Error approving:', error);
-      setToast({ tone: 'danger', message: 'Failed to approve allowance.' });
+      setToast({ tone: 'danger', message: `Failed to approve: ${(error as any)?.message ?? error}` });
     } finally {
       setIsLoading(false);
     }
@@ -667,21 +655,17 @@ export default function UserTab() {
     if (isPaused) return;
     try {
       setIsLoading(true);
-      const hash = await getActiveWalletClient().writeContract({
-        account: connectedWallet.address as `0x${string}`,
-        address: MOCK_USDC_ADDRESS as `0x${string}`,
-        abi: MOCK_USDC_ABI,
-        functionName: 'approve',
-        args: [VAULT_ADDRESS, MAX_UINT256],
-        chain: ACTIVE_CHAIN as Chain,
-      });
-      await publicClient.waitForTransactionReceipt({ hash });
+      const { ethers } = await import('ethers');
+      const signer = await getEthersSigner();
+      const usdc = new ethers.Contract(MOCK_USDC_ADDRESS, normalizeAbi(MockUSDCABI), signer);
+      const tx = await (usdc as any).approve(VAULT_ADDRESS, MAX_UINT256);
+      await tx.wait();
       await fetchData();
       emitUiRefresh('user:approve-max-usdc');
       setToast({ tone: 'success', message: 'Approved maximum USDC allowance.' });
     } catch (error) {
       console.error('Error approving max:', error);
-      setToast({ tone: 'danger', message: 'Failed to approve max allowance.' });
+      setToast({ tone: 'danger', message: `Failed to approve max: ${(error as any)?.message ?? error}` });
     } finally {
       setIsLoading(false);
     }
@@ -690,31 +674,15 @@ export default function UserTab() {
   const handleDeposit = async () => {
     if (isPaused) return;
     try {
-      const assetArg = MOCK_USDC_ADDRESS;
-      const amountArg = parseUnits(depositAmount, tokenDecimals);
-
-      // Debug: log arguments and types
-      console.log("writeContract args:", {
-        assetArg,
-        assetArgType: typeof assetArg,
-        amountArg,
-        amountArgType: typeof amountArg,
-        VAULT_ADDRESS,
-        depositAmount,
-        tokenDecimals
-      });
-
       setIsLoading(true);
-      const hash = await getActiveWalletClient().writeContract({
-        account: connectedWallet.address as `0x${string}`,
-        address: VAULT_ADDRESS as `0x${string}`,
-        abi: VAULT_ABI,
-        functionName: 'deposit',
-        args: [assetArg, amountArg],
-        chain: ACTIVE_CHAIN as Chain,
-      });
-      
-      await publicClient.waitForTransactionReceipt({ hash });
+      const { ethers } = await import('ethers');
+      const signer = await getEthersSigner();
+      const vault = new ethers.Contract(VAULT_ADDRESS, normalizeAbi(VaultABI), signer);
+      const amountArg = parseUnits(depositAmount, tokenDecimals);
+      await (async () => {
+        const tx = await (vault as any).deposit(MOCK_USDC_ADDRESS, amountArg);
+        await tx.wait();
+      })();
       // refresh vault UI first
       await fetchData();
       // --- NEW: attempt to call Treasury.collateralize(amountUsd6) from UI ---
