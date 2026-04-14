@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
+import Head from 'next/head';
 import { useRouter } from 'next/router';
 import AppShell from '../components/layout/AppShell';
 import TopBar from '../components/layout/TopBar';
@@ -77,11 +78,16 @@ export default function Home() {
   };
 
   return (
-    <AppShell
-      topbar={<TopBar address={address} ownerAddress={ownerAddress} />}
-      sidebar={<SidebarTabs active={activeTab} paused={isPaused} network={network} onChange={setActiveTab} />}
-    >
-      {renderTab()}
-    </AppShell>
+    <>
+      <Head>
+        <title>Sagitta Protocol — Gold-Backed DeFi Vault</title>
+      </Head>
+      <AppShell
+        topbar={<TopBar address={address} ownerAddress={ownerAddress} />}
+        sidebar={<SidebarTabs active={activeTab} paused={isPaused} network={network} onChange={setActiveTab} />}
+      >
+        {renderTab()}
+      </AppShell>
+    </>
   );
 }
