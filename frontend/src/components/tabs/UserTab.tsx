@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { createPublicClient, createWalletClient, http, parseUnits, formatUnits, type Chain, type Abi } from 'viem';
+import { createPublicClient, createWalletClient, http, custom, parseUnits, formatUnits, type Chain, type Abi } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import MetricCard from '../ui/MetricCard';
 import { Clock, ArrowDown, Lock, Unlock, Hash, DollarSign, Package, RefreshCw, Wallet, CalendarClock, Activity, QrCode } from 'lucide-react';
@@ -597,12 +597,24 @@ export default function UserTab() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  // Returns a walletClient that signs via MetaMask when connected, demo key otherwise.
+  function getActiveWalletClient() {
+    if (connectedWallet.mode === 'injected' && typeof window !== 'undefined' && (window as any).ethereum) {
+      return createWalletClient({
+        account: connectedWallet.address as `0x${string}`,
+        chain: ACTIVE_CHAIN as Chain,
+        transport: custom((window as any).ethereum),
+      });
+    }
+    return walletClient;
+  }
+
   const handleMintUSDC = async () => {
     if (isPaused) return;
     try {
       setIsLoading(true);
-      const hash = await walletClient.writeContract({
-        account: account,
+      const hash = await getActiveWalletClient().writeContract({
+        account: connectedWallet.address as `0x${string}`,
         address: MOCK_USDC_ADDRESS as `0x${string}`,
         abi: MOCK_USDC_ABI,
         functionName: 'mint',
@@ -627,8 +639,8 @@ export default function UserTab() {
     if (!depositAmount) return;
     try {
       setIsLoading(true);
-      const hash = await walletClient.writeContract({
-        account: account,
+      const hash = await getActiveWalletClient().writeContract({
+        account: connectedWallet.address as `0x${string}`,
         address: MOCK_USDC_ADDRESS as `0x${string}`,
         abi: MOCK_USDC_ABI,
         functionName: 'approve',
@@ -655,8 +667,8 @@ export default function UserTab() {
     if (isPaused) return;
     try {
       setIsLoading(true);
-      const hash = await walletClient.writeContract({
-        account: account,
+      const hash = await getActiveWalletClient().writeContract({
+        account: connectedWallet.address as `0x${string}`,
         address: MOCK_USDC_ADDRESS as `0x${string}`,
         abi: MOCK_USDC_ABI,
         functionName: 'approve',
@@ -693,8 +705,8 @@ export default function UserTab() {
       });
 
       setIsLoading(true);
-      const hash = await walletClient.writeContract({
-        account: account,
+      const hash = await getActiveWalletClient().writeContract({
+        account: connectedWallet.address as `0x${string}`,
         address: VAULT_ADDRESS as `0x${string}`,
         abi: VAULT_ABI,
         functionName: 'deposit',
