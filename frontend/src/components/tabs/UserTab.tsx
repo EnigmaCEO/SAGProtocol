@@ -643,6 +643,14 @@ export default function UserTab() {
     }
   };
 
+  // Wait for a tx hash using the direct RPC publicClient (more reliable than MetaMask polling).
+  async function waitForTx(hash: string) {
+    await publicClient.waitForTransactionReceipt({
+      hash: hash as `0x${string}`,
+      timeout: 60_000,
+    });
+  }
+
   const handleMintUSDC = async () => {
     if (isPaused) return;
     try {
@@ -651,7 +659,7 @@ export default function UserTab() {
       const signer = await getEthersSigner();
       const usdc = new ethers.Contract(MOCK_USDC_ADDRESS, normalizeAbi(MockUSDCABI), signer);
       const tx = await (usdc as any).mint(address, parseUnits('1000', tokenDecimals));
-      await tx.wait();
+      await waitForTx(tx.hash);
       await fetchData();
       emitUiRefresh('user:mint-usdc');
       setToast({ tone: 'success', message: 'Minted 1,000.00 USDC successfully.' });
@@ -672,7 +680,7 @@ export default function UserTab() {
       const signer = await getEthersSigner();
       const usdc = new ethers.Contract(MOCK_USDC_ADDRESS, normalizeAbi(MockUSDCABI), signer);
       const tx = await (usdc as any).approve(VAULT_ADDRESS, parseUnits(depositAmount, tokenDecimals));
-      await tx.wait();
+      await waitForTx(tx.hash);
       await fetchData();
       emitUiRefresh('user:approve-usdc');
       setToast({ tone: 'success', message: 'Approval successful.' });
@@ -694,7 +702,7 @@ export default function UserTab() {
       const signer = await getEthersSigner();
       const usdc = new ethers.Contract(MOCK_USDC_ADDRESS, normalizeAbi(MockUSDCABI), signer);
       const tx = await (usdc as any).approve(VAULT_ADDRESS, MAX_UINT256);
-      await tx.wait();
+      await waitForTx(tx.hash);
       await fetchData();
       emitUiRefresh('user:approve-max-usdc');
       setToast({ tone: 'success', message: 'Approved maximum USDC allowance.' });
@@ -716,7 +724,7 @@ export default function UserTab() {
       const amountArg = parseUnits(depositAmount, tokenDecimals);
       await (async () => {
         const tx = await (vault as any).deposit(MOCK_USDC_ADDRESS, amountArg);
-        await tx.wait();
+        await waitForTx(tx.hash);
       })();
       // refresh vault UI first
       await fetchData();
