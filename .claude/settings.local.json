@@ -16,7 +16,19 @@
       "Bash(node -e \"require\\('dotenv'\\).config\\(\\); console.log\\('PRIVATE_KEY set:', !!process.env.PRIVATE_KEY, '| MOONBASE_PRIVATE_KEY_0 set:', !!process.env.MOONBASE_PRIVATE_KEY_0\\)\")",
       "Bash(node -e ':*)",
       "Bash(node -e \"console.log\\(require\\('d:/Projects/Sagitta/SAGProtocol/node_modules/viem/package.json'\\).version\\)\")",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm add:*)",
+      "Bash(npx next:*)",
+      "Bash(curl -s \"https://rpc.api.moonbase.moonbeam.network\" -X POST -H \"Content-Type: application/json\" -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBalance\",\"params\":[\"0xca1054b543EE35C75f60A7Ca6Bdf104Db0F47D7B\",\"latest\"],\"id\":1}')",
+      "Bash(node -e \"const d=require\\('fs'\\).readFileSync\\('/dev/stdin','utf8'\\); const r=JSON.parse\\(d\\); console.log\\('Balance \\(DEV\\):', parseInt\\(r.result,16\\)/1e18\\);\")",
+      "Bash(grep -n \"latest - [0-9]\" d:/Projects/Sagitta/SAGProtocol/frontend/src/components/tabs/*.tsx d:/Projects/Sagitta/SAGProtocol/frontend/src/hooks/*.ts)",
+      "Bash(xargs grep:*)",
+      "Bash(python -c \"import sys,json; abi=json.load\\(sys.stdin\\); funcs=[f['name'] for f in abi if f.get\\('type'\\)=='function']; print\\(funcs\\)\")",
+      "Bash(node -e \"const a=require\\('./frontend/src/lib/abis/MockUSDC.json'\\); const abi=a.abi||a; console.log\\(abi.filter\\(f=>f.type==='function'\\).map\\(f=>f.name\\)\\)\")",
+      "Bash(grep -v \"^$\")",
+      "Bash(identify d:/Projects/Sagitta/SAGProtocol/frontend/public/images/icon.png)",
+      "Bash(node -e \"const fs=require\\('fs'\\); const b=fs.readFileSync\\('d:/Projects/Sagitta/SAGProtocol/frontend/public/images/icon.png'\\); console.log\\('size:', b.length, 'bytes'\\); const {execSync}=require\\('child_process'\\); try{console.log\\(execSync\\('magick identify d:/Projects/Sagitta/SAGProtocol/frontend/public/images/icon.png'\\).toString\\(\\)\\)}catch\\(e\\){console.log\\('imagemagick not available'\\)}\")"
     ]
   }
 }

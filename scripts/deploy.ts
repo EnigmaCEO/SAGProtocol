@@ -8,7 +8,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const ZERO = "0x0000000000000000000000000000000000000000";
-const DEFAULT_METADATA_BASE_URI = "http://localhost:3000/api/metadata/";
+const DEFAULT_METADATA_BASE_URI = "https://protocol.sagitta.systems/api/metadata/";
+
+// On live networks, transfer ownership to this address after deploy.
+// Set to empty string to keep ownership with the deployer.
+const OWNER_ADDRESS = process.env.OWNER_ADDRESS || "";
 
 async function getFactorySafe(name: string, preferredFqn?: string) {
   if (preferredFqn) {
@@ -373,6 +377,29 @@ async function main() {
   }
 
   writeAddresses(deployments);
+
+  // Transfer ownership to designated owner if set
+  const newOwner = OWNER_ADDRESS.trim();
+  if (newOwner && newOwner !== deployer.address) {
+    console.log("\n=== Transferring ownership to", newOwner, "===");
+    const ownableAbi = ["function transferOwnership(address newOwner) external"];
+    const ownables: [string, string][] = [
+      ["Vault",             addr(vault)],
+      ["Treasury",          addr(treasury)],
+      ["ReserveController", addr(reserve)],
+      ["InvestmentEscrow",  addr(escrow)],
+      ["ReceiptNFT",        addr(receiptNft)],
+    ];
+    for (const [name, contractAddr] of ownables) {
+      try {
+        const c = new ethers.Contract(contractAddr, ownableAbi, deployer);
+        await (await c.transferOwnership(newOwner)).wait();
+        console.log(`  ${name} -> ${newOwner} ✓`);
+      } catch (e: any) {
+        console.warn(`  ${name} transfer failed (non-fatal): ${e?.message ?? e}`);
+      }
+    }
+  }
 
   console.log("\nDeployment complete");
   console.log("Demo account:", demoAddress);

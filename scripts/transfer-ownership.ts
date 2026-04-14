@@ -5,7 +5,7 @@
 import hre from "hardhat";
 const { ethers } = hre;
 
-const NEW_OWNER = "0x9b75ba9e397ea020fd7ccad644a4c5f6395285eb";
+const NEW_OWNER = "0xc643A9e5780420A939ced80E537f19BbE2D7c500";
 
 // Deployed on Moonbase Alpha
 const CONTRACTS: Record<string, string> = {

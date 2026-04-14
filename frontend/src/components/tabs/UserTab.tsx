@@ -16,6 +16,7 @@ import useProtocolPause from '../../hooks/useProtocolPause';
 import PageHeader from '../ui/PageHeader';
 import QRConnectModal, { type ConnectedWallet } from '../ui/QRConnectModal';
 import { RPC_URL, ACTIVE_CHAIN, CHAIN_ID } from '../../lib/network';
+import { useWallet } from '../../hooks/useWallet';
 
 // Helper to cast ABI and normalize JSON shape { abi: [...] } vs [...]
 function normalizeAbi(x: any) {
@@ -148,6 +149,14 @@ export default function UserTab() {
     return { address: account.address, mode: 'demo' as const, label: 'Demo (Hardhat #0)' };
   });
   const [showQRModal, setShowQRModal] = useState(false);
+
+  // Sync with useWallet hook so that connecting from the header updates UserTab too
+  const { account: walletAccount } = useWallet();
+  useEffect(() => {
+    if (walletAccount && /^0x[a-fA-F0-9]{40}$/.test(walletAccount)) {
+      setConnectedWallet({ address: walletAccount, mode: 'injected', label: 'Browser Wallet' });
+    }
+  }, [walletAccount]);
 
   // Keep in sync if the user switches accounts in MetaMask elsewhere in the app
   useEffect(() => {

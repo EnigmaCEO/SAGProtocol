@@ -27,10 +27,11 @@ module.exports = {
     },
     moonbase: {
       url: process.env.MOONBASE_RPC || process.env.MOONBASE_RPC_URL || "https://rpc.api.moonbase.moonbeam.network",
-      // Accept either PRIVATE_KEY (generic) or MOONBASE_PRIVATE_KEY_0 (project-specific)
-      accounts: (process.env.PRIVATE_KEY || process.env.MOONBASE_PRIVATE_KEY_0)
-        ? [process.env.PRIVATE_KEY || process.env.MOONBASE_PRIVATE_KEY_0]
-        : [],
+      // Accept either PRIVATE_KEY (generic) or MOONBASE_PRIVATE_KEY_0/1 (project-specific)
+      accounts: [
+        process.env.PRIVATE_KEY || process.env.MOONBASE_PRIVATE_KEY_0,
+        process.env.MOONBASE_PRIVATE_KEY_1,
+      ].filter(Boolean),
       chainId: 1287,
     },
   },
