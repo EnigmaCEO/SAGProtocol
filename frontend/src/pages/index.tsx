@@ -38,8 +38,15 @@ export default function Home() {
 
       const provider = signer.provider;
       if (provider) {
-        const network = await provider.getNetwork();
-        setNetwork(network.name);
+        const net = await provider.getNetwork();
+        const chainId = Number(net.chainId);
+        const networkNames: Record<number, string> = {
+          1287: "Moonbase Alpha",
+          1337: "Localhost",
+          31337: "Localhost",
+          1: "Mainnet",
+        };
+        setNetwork(networkNames[chainId] || `Chain ${chainId}`);
       }
 
       const vault = await getContract('vault') as any;

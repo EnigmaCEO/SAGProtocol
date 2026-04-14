@@ -27,7 +27,7 @@ export default function SidebarTabs({ active, paused, network, onChange }: Sideb
     router.push(`/?tab=${tabId}`, undefined, { shallow: true });
   };
 
-  const networkLabel = network && network !== "unknown" ? network : "localhost";
+  const networkLabel = network || "unknown";
 
   return (
     <div className="sagitta-header">
