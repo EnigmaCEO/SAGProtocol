@@ -1,10 +1,21 @@
 import { useEffect, useState } from 'react';
 
-const VALID_CHAIN_IDS = [1337, 1287];
+const MOONBASE_CHAIN_ID = 1287;
+const MOONBASE_HEX = '0x507';
+const VALID_CHAIN_IDS = [1337, MOONBASE_CHAIN_ID];
+
+const MOONBASE_PARAMS = {
+  chainId: MOONBASE_HEX,
+  chainName: 'Moonbase Alpha',
+  nativeCurrency: { name: 'DEV', symbol: 'DEV', decimals: 18 },
+  rpcUrls: ['https://rpc.api.moonbase.moonbeam.network'],
+  blockExplorerUrls: ['https://moonbase.moonscan.io'],
+};
 
 export default function NetworkBanner() {
   const [isWrongNetwork, setIsWrongNetwork] = useState(false);
   const [chainId, setChainId] = useState<number | null>(null);
+  const [status, setStatus] = useState<'idle' | 'switching'>('idle');
 
   useEffect(() => {
     if (typeof window === 'undefined' || !(window as any).ethereum) return;
@@ -36,27 +47,58 @@ export default function NetworkBanner() {
   }, []);
 
   const switchToMoonbase = async () => {
+    const ethereum = (window as any).ethereum;
+    if (!ethereum) return;
+    setStatus('switching');
     try {
-      await (window as any).ethereum.request({
+      // Try switching first (works if the network is already added)
+      await ethereum.request({
         method: 'wallet_switchEthereumChain',
-        params: [{ chainId: '0x507' }],
+        params: [{ chainId: MOONBASE_HEX }],
       });
-    } catch (err: any) {
-      alert(err.message || 'Failed to switch network');
+    } catch (switchErr: any) {
+      // Error 4902 = chain not added yet — add it automatically
+      if (switchErr?.code === 4902 || switchErr?.code === -32603) {
+        try {
+          await ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [MOONBASE_PARAMS],
+          });
+        } catch (addErr: any) {
+          alert(addErr?.message || 'Failed to add Moonbase Alpha network');
+        }
+      } else {
+        alert(switchErr?.message || 'Failed to switch network');
+      }
+    } finally {
+      setStatus('idle');
     }
   };
 
   if (!isWrongNetwork) return null;
 
   return (
-    <div className="bg-yellow-600 text-white px-4 py-3 mb-4 rounded flex items-center justify-between">
-      <span className="font-medium">Wrong network ({chainId ?? 'unknown'}) - switch to Moonbase Alpha (1287) or Local (1337)</span>
-      <button
-        onClick={switchToMoonbase}
-        className="bg-white text-yellow-700 px-4 py-1 rounded font-medium hover:bg-gray-100"
-      >
-        Switch to Moonbase Alpha
-      </button>
+    <div className="bg-yellow-600 text-white px-4 py-3 mb-4 rounded flex flex-wrap items-center gap-3 justify-between">
+      <span className="font-medium text-sm">
+        Wrong network ({chainId ?? 'unknown'}) — switch to Moonbase Alpha (1287) to use the protocol.
+      </span>
+      <div className="flex items-center gap-2">
+        <a
+          href="https://faucet.moonbase.moonbeam.network/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="bg-white/20 hover:bg-white/30 text-white px-3 py-1 rounded text-sm font-medium border border-white/40"
+        >
+          Get DEV tokens ↗
+        </a>
+        <button
+          onClick={switchToMoonbase}
+          disabled={status === 'switching'}
+          className="bg-white text-yellow-700 px-4 py-1 rounded font-medium hover:bg-gray-100 disabled:opacity-60 text-sm"
+        >
+          {status === 'switching' ? 'Switching…' : 'Switch to Moonbase Alpha'}
+        </button>
+      </div>
     </div>
   );
 }

@@ -608,6 +608,41 @@ export default function UserTab() {
     return getSigner();
   }
 
+  const handleAddMoonbaseNetwork = async () => {
+    const ethereum = (window as any).ethereum;
+    if (!ethereum) {
+      setToast({ tone: 'danger', message: 'No wallet detected. Install MetaMask first.' });
+      return;
+    }
+    try {
+      await ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0x507' }],
+      });
+      setToast({ tone: 'success', message: 'Switched to Moonbase Alpha.' });
+    } catch (switchErr: any) {
+      if (switchErr?.code === 4902 || switchErr?.code === -32603) {
+        try {
+          await ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: '0x507',
+              chainName: 'Moonbase Alpha',
+              nativeCurrency: { name: 'DEV', symbol: 'DEV', decimals: 18 },
+              rpcUrls: ['https://rpc.api.moonbase.moonbeam.network'],
+              blockExplorerUrls: ['https://moonbase.moonscan.io'],
+            }],
+          });
+          setToast({ tone: 'success', message: 'Moonbase Alpha added to MetaMask.' });
+        } catch (addErr: any) {
+          setToast({ tone: 'danger', message: addErr?.message || 'Failed to add network.' });
+        }
+      } else {
+        setToast({ tone: 'danger', message: switchErr?.message || 'Failed to switch network.' });
+      }
+    }
+  };
+
   const handleMintUSDC = async () => {
     if (isPaused) return;
     try {
@@ -829,7 +864,7 @@ export default function UserTab() {
           </>
         }
         actions={
-          <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <button
               onClick={() => setShowQRModal(true)}
               className="action-button action-button--ghost"
@@ -842,9 +877,26 @@ export default function UserTab() {
               onClick={handleMintUSDC}
               disabled={isPaused || isLoading}
               className="action-button action-button--ghost"
+              title="Mint 1000 test USDC to your wallet"
             >
               Mint 1000 USDC
             </button>
+            <button
+              onClick={handleAddMoonbaseNetwork}
+              className="action-button action-button--ghost"
+              title="Add Moonbase Alpha to MetaMask"
+            >
+              Add Moonbase Alpha
+            </button>
+            <a
+              href="https://faucet.moonbase.moonbeam.network/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="action-button action-button--ghost"
+              title="Get free DEV tokens for gas on Moonbase Alpha"
+            >
+              Get DEV (faucet) ↗
+            </a>
           </div>
         }
       />
