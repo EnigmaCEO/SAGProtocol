@@ -6,6 +6,9 @@ import { getSigner } from '../lib/ethers';
 import { getRuntimeAddress, isValidAddress } from '../lib/runtime-addresses';
 import { RPC_URL, IS_LOCAL_CHAIN } from '../lib/network';
 
+// Hardhat/Anvil default account #0 — always the deployer on local chains
+const LOCAL_DEMO_OWNER = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+
 const LOCALHOST_RPC = RPC_URL;
 const ROLE_VIEW_OVERRIDE_KEY = 'sagitta.roleViewOverride.v1';
 export const ROLE_VIEW_OVERRIDE_EVENT = 'sagitta:role-view-override';
@@ -126,9 +129,12 @@ export default function useRoleAccess(): {
       try {
         const vault = new ethers.Contract(vaultAddress, ['function owner() view returns (address)'], provider);
         const owner = await vault.owner().catch(() => null);
-        if (active) setOwnerAddress(normalizeAddress(owner));
+        const resolved = normalizeAddress(owner);
+        // On local chains fall back to the Hardhat default deployer if the
+        // node isn't running or contracts aren't deployed yet.
+        if (active) setOwnerAddress(resolved ?? (IS_LOCAL_CHAIN ? LOCAL_DEMO_OWNER : null));
       } catch {
-        if (active) setOwnerAddress(null);
+        if (active) setOwnerAddress(IS_LOCAL_CHAIN ? LOCAL_DEMO_OWNER : null);
       } finally {
         if (active) setLoading(false);
       }
