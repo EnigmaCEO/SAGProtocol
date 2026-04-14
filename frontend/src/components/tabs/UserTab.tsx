@@ -137,13 +137,30 @@ export default function UserTab() {
   const [probedOraclePrice, setProbedOraclePrice] = useState<bigint | null>(null);
   const [probedAssetDecimals, setProbedAssetDecimals] = useState<number | null>(null);
 
-  // Wallet connection state
-  const [connectedWallet, setConnectedWallet] = useState<ConnectedWallet>({
-    address: account.address,
-    mode: 'demo',
-    label: 'Demo (Hardhat #0)',
+  // Wallet connection state — auto-restore from localStorage on mount
+  const [connectedWallet, setConnectedWallet] = useState<ConnectedWallet>(() => {
+    if (typeof window !== 'undefined') {
+      const persisted = window.localStorage.getItem('sagitta.connectedAccount');
+      if (persisted && /^0x[a-fA-F0-9]{40}$/.test(persisted)) {
+        return { address: persisted, mode: 'injected' as const, label: 'Browser Wallet' };
+      }
+    }
+    return { address: account.address, mode: 'demo' as const, label: 'Demo (Hardhat #0)' };
   });
   const [showQRModal, setShowQRModal] = useState(false);
+
+  // Keep in sync if the user switches accounts in MetaMask elsewhere in the app
+  useEffect(() => {
+    const eth = (window as any).ethereum;
+    if (!eth?.on) return;
+    const handler = (accounts: string[]) => {
+      if (Array.isArray(accounts) && accounts.length > 0) {
+        setConnectedWallet({ address: accounts[0], mode: 'injected', label: 'Browser Wallet' });
+      }
+    };
+    eth.on('accountsChanged', handler);
+    return () => eth.removeListener?.('accountsChanged', handler);
+  }, []);
 
   const address = connectedWallet.address;
   const metrics = useVaultMetrics();
