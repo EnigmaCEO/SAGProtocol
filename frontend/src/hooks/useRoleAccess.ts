@@ -4,7 +4,7 @@ import { ethers } from 'ethers';
 import { getEffectiveRole, type AppRole, ROLES_UPDATED_EVENT } from '../lib/roles';
 import { getSigner } from '../lib/ethers';
 import { getRuntimeAddress, isValidAddress } from '../lib/runtime-addresses';
-import { RPC_URL } from '../lib/network';
+import { RPC_URL, IS_LOCAL_CHAIN } from '../lib/network';
 
 const LOCALHOST_RPC = RPC_URL;
 const ROLE_VIEW_OVERRIDE_KEY = 'sagitta.roleViewOverride.v1';
@@ -49,8 +49,12 @@ async function resolveSessionAddress(): Promise<string | null> {
   }
 
   // 3. localStorage — address persisted by useWallet on last connect
-  const persisted = readPersistedAddress();
-  if (persisted) return persisted;
+  // Skip on local chains: the persisted address is likely a live-network wallet
+  // that won't match the local Hardhat deployer, causing the demo to show as viewer.
+  if (!IS_LOCAL_CHAIN) {
+    const persisted = readPersistedAddress();
+    if (persisted) return persisted;
+  }
 
   // 4. Last resort: demo signer (localhost only — gives viewer role on live chains)
   try {
