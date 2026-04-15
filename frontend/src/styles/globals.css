@@ -225,6 +225,16 @@ body,
     padding-top: 0.75rem;
   }
 
+  .sidebar-nav__group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.18rem;
+  }
+
+  .sidebar-nav__group + .sidebar-nav__group {
+    margin-top: 0.75rem;
+  }
+
   .sidebar-nav__label {
     font-size: 0.57rem;
     font-weight: 700;
@@ -263,6 +273,16 @@ body,
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .sidebar-tab__ext {
+    flex-shrink: 0;
+    opacity: 0.35;
+    transition: opacity 140ms ease;
+  }
+
+  .sidebar-tab--external:hover .sidebar-tab__ext {
+    opacity: 0.7;
   }
 
   .sidebar-tab__pip {
@@ -1396,7 +1416,7 @@ body,
     }
 
     .shell-main-inner {
-      padding: 10px 14px 14px;
+      padding: 0px 14px 14px;
     }
 
     .treasury-metrics-grid {

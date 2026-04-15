@@ -128,7 +128,7 @@ export default function useRoleAccess(): {
 
   useEffect(() => {
     let active = true;
-    const provider = new ethers.JsonRpcProvider(LOCALHOST_RPC);
+    const staticProvider = new ethers.JsonRpcProvider(LOCALHOST_RPC);
 
     const syncOwner = async () => {
       const vaultAddress = getRuntimeAddress('Vault');
@@ -140,8 +140,13 @@ export default function useRoleAccess(): {
         return;
       }
 
+      // Prefer the injected provider (MetaMask) so we query the chain the
+      // wallet is actually connected to instead of the hardcoded RPC_URL.
+      const eth = typeof window !== 'undefined' ? (window as any).ethereum : null;
+      const readProvider = eth ? new ethers.BrowserProvider(eth) : staticProvider;
+
       try {
-        const vault = new ethers.Contract(vaultAddress, ['function owner() view returns (address)'], provider);
+        const vault = new ethers.Contract(vaultAddress, ['function owner() view returns (address)'], readProvider);
         const owner = await vault.owner().catch(() => null);
         const resolved = normalizeAddress(owner);
         // On local chains fall back to the Hardhat default deployer if the
@@ -193,6 +198,7 @@ export default function useRoleAccess(): {
       const eth = (window as any).ethereum;
       if (eth?.on) {
         eth.on('accountsChanged', handleAccountsChanged);
+        eth.on('chainChanged', syncAccess);
       }
       window.addEventListener(ROLES_UPDATED_EVENT, syncAccess as EventListener);
       window.addEventListener(ROLE_VIEW_OVERRIDE_EVENT, syncRoleViewOverride as EventListener);
@@ -203,6 +209,7 @@ export default function useRoleAccess(): {
         active = false;
         if (eth?.removeListener) {
           eth.removeListener('accountsChanged', handleAccountsChanged);
+          eth.removeListener('chainChanged', syncAccess);
         }
         window.removeEventListener(ROLES_UPDATED_EVENT, syncAccess as EventListener);
         window.removeEventListener(ROLE_VIEW_OVERRIDE_EVENT, syncRoleViewOverride as EventListener);

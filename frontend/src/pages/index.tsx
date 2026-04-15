@@ -72,7 +72,7 @@ export default function Home() {
         return <ReserveTab />;
       case 'dao':
         return <DAOTab />;
-      default:
+default:
         return <UserTab />;
     }
   };

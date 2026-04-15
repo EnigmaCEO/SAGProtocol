@@ -1,15 +1,19 @@
 import { useRouter } from 'next/router';
 import {
   PortfolioIcon,
+  WalletIcon,
   VaultIcon,
   TreasuryIcon,
   EscrowIcon,
   ReserveIcon,
   DAOIcon,
+  AllocationIcon,
+  LayersIcon,
+  ExternalLinkIcon,
   ProtocolActiveIcon,
 } from '../icons/SagittaIcons';
 
-type Tab = 'user' | 'vault' | 'treasury' | 'escrow' | 'reserve' | 'dao';
+export type Tab = 'user' | 'vault' | 'treasury' | 'escrow' | 'reserve' | 'dao';
 
 interface SidebarTabsProps {
   active: Tab;
@@ -18,13 +22,40 @@ interface SidebarTabsProps {
   onChange: (tab: Tab) => void;
 }
 
-const tabs = [
-  { id: 'user'     as Tab, label: 'Portfolio', Icon: PortfolioIcon },
-  { id: 'vault'    as Tab, label: 'Vault',     Icon: VaultIcon     },
-  { id: 'treasury' as Tab, label: 'Treasury',  Icon: TreasuryIcon  },
-  { id: 'escrow'   as Tab, label: 'Escrow',    Icon: EscrowIcon    },
-  { id: 'reserve'  as Tab, label: 'Reserve',   Icon: ReserveIcon   },
-  { id: 'dao'      as Tab, label: 'DAO',        Icon: DAOIcon       },
+type InternalEntry = { kind: 'internal'; id: Tab; label: string; Icon: React.ComponentType<any> };
+type ExternalEntry = { kind: 'external'; href: string; label: string; Icon: React.ComponentType<any> };
+type NavEntry = InternalEntry | ExternalEntry;
+
+interface NavGroup {
+  label: string;
+  entries: NavEntry[];
+}
+
+const navGroups: NavGroup[] = [
+  {
+    label: 'User',
+    entries: [
+      { kind: 'internal', id: 'user',   label: 'Portfolio', Icon: PortfolioIcon },
+      { kind: 'external', href: 'https://wallet.sagitta.systems/',    label: 'Wallet',    Icon: WalletIcon    },
+    ],
+  },
+  {
+    label: 'Protocol',
+    entries: [
+      { kind: 'internal', id: 'vault',    label: 'Vault',    Icon: VaultIcon    },
+      { kind: 'internal', id: 'treasury', label: 'Treasury', Icon: TreasuryIcon },
+      { kind: 'internal', id: 'escrow',   label: 'Escrow',   Icon: EscrowIcon   },
+      { kind: 'internal', id: 'reserve',  label: 'Reserve',  Icon: ReserveIcon  },
+      { kind: 'internal', id: 'dao',      label: 'DAO',       Icon: DAOIcon      },
+    ],
+  },
+  {
+    label: 'Systems',
+    entries: [
+      { kind: 'external', href: 'https://aaa.sagitta.systems/', label: 'Allocations', Icon: AllocationIcon },
+      { kind: 'external', href: 'https://continuity.sagitta.systems/', label: 'Continuity',  Icon: LayersIcon     },
+    ],
+  },
 ];
 
 export default function SidebarTabs({ active, paused, network, onChange }: SidebarTabsProps) {
@@ -53,22 +84,42 @@ export default function SidebarTabs({ active, paused, network, onChange }: Sideb
 
       {/* Nav */}
       <nav className="sidebar-nav">
-        <div className="sidebar-nav__label">Navigation</div>
-        {tabs.map(({ id, label, Icon }) => {
-          const isActive = active === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => handleTabClick(id)}
-              className={`sidebar-tab${isActive ? ' sidebar-tab--active' : ''}`}
-            >
-              <Icon size={16} className="sidebar-tab__icon" />
-              <span className="sidebar-tab__label">{label}</span>
-              {isActive && <span className="sidebar-tab__pip" />}
-            </button>
-          );
-        })}
+        {navGroups.map((group) => (
+          <div key={group.label} className="sidebar-nav__group">
+            <div className="sidebar-nav__label">{group.label}</div>
+            {group.entries.map((entry) => {
+              if (entry.kind === 'external') {
+                return (
+                  <a
+                    key={entry.label}
+                    href={entry.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="sidebar-tab sidebar-tab--external"
+                  >
+                    <entry.Icon size={16} className="sidebar-tab__icon" />
+                    <span className="sidebar-tab__label">{entry.label}</span>
+                    <ExternalLinkIcon size={11} className="sidebar-tab__ext" />
+                  </a>
+                );
+              }
+
+              const isActive = active === entry.id;
+              return (
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => handleTabClick(entry.id)}
+                  className={`sidebar-tab${isActive ? ' sidebar-tab--active' : ''}`}
+                >
+                  <entry.Icon size={16} className="sidebar-tab__icon" />
+                  <span className="sidebar-tab__label">{entry.label}</span>
+                  {isActive && <span className="sidebar-tab__pip" />}
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       <div className="flex-1" />
