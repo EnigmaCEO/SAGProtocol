@@ -26,28 +26,48 @@ export default function TopBar({ address, ownerAddress }: TopBarProps) {
 
   return (
     <div className="topbar-row">
-      <div className="topbar-right">
-        <span className="data-chip">Role: {roleLabel(role)}</span>
-        {isActualOwner && role !== actualRole ? (
-          <span className="data-chip" data-tone="warning">Actual: {roleLabel(actualRole)}</span>
-        ) : null}
-        {isActualOwner ? (
-          <label className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-600/60 bg-slate-900/65 text-xs text-slate-300">
-            <span>View As</span>
-            <select
-              value={role}
-              onChange={e => setRolePreview(e.target.value as 'viewer' | 'operator' | 'owner')}
-              className="bg-transparent text-slate-100 outline-none"
-            >
-              <option value="owner">Owner</option>
-              <option value="operator">Operator</option>
-              <option value="viewer">Viewer</option>
-            </select>
-          </label>
-        ) : null}
-        <div className="px-5 py-2 rounded-full border border-slate-600/60 bg-slate-900/65 text-sm kpi-value text-slate-200">
-          {activeAddress ? `Wallet ${activeAddress.slice(0, 6)}...${activeAddress.slice(-4)}` : "Wallet Not Connected"}
-        </div>
+      <span className="data-chip">
+        Role: {roleLabel(role)}
+      </span>
+
+      {isActualOwner && role !== actualRole ? (
+        <span className="data-chip" data-tone="warning">
+          Actual: {roleLabel(actualRole)}
+        </span>
+      ) : null}
+
+      {isActualOwner ? (
+        <label className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs"
+          style={{
+            border: '1px solid rgba(180,140,20,0.22)',
+            background: 'rgba(180,136,26,0.08)',
+            color: 'var(--gold-300)',
+          }}
+        >
+          <span style={{ color: 'var(--text-500)' }}>View As</span>
+          <select
+            value={role}
+            onChange={e => setRolePreview(e.target.value as 'viewer' | 'operator' | 'owner')}
+            style={{ background: 'transparent', color: 'var(--gold-300)', outline: 'none', border: 'none' }}
+          >
+            <option value="owner">Owner</option>
+            <option value="operator">Operator</option>
+            <option value="viewer">Viewer</option>
+          </select>
+        </label>
+      ) : null}
+
+      <div
+        className="px-4 py-1.5 rounded-full text-sm kpi-value"
+        style={{
+          border: '1px solid rgba(180,140,20,0.2)',
+          background: 'rgba(5,11,22,0.85)',
+          color: 'var(--text-300)',
+        }}
+      >
+        {activeAddress
+          ? `${activeAddress.slice(0, 6)}…${activeAddress.slice(-4)}`
+          : 'Not Connected'}
       </div>
     </div>
   );

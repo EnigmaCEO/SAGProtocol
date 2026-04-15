@@ -211,6 +211,10 @@ async function main() {
   const escrow = await deployAndVerify(InvestmentEscrow, addr(usdc), addr(treasury));
   console.log("InvestmentEscrow:", addr(escrow));
 
+  const PortfolioRegistry = await getFactorySafe("PortfolioRegistry", "contracts/PortfolioRegistry.sol:PortfolioRegistry");
+  const portfolioRegistry = await deployAndVerify(PortfolioRegistry);
+  console.log("PortfolioRegistry:", addr(portfolioRegistry));
+
   console.log("\n=== Wiring contracts ===");
 
   try {
@@ -254,6 +258,19 @@ async function main() {
     }
   } catch (e) {
     console.warn("escrow.setVault failed (non-fatal):", e);
+  }
+
+  // On local chains, authorize the deployer as keeper so manual batch operations work
+  // without a separate keeper service. On live networks, set keeper via OWNER_ADDRESS env.
+  if (chainId === 1337 || chainId === 31337) {
+    try {
+      if (typeof (escrow as any).setKeeper === "function") {
+        await (await (escrow as any).setKeeper(deployer.address)).wait();
+        console.log("InvestmentEscrow keeper set to deployer:", deployer.address);
+      }
+    } catch (e) {
+      console.warn("escrow.setKeeper failed (non-fatal):", e);
+    }
   }
 
   try {
@@ -348,6 +365,45 @@ async function main() {
     await deployer.sendTransaction({ to: demoAddress, value: ethers.parseEther("10") });
   }
 
+  console.log("\n=== Seeding portfolio assets ===");
+  try {
+    // Deploy mock ERC-20 tokens for on-chain demo assets.
+    // External/fund assets (e.g. SPC) have no token address — address(0) is intentional.
+    // On mainnet replace these with the real token contract addresses.
+    const mockSKY   = await deployAndVerify(MockUSDC);   // SKY (on-chain DeFi token)
+    const mockGFI   = await deployAndVerify(MockUSDC);   // Goldfinch GFI
+    const mockSYRUP = await deployAndVerify(MockUSDC);   // Maple Finance SYRUP
+    const mockDOT   = await deployAndVerify(MockUSDC);   // Polkadot (wrapped)
+    const mockOUSG  = await deployAndVerify(MockUSDC);   // Ondo US Gov Bond (RWA)
+    const mockWBTC  = await deployAndVerify(MockUSDC);   // Wrapped Bitcoin (external)
+
+    // Enum ordinals must match PortfolioRegistry.sol
+    // RiskClass: 0=WealthManagement 1=Stablecoin 2=DefiBluechip 3=FundOfFunds
+    //            4=LargeCap 5=PrivateCreditFund 6=RealWorldAsset 7=ExternalProtocol
+    // AssetRole: 0=Core 1=Liquidity 2=Satellite 3=Defensive 4=Speculative
+    //            5=YieldFund 6=External
+    // addAsset(symbol, name, token, oracle, riskClass, role)
+    const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+    const seedAssets: Array<[string, string, string, string, number, number]> = [
+      // [symbol,  name,                        token,           oracle,          riskClass, role]
+      ["SPC",   "Sagitta SPC",                ZERO_ADDR,       ZERO_ADDR,       0, 0],  // WealthManagement / Core — external company, no token
+      ["USDC",  "US Dollar Coin",             addr(usdc),      addr(oracleUsdc),1, 1],  // Stablecoin / Liquidity
+      ["SKY",   "SKY",                        addr(mockSKY),   ZERO_ADDR,       2, 2],  // DefiBluechip / Satellite
+      ["GFI",   "Goldfinch",                  addr(mockGFI),   ZERO_ADDR,       5, 5],  // PrivateCreditFund / YieldFund
+      ["DOT",   "Polkadot",                   addr(mockDOT),   ZERO_ADDR,       4, 4],  // LargeCap / Speculative
+      ["SYRUP", "Maple Finance",              addr(mockSYRUP), ZERO_ADDR,       5, 5],  // PrivateCreditFund / YieldFund
+      ["OUSG",  "Ondo US Government Bond",    addr(mockOUSG),  ZERO_ADDR,       6, 3],  // RealWorldAsset / Defensive
+      ["WBTC",  "Wrapped Bitcoin",            addr(mockWBTC),  ZERO_ADDR,       7, 6],  // ExternalProtocol / External
+    ];
+
+    for (const [symbol, name, token, oracle, riskClass, role] of seedAssets) {
+      await (await (portfolioRegistry as any).addAsset(symbol, name, token, oracle, riskClass, role)).wait();
+      console.log(`  Seeded ${symbol}${token === ZERO_ADDR ? ' (external, no token)' : ''}`);
+    }
+  } catch (e) {
+    console.warn("Portfolio seeding failed (non-fatal):", e);
+  }
+
   const deployments: Record<string, string | number | null> = {
     network: String(network.name),
     chainId,
@@ -361,6 +417,7 @@ async function main() {
     UsdcOracle: addr(oracleUsdc),
     ReceiptNFT: addr(receiptNft),
     AmmUSDCGOLD: addr(ammUSDCGOLD),
+    PortfolioRegistry: addr(portfolioRegistry),
 
     // Explicitly retained as null for backward compatibility with older scripts.
     SAGToken: null,
@@ -389,6 +446,7 @@ async function main() {
       ["ReserveController", addr(reserve)],
       ["InvestmentEscrow",  addr(escrow)],
       ["ReceiptNFT",        addr(receiptNft)],
+      ["PortfolioRegistry", addr(portfolioRegistry)],
     ];
     for (const [name, contractAddr] of ownables) {
       try {

@@ -2,7 +2,23 @@ import { useState, useEffect } from 'react';
 import { createPublicClient, createWalletClient, http, custom, parseUnits, formatUnits, type Chain, type Abi } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import MetricCard from '../ui/MetricCard';
-import { Clock, ArrowDown, Lock, Unlock, Hash, DollarSign, Package, RefreshCw, Wallet, CalendarClock, Activity, QrCode } from 'lucide-react';
+import {
+  ClockIcon as Clock,
+  ArrowDownIcon as ArrowDown,
+  LockedIcon as Lock,
+  UnlockedIcon as Unlock,
+  HashIcon as Hash,
+  USDCIcon as DollarSign,
+  PackageIcon as Package,
+  RefreshIcon as RefreshCw,
+  WalletIcon,
+  CalendarClockIcon as CalendarClock,
+  ActivityIcon as Activity,
+  QRCodeIcon as QrCode,
+  NewDepositIcon,
+  DepositIcon,
+  ConnectWalletIcon,
+} from '../icons/SagittaIcons';
 import VaultABI from '../../lib/abis/Vault.json';
 import MockUSDCABI from '../../lib/abis/MockUSDC.json';
 import { CONTRACT_ADDRESSES } from '../../lib/addresses';
@@ -15,7 +31,7 @@ import { emitUiRefresh } from '../../lib/ui-refresh';
 import useProtocolPause from '../../hooks/useProtocolPause';
 import PageHeader from '../ui/PageHeader';
 import QRConnectModal, { type ConnectedWallet } from '../ui/QRConnectModal';
-import { RPC_URL, ACTIVE_CHAIN, CHAIN_ID } from '../../lib/network';
+import { RPC_URL, ACTIVE_CHAIN, CHAIN_ID, IS_LOCAL_CHAIN } from '../../lib/network';
 import { useWallet } from '../../hooks/useWallet';
 
 // Helper to cast ABI and normalize JSON shape { abi: [...] } vs [...]
@@ -138,7 +154,10 @@ export default function UserTab() {
   const [probedOraclePrice, setProbedOraclePrice] = useState<bigint | null>(null);
   const [probedAssetDecimals, setProbedAssetDecimals] = useState<number | null>(null);
 
-  // Wallet connection state — auto-restore from localStorage on mount
+  // Wallet connection state — auto-restore from localStorage on mount.
+  // Always try localStorage first so the displayed address matches the header on reload.
+  // On localhost, contract ops still go through the hardhat test key (effectiveAddress below),
+  // but we show the user's connected wallet in the badge for consistency with the header.
   const [connectedWallet, setConnectedWallet] = useState<ConnectedWallet>(() => {
     if (typeof window !== 'undefined') {
       const persisted = window.localStorage.getItem('sagitta.connectedAccount');
@@ -172,6 +191,9 @@ export default function UserTab() {
   }, []);
 
   const address = connectedWallet.address;
+  // On localhost all contract calls (reads + writes) use the hardhat test account
+  // so nothing ever routes through MetaMask. On live networks the connected wallet is used.
+  const effectiveAddress: string = IS_LOCAL_CHAIN ? account.address : address;
   const metrics = useVaultMetrics();
 
   // Use viem publicClient for all balances to ensure consistency
@@ -183,7 +205,7 @@ export default function UserTab() {
           address: MOCK_USDC_ADDRESS as `0x${string}`,
           abi: MOCK_USDC_ABI,
           functionName: 'balanceOf',
-          args: [address],
+          args: [effectiveAddress],
         }) as bigint;
         setUsdcBalance(usdcRaw);
       } catch (e) {
@@ -191,7 +213,7 @@ export default function UserTab() {
       }
     }
     fetchBalances();
-  }, [address, tokenDecimals]);
+  }, [effectiveAddress, tokenDecimals]);
 
   // helper to compute and set maxDeposit token & usd values (moved to component scope)
   const computeAndSetMax = (capacityUsd6: bigint, priceBn: bigint, aDecimals: number) => {
@@ -282,7 +304,7 @@ export default function UserTab() {
         address: MOCK_USDC_ADDRESS as `0x${string}`,
         abi: MOCK_USDC_ABI,
         functionName: 'balanceOf',
-        args: [address], 
+        args: [effectiveAddress],
       }) as bigint;
       setUsdcBalance(balance);
 
@@ -291,7 +313,7 @@ export default function UserTab() {
         address: VAULT_ADDRESS as `0x${string}`,
         abi: VAULT_ABI,
         functionName: 'receiptCount',
-        args: [address],
+        args: [effectiveAddress],
       }) as bigint;
       setReceiptCount(count);
 
@@ -300,7 +322,7 @@ export default function UserTab() {
         address: MOCK_USDC_ADDRESS as `0x${string}`,
         abi: MOCK_USDC_ABI,
         functionName: 'allowance',
-        args: [address, VAULT_ADDRESS],
+        args: [effectiveAddress, VAULT_ADDRESS],
       }) as bigint;
       setAllowance(allow);
 
@@ -512,7 +534,7 @@ export default function UserTab() {
           address: VAULT_ADDRESS as `0x${string}`,
           abi: VAULT_ABI,
           functionName: 'receipts',
-          args: [address, i],
+          args: [effectiveAddress, i],
         }) as {
           asset: string;
           amount: bigint | string;
@@ -592,13 +614,13 @@ export default function UserTab() {
 
   useEffect(() => {
     fetchData();
-    //const interval = setInterval(fetchData, 5000); // Refresh every 5 seconds
-    //return () => clearInterval(interval);
-  }, [address]); // Add address dependency
+    const interval = setInterval(fetchData, 10_000);
+    return () => clearInterval(interval);
+  }, [effectiveAddress]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchReceipts();
-  }, [receiptCount, address]); // Add dependencies to prevent stale closure
+  }, [receiptCount, effectiveAddress]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!toast) return;
@@ -693,9 +715,12 @@ export default function UserTab() {
     try {
       setIsLoading(true);
       const { ethers } = await import('ethers');
-      const signer = await getEthersSigner();
+      // Use the local hardhat signer directly — no wallet connection required.
+      // MockUSDC.mint() is permissionless; the test key has ETH for gas on localhost.
+      const provider = new ethers.JsonRpcProvider(RPC_URL);
+      const signer = new ethers.Wallet(TEST_PRIVATE_KEY, provider);
       const usdc = new ethers.Contract(MOCK_USDC_ADDRESS, normalizeAbi(MockUSDCABI), signer);
-      const tx = await (usdc as any).mint(address, parseUnits('1000', tokenDecimals));
+      const tx = await (usdc as any).mint(effectiveAddress, parseUnits('1000', tokenDecimals));
       await waitForTx(tx.hash);
       await fetchData();
       emitUiRefresh('user:mint-usdc');
@@ -714,7 +739,7 @@ export default function UserTab() {
     try {
       setIsLoading(true);
       const { ethers } = await import('ethers');
-      const signer = await getEthersSigner();
+      const signer = new ethers.Wallet(TEST_PRIVATE_KEY, new ethers.JsonRpcProvider(RPC_URL));
       const usdc = new ethers.Contract(MOCK_USDC_ADDRESS, normalizeAbi(MockUSDCABI), signer);
       const tx = await (usdc as any).approve(VAULT_ADDRESS, parseUnits(depositAmount, tokenDecimals));
       await waitForTx(tx.hash);
@@ -736,7 +761,7 @@ export default function UserTab() {
     try {
       setIsLoading(true);
       const { ethers } = await import('ethers');
-      const signer = await getEthersSigner();
+      const signer = new ethers.Wallet(TEST_PRIVATE_KEY, new ethers.JsonRpcProvider(RPC_URL));
       const usdc = new ethers.Contract(MOCK_USDC_ADDRESS, normalizeAbi(MockUSDCABI), signer);
       const tx = await (usdc as any).approve(VAULT_ADDRESS, MAX_UINT256);
       await waitForTx(tx.hash);
@@ -756,7 +781,7 @@ export default function UserTab() {
     try {
       setIsLoading(true);
       const { ethers } = await import('ethers');
-      const signer = await getEthersSigner();
+      const signer = new ethers.Wallet(TEST_PRIVATE_KEY, new ethers.JsonRpcProvider(RPC_URL));
       const vault = new ethers.Contract(VAULT_ADDRESS, normalizeAbi(VaultABI), signer);
       const amountArg = parseUnits(depositAmount, tokenDecimals);
       await (async () => {
@@ -804,11 +829,11 @@ export default function UserTab() {
         console.warn('Failed to compute or call collateralize after deposit:', computeErr);
       }
 
-      await fetchReceipts();
       emitUiRefresh('user:deposit');
-      console.log('Deposit successful!');
       const depositedAmount = Number(formatUnits(amountArg, tokenDecimals));
-      setToast({ tone: 'success', message: `Deposit submitted: ${formatUsdcValue(depositedAmount)} USDC.` });
+      setToast({ tone: 'success', message: `Deposit submitted: ${formatUsdcValue(depositedAmount)} USDC. Refreshing...` });
+      // Reload the page after a short delay so receipt count and activity are read fresh from chain.
+      setTimeout(() => window.location.reload(), 2000);
     } catch (error: any) {
       // Add actionable error for selector not recognized
       if (
@@ -898,12 +923,12 @@ export default function UserTab() {
               onClick={() => setShowQRModal(true)}
               title="Connect or change wallet"
             >
-              <QrCode size={12} />
+              <WalletIcon size={12} />
               {address.slice(0, 6)}…{address.slice(-4)}
-              <span style={{ opacity: 0.55, fontSize: '0.65rem' }}>{connectedWallet.mode === 'demo' ? 'DEMO' : 'LIVE'}</span>
+              <span style={{ opacity: 0.55, fontSize: '0.65rem' }}>{IS_LOCAL_CHAIN ? 'LOCAL' : connectedWallet.mode === 'demo' ? 'DEMO' : 'LIVE'}</span>
             </button>
             <span className="data-chip">USDC {formatUsdcValue(walletUsdc)}</span>
-            <span className="data-chip" data-tone={lockedDeposits.length > 0 ? 'success' : 'warning'}>
+            <span className="data-chip" data-tone={lockedDeposits.length > 0 ? 'purple' : 'warning'}>
               {lockedDeposits.length > 0 ? `${lockedDeposits.length} active lock${lockedDeposits.length === 1 ? '' : 's'}` : 'No active locks'}
             </span>
           </>
@@ -912,10 +937,10 @@ export default function UserTab() {
           <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <button
               onClick={() => setShowQRModal(true)}
-              className="action-button action-button--ghost"
+              className="action-button action-button--purple"
               title="Connect wallet via QR or browser extension"
             >
-              <QrCode size={13} style={{ marginRight: '0.3rem' }} />
+              <ConnectWalletIcon size={14} style={{ marginRight: '0.35rem' }} />
               Connect Wallet
             </button>
             <button
@@ -955,65 +980,76 @@ export default function UserTab() {
       )}
 
       <div className="sagitta-grid sagitta-grid--compact">
-        <div className="sagitta-cell">
-          <h3 className="section-title">Total Principal Locked (USD)</h3>
-          <MetricCard title="Locked principal" value={formatUsdValue(totalPrincipalLocked)} tone="neutral" />
-        </div>
-        <div className="sagitta-cell">
-          <h3 className="section-title">Active Deposits</h3>
-          <MetricCard title="Open receipts" value={activeDeposits.length.toString()} tone="neutral" />
-        </div>
-        <div className="sagitta-cell">
-          <h3 className="section-title">Maturing Soon (7D)</h3>
-          <MetricCard title="Upcoming unlocks" value={maturingSoonCount.toString()} tone="warning" />
-        </div>
-        <div className="sagitta-cell">
-          <h3 className="section-title">Next Unlock</h3>
-          <MetricCard
-            title="Nearest maturity"
-            value={nextUnlockDate ? formatShortDate(nextUnlockDate) : 'No active locks'}
-            tone={nextUnlockDate ? 'success' : 'neutral'}
-          />
-        </div>
+        <MetricCard
+          title="Total Principal Locked (USD)"
+          hint="Locked principal"
+          value={formatUsdValue(totalPrincipalLocked)}
+          tone="warning"
+          icon={<DollarSign size={16} />}
+        />
+        <MetricCard
+          title="Active Deposits"
+          hint="Open receipts"
+          value={activeDeposits.length.toString()}
+          tone="neutral"
+          icon={<Package size={16} />}
+        />
+        <MetricCard
+          title="Maturing Soon (7D)"
+          hint="Upcoming unlocks"
+          value={maturingSoonCount.toString()}
+          tone={maturingSoonCount > 0 ? 'warning' : 'neutral'}
+          icon={<Clock size={16} />}
+        />
+        <MetricCard
+          title="Next Unlock"
+          hint="Nearest maturity"
+          value={nextUnlockDate ? formatShortDate(nextUnlockDate) : 'None'}
+          tone={nextUnlockDate ? 'success' : 'neutral'}
+          icon={<CalendarClock size={16} />}
+        />
       </div>
 
       <div className="sagitta-grid sagitta-grid--wide">
-        <div className="sagitta-cell h-full">
-          <h3 className="section-title">
-            <ArrowDown size={20} className="text-emerald-400" /> New Deposit
-          </h3>
-          <p className="section-subtitle">Prepare the deposit amount, confirm allowance, then send principal into the current vault lock schedule.</p>
-          <div className="grid gap-4 lg:grid-cols-2 items-end">
-            <div>
-              <label className="block text-sm text-slate-300 mb-2">Amount (USDC)</label>
-              <div className="relative">
-                <input
-                  type="number"
-                  placeholder="0.00"
-                  value={depositAmount}
-                  onChange={e => setDepositAmount(e.target.value)}
-                  disabled={isPaused || isLoading}
-                  className="w-full pl-4 pr-16 py-3 rounded-xl bg-slate-900/70 border border-slate-700 text-slate-200 placeholder-slate-500 outline-none transition-all disabled:opacity-50"
-                />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">USDC</span>
+        {/* ── New Deposit ── */}
+        <div className="sagitta-cell h-full flex flex-col gap-5">
+          <div>
+            <div className="ud-panel-title">
+              <NewDepositIcon size={15} />
+              New Deposit
+            </div>
+            <p className="ud-panel-sub">Prepare the deposit amount, confirm allowance, then send principal into the current vault lock schedule.</p>
+          </div>
+
+          <div className="grid gap-5 lg:grid-cols-2 items-start">
+            {/* Left: amount input */}
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="ud-field-label">Amount (USDC)</label>
+                <div className="relative mt-1.5">
+                  <input
+                    type="number"
+                    placeholder="0.00"
+                    value={depositAmount}
+                    onChange={e => setDepositAmount(e.target.value)}
+                    disabled={isPaused || isLoading}
+                    className="ud-input w-full pr-16 disabled:opacity-50"
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[11px] font-bold tracking-widest" style={{ color: 'var(--gold-500)' }}>USDC</span>
+                </div>
               </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setDepositAmount(formatUnits((usdcBalance * BigInt(25)) / BigInt(100), assetDecimals))}
-                  disabled={isPaused || isLoading}
-                  className="chip-button"
-                >
-                  25%
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDepositAmount(formatUnits((usdcBalance * BigInt(50)) / BigInt(100), assetDecimals))}
-                  disabled={isPaused || isLoading}
-                  className="chip-button"
-                >
-                  50%
-                </button>
+              <div className="flex flex-wrap gap-2">
+                {[['25%', BigInt(25)], ['50%', BigInt(50)], ['75%', BigInt(75)]].map(([label, pct]) => (
+                  <button
+                    key={label as string}
+                    type="button"
+                    onClick={() => setDepositAmount(formatUnits((usdcBalance * (pct as bigint)) / BigInt(100), assetDecimals))}
+                    disabled={isPaused || isLoading}
+                    className="chip-button"
+                  >
+                    {label as string}
+                  </button>
+                ))}
                 <button
                   type="button"
                   onClick={() => setDepositAmount(formatUnits(usdcBalance, assetDecimals))}
@@ -1025,6 +1061,7 @@ export default function UserTab() {
               </div>
             </div>
 
+            {/* Right: vault info rows */}
             <div className="panel-stack panel-stack--dense">
               <div className="panel-row">
                 <span className="panel-row__label">Vault max deposit</span>
@@ -1041,90 +1078,95 @@ export default function UserTab() {
             </div>
           </div>
 
-          <div className="mt-4 flex flex-col sm:flex-row gap-3">
+          {/* Action buttons */}
+          <div className="flex flex-col sm:flex-row gap-3 mt-auto pt-1">
             {needsApproval ? (
-              <div className="w-full sm:w-auto flex gap-3">
-                <button
-                  onClick={handleApprove}
-                  disabled={disableDepositAction}
-                  className="action-button action-button--warning flex-1"
-                >
-                  {isLoading ? 'Processing...' : 'Approve USDC'}
+              <>
+                <button onClick={handleApprove} disabled={disableDepositAction} className="action-button action-button--warning flex-1 sm:flex-none">
+                  {isLoading ? 'Processing…' : 'Approve USDC'}
                 </button>
-                <button
-                  onClick={handleApproveMax}
-                  disabled={isPaused || isLoading}
-                  className="action-button action-button--ghost"
-                >
-                  {isLoading ? 'Processing...' : 'Approve Max'}
+                <button onClick={handleApproveMax} disabled={isPaused || isLoading} className="action-button action-button--ghost">
+                  {isLoading ? 'Processing…' : 'Approve Max'}
                 </button>
-              </div>
+              </>
             ) : (
-              <button
-                onClick={handleDeposit}
-                disabled={disableDepositAction}
-                className="action-button action-button--primary w-full sm:w-auto"
-              >
-                {isLoading ? 'Processing...' : 'Deposit USDC'}
+              <button onClick={handleDeposit} disabled={disableDepositAction} className="action-button action-button--primary">
+                {isLoading ? 'Processing…' : 'Deposit USDC'}
               </button>
             )}
           </div>
 
-          <p className="mt-3 text-sm text-slate-400">
-            {isPaused ? 'Protocol is paused. Deposit, approval, and mint actions are disabled until the protocol is resumed.' : 'Deposits are automatically returned to your wallet at term end.'}
+          <p className="text-xs leading-relaxed" style={{ color: 'var(--text-500)' }}>
+            {isPaused
+              ? 'Protocol is paused — deposit, approval and mint actions are disabled.'
+              : 'Deposits are automatically returned to your wallet at term end.'}
           </p>
           {parsedDepositAmount === null && depositAmount && (
-            <p className="mt-2 text-xs text-rose-300">Enter a valid numeric deposit amount.</p>
+            <p className="text-xs text-rose-300">Enter a valid numeric amount.</p>
           )}
         </div>
 
-        <div className="sagitta-cell h-full">
-          <h3 className="section-title">
-            <Activity size={18} className="text-sky-300" /> Account Activity
-          </h3>
-          <p className="section-subtitle">A compact view of open receipts, pending returns, and the next maturity date in the queue.</p>
+        {/* ── Account Activity ── */}
+        <div className="sagitta-cell h-full flex flex-col gap-5">
+          <div>
+            <div className="ud-panel-title">
+              <Activity size={14} />
+              Account Activity
+            </div>
+            <p className="ud-panel-sub">Open receipts, pending returns, and the next maturity date in queue.</p>
+          </div>
+
           <div className="panel-stack">
             <div className="panel-row">
-              <span className="panel-row__label inline-flex items-center gap-2"><Lock size={14} /> Locked receipts</span>
+              <span className="panel-row__label" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Lock size={13} style={{ color: 'var(--gold-500)' }} /> Locked receipts
+              </span>
               <span className="panel-row__value">{lockedDeposits.length}</span>
             </div>
             <div className="panel-row">
-              <span className="panel-row__label inline-flex items-center gap-2"><Unlock size={14} /> Pending return</span>
-              <span className="panel-row__value text-amber-300">{pendingReturns.length}</span>
+              <span className="panel-row__label" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Unlock size={13} style={{ color: 'var(--tone-warning)' }} /> Pending return
+              </span>
+              <span className="panel-row__value" style={{ color: pendingReturns.length > 0 ? 'var(--tone-warning)' : undefined }}>
+                {pendingReturns.length}
+              </span>
             </div>
             <div className="panel-row">
-              <span className="panel-row__label inline-flex items-center gap-2"><CalendarClock size={14} /> Next unlock</span>
-              <span className="panel-row__value">{nextUnlockDate ? formatShortDate(nextUnlockDate) : '--'}</span>
+              <span className="panel-row__label" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+                <CalendarClock size={13} style={{ color: 'var(--tone-success)' }} /> Next unlock
+              </span>
+              <span className="panel-row__value">{nextUnlockDate ? formatShortDate(nextUnlockDate) : '—'}</span>
             </div>
           </div>
 
-          <div className="mt-4 panel-note">
-            <div className="text-sm font-semibold text-slate-200 mb-2">Activity Snapshot</div>
+          <div className="ud-snapshot">
+            <div className="ud-snapshot__heading">Activity Snapshot</div>
             {activityPreview.length === 0 ? (
-              <div className="text-sm text-slate-400">No deposits yet. Create your first deposit to start tracking activity.</div>
+              <div className="text-xs" style={{ color: 'var(--text-500)' }}>
+                No deposits yet — create your first receipt to start tracking.
+              </div>
             ) : (
-              <div className="space-y-2">
+              <div className="flex flex-col gap-2">
                 {activityPreview.map(item => {
-                  const statusText = item.status === 'PENDING_RETURN'
-                    ? 'Pending Return'
-                    : item.status === 'RETURNED'
-                      ? 'Returned'
-                      : 'Locked';
-                  const statusTone = item.status === 'LOCKED'
-                    ? 'text-amber-300'
-                    : item.status === 'PENDING_RETURN'
-                      ? 'text-yellow-300'
-                      : 'text-emerald-300';
+                  const statusText = item.status === 'PENDING_RETURN' ? 'Pending Return'
+                    : item.status === 'RETURNED' ? 'Returned' : 'Locked';
+                  const statusColor = item.status === 'LOCKED' ? 'var(--gold-300)'
+                    : item.status === 'PENDING_RETURN' ? 'var(--tone-warning)' : 'var(--tone-success)';
                   return (
-                    <div key={item.key} className="text-sm text-slate-300 flex items-center justify-between gap-3">
-                      <span>{item.count} receipt{item.count > 1 ? 's' : ''} <span className={statusTone}>{statusText}</span></span>
-                      <span className="text-slate-400">{item.day}</span>
-                      <span className="font-mono text-slate-200">{formatUsdValue(item.totalUsd)}</span>
+                    <div key={item.key} className="ud-snapshot__row">
+                      <span>
+                        {item.count} receipt{item.count > 1 ? 's' : ''}{' '}
+                        <span style={{ color: statusColor }}>{statusText}</span>
+                      </span>
+                      <span style={{ color: 'var(--text-500)' }}>{item.day}</span>
+                      <span className="font-mono" style={{ color: 'var(--text-100)' }}>{formatUsdValue(item.totalUsd)}</span>
                     </div>
                   );
                 })}
                 {hiddenActivityCount > 0 && (
-                  <div className="text-xs text-slate-500 pt-1">+{hiddenActivityCount} more groups in receipts table</div>
+                  <div className="text-xs pt-1" style={{ color: 'var(--text-500)' }}>
+                    +{hiddenActivityCount} more groups below
+                  </div>
                 )}
               </div>
             )}
@@ -1152,7 +1194,7 @@ export default function UserTab() {
             <div className="overflow-x-auto">
               <table className="data-table">
                 <thead>
-                  <tr className="text-sm text-slate-400">
+                  <tr>
                     <th className="px-4 py-3"><Hash size={14} className="inline-block mr-1" />ID</th>
                     <th className="px-4 py-3"><Package size={14} className="inline-block mr-1" />Asset</th>
                     <th className="px-4 py-3"><ArrowDown size={14} className="inline-block mr-1" />Principal</th>
@@ -1164,25 +1206,25 @@ export default function UserTab() {
                 </thead>
                 <tbody>
                   {isRefreshing ? (
-                    <tr><td colSpan={8} className="p-8 text-center text-slate-400">Loading receipts...</td></tr>
+                    <tr><td colSpan={8} className="p-8 text-center" style={{ color: 'var(--text-500)' }}>Loading receipts...</td></tr>
                   ) : deposits.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-slate-400">
+                      <td colSpan={8} className="p-8 text-center" style={{ color: 'var(--text-500)' }}>
                         <div className="space-y-2">
                           <div>You have no deposits yet.</div>
-                          <div className="text-xs text-slate-500">Use the New Deposit panel above to create your first receipt.</div>
+                          <div className="text-xs" style={{ color: 'var(--text-500)' }}>Use the New Deposit panel above to create your first receipt.</div>
                         </div>
                       </td>
                     </tr>
                   ) : (
                     deposits.map((receipt) => (
-                      <tr key={receipt.id} className="text-sm text-slate-400">
-                        <td className="px-4 py-3 font-mono text-amber-300">#{receipt.id}</td>
-                        <td className="px-4 py-3 font-bold">{receipt.asset}</td>
-                        <td className="px-4 py-3 font-mono text-amber-300">
+                      <tr key={receipt.id} className="text-sm">
+                        <td className="px-4 py-3 font-mono" style={{ color: 'var(--gold-300)' }}>#{receipt.id}</td>
+                        <td className="px-4 py-3 font-bold" style={{ color: 'var(--text-100)' }}>{receipt.asset}</td>
+                        <td className="px-4 py-3 font-mono" style={{ color: 'var(--gold-300)' }}>
                           {formatUsdcValue(Number(formatUnits(receipt.principalAmount, assetDecimals)))}
                         </td>
-                        <td className="px-4 py-3 font-mono text-slate-300">{formatUsdValue(receipt.entryValueUsd)}</td>
+                        <td className="px-4 py-3 font-mono" style={{ color: 'var(--text-300)' }}>{formatUsdValue(receipt.entryValueUsd)}</td>
                         <td className="px-4 py-3 font-mono text-emerald-300">{formatNullableUsdValue(receipt.estimatedProfitUsd)}</td>
                         <td className="px-4 py-3">{formatShortDate(receipt.unlockDate)}</td>
                         <td className="px-4 py-3">

@@ -1,7 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { ethers } from 'ethers';
 import MetricCard from '../ui/MetricCard';
-import { Clock, Scale, Gem, DollarSign, Globe } from 'lucide-react';
+import {
+  ClockIcon as Clock,
+  ScaleIcon as Scale,
+  GemIcon as Gem,
+  USDCIcon as DollarSign,
+  GlobeIcon as Globe,
+} from '../icons/SagittaIcons';
 import PageHeader from '../ui/PageHeader';
 import ReserveControllerAbi from '../../lib/abis/ReserveController.json';
 import GOLDAbiFile from '../../lib/abis/GOLD.json';

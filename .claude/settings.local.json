@@ -28,7 +28,23 @@
       "Bash(node -e \"const a=require\\('./frontend/src/lib/abis/MockUSDC.json'\\); const abi=a.abi||a; console.log\\(abi.filter\\(f=>f.type==='function'\\).map\\(f=>f.name\\)\\)\")",
       "Bash(grep -v \"^$\")",
       "Bash(identify d:/Projects/Sagitta/SAGProtocol/frontend/public/images/icon.png)",
-      "Bash(node -e \"const fs=require\\('fs'\\); const b=fs.readFileSync\\('d:/Projects/Sagitta/SAGProtocol/frontend/public/images/icon.png'\\); console.log\\('size:', b.length, 'bytes'\\); const {execSync}=require\\('child_process'\\); try{console.log\\(execSync\\('magick identify d:/Projects/Sagitta/SAGProtocol/frontend/public/images/icon.png'\\).toString\\(\\)\\)}catch\\(e\\){console.log\\('imagemagick not available'\\)}\")"
+      "Bash(node -e \"const fs=require\\('fs'\\); const b=fs.readFileSync\\('d:/Projects/Sagitta/SAGProtocol/frontend/public/images/icon.png'\\); console.log\\('size:', b.length, 'bytes'\\); const {execSync}=require\\('child_process'\\); try{console.log\\(execSync\\('magick identify d:/Projects/Sagitta/SAGProtocol/frontend/public/images/icon.png'\\).toString\\(\\)\\)}catch\\(e\\){console.log\\('imagemagick not available'\\)}\")",
+      "Bash(wc -l /d/Projects/Sagitta/SAGProtocol/contracts/*.sol)",
+      "Bash(curl -v https://aaa.sagitta.systems/)",
+      "Bash(curl -v https://aaa.sagitta.systems/api/allocation)",
+      "Bash(curl -v https://aaa.sagitta.systems/allocation)",
+      "Bash(curl -s -i https://aaa.sagitta.systems/api/allocation)",
+      "Bash(curl -s -i https://aaa.sagitta.systems/allocation)",
+      "Bash(curl -s -D - https://aaa.sagitta.systems/)",
+      "Bash(curl -s -w \"\\\\nStatus: %{http_code}\\\\nContent-Type: %{content_type}\\\\n\" -H \"Accept: application/json\" https://aaa.sagitta.systems/portfolio)",
+      "Bash(curl -s -w \"\\\\nStatus: %{http_code}\\\\nContent-Type: %{content_type}\\\\n\" -H \"Accept: application/json\" https://aaa.sagitta.systems/weight)",
+      "Bash(curl -s -w \"\\\\nStatus: %{http_code}\\\\nContent-Type: %{content_type}\\\\n\" -H \"Accept: application/json\" https://aaa.sagitta.systems/weights)",
+      "Bash(npm run:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000)",
+      "Bash(curl -s http://localhost:3001)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3001)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3002)",
+      "Bash(curl -s http://localhost:3000)"
     ]
   }
 }

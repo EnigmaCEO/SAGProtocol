@@ -1623,6 +1623,43 @@
       "artifacts": [
         "MockApi3Proxy"
       ]
+    },
+    "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\PortfolioRegistry.sol": {
+      "lastModificationDate": 1776180310740,
+      "contentHash": "c671b17e48b51084b9a8262f89625f21",
+      "sourceName": "contracts/PortfolioRegistry.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "PortfolioRegistry"
+      ]
     }
   }
 }

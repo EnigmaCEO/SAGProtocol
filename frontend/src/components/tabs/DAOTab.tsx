@@ -4,7 +4,15 @@ import { getContract } from '../../lib/ethers';
 import { getRuntimeAddress, setRuntimeAddress, isValidAddress, getDefaultAddress, loadGeneratedRuntimeAddresses } from '../../lib/runtime-addresses';
 import { AppRole, listRoleAssignments, removeAddressRole, ROLES_UPDATED_EVENT, setAddressRole } from '../../lib/roles';
 import { emitUiRefresh } from '../../lib/ui-refresh';
-import { ArrowRightLeft, Clock, Settings, ShieldAlert, UserCog, Zap, Users } from 'lucide-react';
+import {
+  SwapIcon as ArrowRightLeft,
+  ClockIcon as Clock,
+  SettingsIcon as Settings,
+  ShieldAlertIcon as ShieldAlert,
+  UserCogIcon as UserCog,
+  ZapIcon as Zap,
+  UsersIcon as Users,
+} from '../icons/SagittaIcons';
 import useRoleAccess from '../../hooks/useRoleAccess';
 import PageHeader from '../ui/PageHeader';
 import { RPC_URL, IS_LOCAL_CHAIN } from '../../lib/network';
@@ -16,16 +24,21 @@ const DAO_PROPOSALS_KEY = 'sagitta.daoProposals.v1';
 const BATCH_CADENCE_KEY = 'sagitta.batchCadenceSeconds';
 const DEFAULT_BATCH_CADENCE_SECONDS = 7 * 24 * 60 * 60;
 const BATCH_CADENCE_OPTIONS: Array<{ label: string; seconds: number }> = [
-  { label: '1 day', seconds: 24 * 60 * 60 },
-  { label: '1 week', seconds: 7 * 24 * 60 * 60 },
-  { label: '2 weeks', seconds: 14 * 24 * 60 * 60 },
-  { label: '1 month', seconds: 30 * 24 * 60 * 60 },
+  { label: '5 minutes', seconds: 5 * 60 },
+  { label: '1 hour',    seconds: 60 * 60 },
+  { label: '1 day',     seconds: 24 * 60 * 60 },
+  { label: '1 week',    seconds: 7 * 24 * 60 * 60 },
+  { label: '2 weeks',   seconds: 14 * 24 * 60 * 60 },
+  { label: '1 month',   seconds: 30 * 24 * 60 * 60 },
+  { label: '1 year',    seconds: 365 * 24 * 60 * 60 },
 ];
 const VAULT_UNLOCK_OPTIONS: Array<{ label: string; seconds: number }> = [
-  { label: '90 days', seconds: 90 * 24 * 60 * 60 },
-  { label: '180 days', seconds: 180 * 24 * 60 * 60 },
-  { label: '1 year', seconds: 365 * 24 * 60 * 60 },
-  { label: '2 years', seconds: 2 * 365 * 24 * 60 * 60 },
+  { label: '5 minutes', seconds: 5 * 60 },
+  { label: '1 hour',    seconds: 60 * 60 },
+  { label: '1 day',     seconds: 24 * 60 * 60 },
+  { label: '1 week',    seconds: 7 * 24 * 60 * 60 },
+  { label: '1 month',   seconds: 30 * 24 * 60 * 60 },
+  { label: '1 year',    seconds: 365 * 24 * 60 * 60 },
 ];
 
 function formatChainTime(seconds: number | null): string {
@@ -36,20 +49,28 @@ function formatChainTime(seconds: number | null): string {
 function formatSecondsLabel(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return 'N/A';
   if (seconds % (365 * 24 * 60 * 60) === 0) {
-    const years = seconds / (365 * 24 * 60 * 60);
-    return `${years} year${years === 1 ? '' : 's'}`;
+    const n = seconds / (365 * 24 * 60 * 60);
+    return `${n} year${n === 1 ? '' : 's'}`;
   }
   if (seconds % (30 * 24 * 60 * 60) === 0) {
-    const months = seconds / (30 * 24 * 60 * 60);
-    return `${months} month${months === 1 ? '' : 's'}`;
+    const n = seconds / (30 * 24 * 60 * 60);
+    return `${n} month${n === 1 ? '' : 's'}`;
   }
   if (seconds % (7 * 24 * 60 * 60) === 0) {
-    const weeks = seconds / (7 * 24 * 60 * 60);
-    return `${weeks} week${weeks === 1 ? '' : 's'}`;
+    const n = seconds / (7 * 24 * 60 * 60);
+    return `${n} week${n === 1 ? '' : 's'}`;
   }
   if (seconds % (24 * 60 * 60) === 0) {
-    const days = seconds / (24 * 60 * 60);
-    return `${days} day${days === 1 ? '' : 's'}`;
+    const n = seconds / (24 * 60 * 60);
+    return `${n} day${n === 1 ? '' : 's'}`;
+  }
+  if (seconds % (60 * 60) === 0) {
+    const n = seconds / (60 * 60);
+    return `${n} hour${n === 1 ? '' : 's'}`;
+  }
+  if (seconds % 60 === 0) {
+    const n = seconds / 60;
+    return `${n} minute${n === 1 ? '' : 's'}`;
   }
   return `${seconds}s`;
 }
@@ -132,7 +153,49 @@ type ProposalAction =
   | 'TRANSFER_OWNERSHIP'
   | 'SET_GOLD_PRICE'
   | 'REBALANCE_TREASURY'
-  | 'PAY_RECEIPT_PROFIT';
+  | 'PAY_RECEIPT_PROFIT'
+  | 'ADD_PORTFOLIO_ASSET'
+  | 'REMOVE_PORTFOLIO_ASSET';
+
+type PortfolioAsset = {
+  symbol: string;
+  name: string;
+  token: string;
+  oracle: string;
+  riskClass: number;
+  role: number;
+  addedAt: number;
+};
+
+const RISK_CLASS_LABELS = [
+  'Wealth Management',   // 0
+  'Stablecoin',          // 1
+  'DeFi Bluechip',       // 2
+  'Fund of Funds',       // 3
+  'Large Cap',           // 4
+  'Private Credit Fund', // 5
+  'Real World Asset',    // 6
+  'External Protocol',   // 7
+];
+const ASSET_ROLE_LABELS = [
+  'Core',       // 0
+  'Liquidity',  // 1
+  'Satellite',  // 2
+  'Defensive',  // 3
+  'Speculative',// 4
+  'Yield Fund', // 5
+  'External',   // 6
+];
+
+const PORTFOLIO_REGISTRY_ABI = [
+  'function addAsset(string symbol, string name, address token, address oracle, uint8 riskClass, uint8 role) external',
+  'function removeAsset(string symbol) external',
+  'function updateAsset(string symbol, address token, address oracle, uint8 riskClass, uint8 role) external',
+  'function getAllAssets() external view returns (tuple(string symbol, string name, address token, address oracle, uint8 riskClass, uint8 role, uint256 addedAt)[])',
+  'function isInPortfolio(string symbol) external view returns (bool)',
+  'function assetCount() external view returns (uint256)',
+  'function owner() external view returns (address)',
+];
 
 type DaoProposal = {
   id: string;
@@ -234,6 +297,18 @@ export default function DAOTab() {
   const [profitReceiptIdInput, setProfitReceiptIdInput] = useState('');
   const [profitAmountUsdInput, setProfitAmountUsdInput] = useState('');
   const [treasuryControlStatus, setTreasuryControlStatus] = useState<string | null>(null);
+
+  // Portfolio Registry state
+  const [portfolioRegistryAddress, setPortfolioRegistryAddress] = useState<string>(() => getRuntimeAddress('PortfolioRegistry'));
+  const [portfolioAssets, setPortfolioAssets] = useState<PortfolioAsset[]>([]);
+  const [portfolioStatus, setPortfolioStatus] = useState<string | null>(null);
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [newAssetToken, setNewAssetToken] = useState('');
+  const [newAssetSymbol, setNewAssetSymbol] = useState('');
+  const [newAssetName, setNewAssetName] = useState('');
+  const [newAssetOracle, setNewAssetOracle] = useState('');
+  const [newAssetRiskClass, setNewAssetRiskClass] = useState(0);
+  const [newAssetRole, setNewAssetRole] = useState(0);
 
   const nextBatchRollDue = escrowLastRollTime ? escrowLastRollTime + batchCadenceSeconds : null;
   const ownerCouncil = dedupeAddresses(
@@ -343,6 +418,12 @@ export default function DAOTab() {
     refreshConfigState();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, treasuryAddress, vaultAddress, escrowAddress, reserveAddress]);
+
+  useEffect(() => {
+    if (!provider) return;
+    refreshPortfolioState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider, portfolioRegistryAddress]);
 
   async function refreshChainClock(rpcProvider: ethers.JsonRpcProvider) {
     try {
@@ -753,6 +834,10 @@ export default function DAOTab() {
         ok = await handleTreasuryRebalance(true);
       } else if (proposal.action === 'PAY_RECEIPT_PROFIT') {
         ok = await handlePayReceiptProfit(true, proposal.payload);
+      } else if (proposal.action === 'ADD_PORTFOLIO_ASSET') {
+        ok = await handleAddPortfolioAsset(true, proposal.payload);
+      } else if (proposal.action === 'REMOVE_PORTFOLIO_ASSET') {
+        ok = await handleRemovePortfolioAsset(true, proposal.payload);
       }
 
       setGovernanceProposals(prev =>
@@ -1594,6 +1679,163 @@ export default function DAOTab() {
     }
   };
 
+  const refreshPortfolioState = async () => {
+    if (!provider || !isValidAddress(portfolioRegistryAddress)) {
+      setPortfolioAssets([]);
+      return;
+    }
+    setPortfolioLoading(true);
+    try {
+      const registry = new ethers.Contract(portfolioRegistryAddress, PORTFOLIO_REGISTRY_ABI, provider);
+      const raw = await registry.getAllAssets();
+      setPortfolioAssets(
+        raw.map((a: any) => ({
+          symbol:    String(a.symbol ?? a[0] ?? ''),
+          name:      String(a.name   ?? a[1] ?? ''),
+          token:     String(a.token  ?? a[2] ?? ''),
+          oracle:    String(a.oracle ?? a[3] ?? ''),
+          riskClass: Number(a.riskClass ?? a[4] ?? 0),
+          role:      Number(a.role      ?? a[5] ?? 0),
+          addedAt:   Number(a.addedAt   ?? a[6] ?? 0),
+        }))
+      );
+    } catch {
+      setPortfolioAssets([]);
+    } finally {
+      setPortfolioLoading(false);
+    }
+  };
+
+  const handleAddPortfolioAsset = async (
+    bypassProposal = false,
+    payload?: {
+      symbol?: string;
+      name?: string;
+      token?: string;
+      oracle?: string;
+      riskClass?: number;
+      role?: number;
+    }
+  ): Promise<boolean> => {
+    const symbol    = (payload?.symbol ?? newAssetSymbol).trim();
+    const name      = (payload?.name   ?? newAssetName).trim();
+    const token     = (payload?.token  ?? newAssetToken).trim();
+    const oracle    = (payload?.oracle ?? newAssetOracle).trim();
+    const riskClass = payload?.riskClass ?? newAssetRiskClass;
+    const role      = payload?.role      ?? newAssetRole;
+
+    if (!symbol) {
+      setPortfolioStatus('Symbol is required');
+      return false;
+    }
+    // token is optional — external/off-chain assets may have no ERC-20 contract
+    if (token && !isValidAddress(token)) {
+      setPortfolioStatus('Token address must be a valid 0x address or left blank');
+      return false;
+    }
+    if (!isValidAddress(portfolioRegistryAddress)) {
+      setPortfolioStatus('PortfolioRegistry address not set');
+      return false;
+    }
+
+    const tokenAddr = isValidAddress(token) ? token : ethers.ZeroAddress;
+    const oracleAddr = isValidAddress(oracle) ? oracle : ethers.ZeroAddress;
+
+    if (!bypassProposal) {
+      if (!isOp) {
+        setPortfolioStatus('Only operators can propose portfolio changes');
+        return false;
+      }
+      const proposal = queueProposal(
+        'ADD_PORTFOLIO_ASSET',
+        `Add ${symbol} to Portfolio`,
+        `Add asset ${symbol} (${name || 'unnamed'}) to the accepted allocation portfolio as ${ASSET_ROLE_LABELS[role]} / ${RISK_CLASS_LABELS[riskClass]}.`,
+        { symbol, name, token: tokenAddr, oracle: oracleAddr, riskClass, role }
+      );
+      setPortfolioStatus(`Proposal queued (${proposal.id})`);
+      return true;
+    }
+
+    if (!provider) {
+      setPortfolioStatus('Local RPC provider not ready');
+      return false;
+    }
+
+    setConfigBusy(true);
+    try {
+      const signer = getWriteSigner();
+      const registry = new ethers.Contract(portfolioRegistryAddress, PORTFOLIO_REGISTRY_ABI, signer);
+      const tx = await registry.addAsset(symbol, name, tokenAddr, oracleAddr, riskClass, role);
+      await tx.wait();
+      setNewAssetToken('');
+      setNewAssetSymbol('');
+      setNewAssetName('');
+      setNewAssetOracle('');
+      setNewAssetRiskClass(0);
+      setNewAssetRole(0);
+      setPortfolioStatus(`Asset ${symbol} added to portfolio (tx=${tx.hash})`);
+      await refreshPortfolioState();
+      return true;
+    } catch (error: any) {
+      setPortfolioStatus(`Add asset failed: ${formatError(error)}`);
+      return false;
+    } finally {
+      setConfigBusy(false);
+    }
+  };
+
+  const handleRemovePortfolioAsset = async (
+    bypassProposal = false,
+    payload?: { token?: string; symbol?: string }
+  ): Promise<boolean> => {
+    const symbol = (payload?.symbol ?? '').trim();
+
+    if (!symbol) {
+      setPortfolioStatus('Symbol is required to remove an asset');
+      return false;
+    }
+    if (!isValidAddress(portfolioRegistryAddress)) {
+      setPortfolioStatus('PortfolioRegistry address not set');
+      return false;
+    }
+
+    if (!bypassProposal) {
+      if (!isOp) {
+        setPortfolioStatus('Only operators can propose portfolio changes');
+        return false;
+      }
+      const proposal = queueProposal(
+        'REMOVE_PORTFOLIO_ASSET',
+        `Remove ${symbol} from Portfolio`,
+        `Remove asset ${symbol} from the accepted allocation portfolio.`,
+        { symbol }
+      );
+      setPortfolioStatus(`Proposal queued (${proposal.id})`);
+      return true;
+    }
+
+    if (!provider) {
+      setPortfolioStatus('Local RPC provider not ready');
+      return false;
+    }
+
+    setConfigBusy(true);
+    try {
+      const signer = getWriteSigner();
+      const registry = new ethers.Contract(portfolioRegistryAddress, PORTFOLIO_REGISTRY_ABI, signer);
+      const tx = await registry.removeAsset(symbol);
+      await tx.wait();
+      setPortfolioStatus(`Asset ${symbol} removed from portfolio (tx=${tx.hash})`);
+      await refreshPortfolioState();
+      return true;
+    } catch (error: any) {
+      setPortfolioStatus(`Remove asset failed: ${formatError(error)}`);
+      return false;
+    } finally {
+      setConfigBusy(false);
+    }
+  };
+
   function handleSaveRoleAssignment() {
     if (vaultPaused) {
       setRoleStatus('Protocol is paused. Role management is disabled until resume.');
@@ -1669,14 +1911,28 @@ export default function DAOTab() {
       {isOp ? (
         <section className="grid grid-cols-12 gap-5">
           <div className="sagitta-cell col-span-12 lg:col-span-5">
-            <h3 className="section-title">Local Time + Batch Schedule</h3>
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="section-title !mb-0">Local Time + Batch Schedule</h3>
+              {isLocalhostNetwork
+                ? <span className="data-chip" data-tone="success" style={{ fontSize: '0.65rem' }}>LOCALHOST</span>
+                : <span className="data-chip" data-tone="warning" style={{ fontSize: '0.65rem' }}>TESTNET — time controls disabled</span>
+              }
+            </div>
             <div className="text-xs text-slate-400 mb-3">Chain {localChainId ?? 'unknown'} - Block time {formatChainTime(localChainTime)}</div>
-            <div className="flex flex-wrap gap-2 mb-4">
-            <button className="chip-button" onClick={() => handleAdvanceLocalTime(24 * 60 * 60, '+1 day')} disabled={vaultPaused || !isLocalhostNetwork || configBusy || timeControlLoading}>+1 Day</button>
-            <button className="chip-button" onClick={() => handleAdvanceLocalTime(7 * 24 * 60 * 60, '+1 week')} disabled={vaultPaused || !isLocalhostNetwork || configBusy || timeControlLoading}>+1 Week</button>
-            <button className="chip-button" onClick={() => handleAdvanceLocalTime(30 * 24 * 60 * 60, '+1 month')} disabled={vaultPaused || !isLocalhostNetwork || configBusy || timeControlLoading}>+1 Month</button>
-            <button className="chip-button" onClick={() => handleAdvanceLocalTime(365 * 24 * 60 * 60, '+1 year')} disabled={vaultPaused || !isLocalhostNetwork || configBusy || timeControlLoading}>+1 Year</button>
-          </div>
+            {isLocalhostNetwork ? (
+              <div className="flex flex-wrap gap-2 mb-4">
+                <button className="chip-button" onClick={() => handleAdvanceLocalTime(5 * 60, '+5 min')} disabled={vaultPaused || configBusy || timeControlLoading}>+5 Min</button>
+                <button className="chip-button" onClick={() => handleAdvanceLocalTime(60 * 60, '+1 hour')} disabled={vaultPaused || configBusy || timeControlLoading}>+1 Hour</button>
+                <button className="chip-button" onClick={() => handleAdvanceLocalTime(24 * 60 * 60, '+1 day')} disabled={vaultPaused || configBusy || timeControlLoading}>+1 Day</button>
+                <button className="chip-button" onClick={() => handleAdvanceLocalTime(7 * 24 * 60 * 60, '+1 week')} disabled={vaultPaused || configBusy || timeControlLoading}>+1 Week</button>
+                <button className="chip-button" onClick={() => handleAdvanceLocalTime(30 * 24 * 60 * 60, '+1 month')} disabled={vaultPaused || configBusy || timeControlLoading}>+1 Month</button>
+                <button className="chip-button" onClick={() => handleAdvanceLocalTime(365 * 24 * 60 * 60, '+1 year')} disabled={vaultPaused || configBusy || timeControlLoading}>+1 Year</button>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 px-3 py-2 text-xs text-slate-500 mb-4">
+                Time controls are only available on a local Hardhat node.
+              </div>
+            )}
           <div className="space-y-2">
             <label className="text-xs uppercase tracking-[0.16em] text-slate-400">Batch Timing</label>
             <select className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={String(batchCadenceSeconds)} onChange={e => setBatchCadenceSeconds(Number(e.target.value))} disabled={vaultPaused || configBusy}>
@@ -1872,6 +2128,209 @@ export default function DAOTab() {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {isOp ? (
+        <section className="grid grid-cols-12 gap-5">
+          <div className="sagitta-cell col-span-12">
+            <h3 className="section-title flex items-center gap-2">
+              <ArrowRightLeft size={18} /> Portfolio Registry
+            </h3>
+            <p className="section-subtitle">
+              Define the accepted allocation portfolio. Owners propose adding or removing assets; allocation weights are applied per-batch by the AAA (Autonomous Allocation Agent).
+            </p>
+
+            {/* Registry address */}
+            <div className="mt-4 flex flex-col sm:flex-row gap-3 items-end">
+              <div className="flex-1 space-y-1">
+                <label className="text-xs uppercase tracking-[0.16em] text-slate-400">Portfolio Registry Address</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs"
+                  value={portfolioRegistryAddress}
+                  onChange={e => {
+                    setPortfolioRegistryAddress(e.target.value);
+                    setRuntimeAddress('PortfolioRegistry', e.target.value);
+                  }}
+                  placeholder="0x..."
+                  disabled={configBusy}
+                />
+              </div>
+              <button
+                className="action-button action-button--ghost"
+                onClick={refreshPortfolioState}
+                disabled={portfolioLoading || configBusy}
+              >
+                {portfolioLoading ? 'Loading...' : 'Refresh'}
+              </button>
+            </div>
+
+            <div className="mt-6 grid sm:grid-cols-2 xl:grid-cols-3 gap-6">
+              {/* Add asset form */}
+              <div className="flex flex-col gap-3 p-2 col-span-1 xl:col-span-2">
+                <label className="text-slate-300 font-medium">Propose Add Asset</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs uppercase tracking-[0.12em] text-slate-400">Symbol <span className="text-rose-400">*</span></label>
+                    <input
+                      className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
+                      value={newAssetSymbol}
+                      onChange={e => setNewAssetSymbol(e.target.value)}
+                      placeholder="e.g. SPC"
+                      disabled={vaultPaused || !isOp || configBusy || !!proposalExecId}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs uppercase tracking-[0.12em] text-slate-400">Name</label>
+                    <input
+                      className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
+                      value={newAssetName}
+                      onChange={e => setNewAssetName(e.target.value)}
+                      placeholder="e.g. Sagitta SPC"
+                      disabled={vaultPaused || !isOp || configBusy || !!proposalExecId}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs uppercase tracking-[0.12em] text-slate-400">
+                      Token Address <span className="normal-case text-slate-500">(optional)</span>
+                    </label>
+                    <input
+                      className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs"
+                      value={newAssetToken}
+                      onChange={e => setNewAssetToken(e.target.value)}
+                      placeholder="0x... — leave blank for external assets"
+                      disabled={vaultPaused || !isOp || configBusy || !!proposalExecId}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs uppercase tracking-[0.12em] text-slate-400">
+                      Oracle Address <span className="normal-case text-slate-500">(optional)</span>
+                    </label>
+                    <input
+                      className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs"
+                      value={newAssetOracle}
+                      onChange={e => setNewAssetOracle(e.target.value)}
+                      placeholder="0x... — leave blank if not yet wired"
+                      disabled={vaultPaused || !isOp || configBusy || !!proposalExecId}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs uppercase tracking-[0.12em] text-slate-400">Risk Class</label>
+                    <select
+                      className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
+                      value={newAssetRiskClass}
+                      onChange={e => setNewAssetRiskClass(Number(e.target.value))}
+                      disabled={vaultPaused || !isOp || configBusy || !!proposalExecId}
+                    >
+                      {RISK_CLASS_LABELS.map((label, i) => (
+                        <option key={i} value={i}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs uppercase tracking-[0.12em] text-slate-400">Role</label>
+                    <select
+                      className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
+                      value={newAssetRole}
+                      onChange={e => setNewAssetRole(Number(e.target.value))}
+                      disabled={vaultPaused || !isOp || configBusy || !!proposalExecId}
+                    >
+                      {ASSET_ROLE_LABELS.map((label, i) => (
+                        <option key={i} value={i}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <button
+                  className="action-button action-button--primary mt-1"
+                  onClick={() => handleAddPortfolioAsset()}
+                  disabled={vaultPaused || !isOp || !newAssetSymbol.trim() || configBusy || !!proposalExecId}
+                >
+                  Propose Add Asset
+                </button>
+              </div>
+
+              {/* Notes */}
+              <div className="flex flex-col gap-3 p-2">
+                <label className="text-slate-300 font-medium">Operator Notes</label>
+                <ul className="note-list">
+                  <li>Each asset addition/removal goes through the DAO proposal queue and requires owner approval.</li>
+                  <li>Oracle address is optional at registration; wire it via an update proposal before the asset is live in batch allocation.</li>
+                  <li>Allocation weights (Current Weight, Expected Return, Volatility) come from the AAA at <span className="font-mono text-slate-300">aaa.sagitta.systems</span> and are not stored on-chain.</li>
+                </ul>
+                {portfolioStatus && (
+                  <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-3 text-xs text-slate-300">
+                    {portfolioStatus}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Asset table */}
+            <div className="mt-6">
+              <div className="text-xs uppercase tracking-[0.16em] text-slate-400 mb-3">
+                Active Portfolio Assets ({portfolioAssets.length})
+              </div>
+              {portfolioAssets.length === 0 ? (
+                <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-4 text-sm text-slate-400">
+                  {portfolioLoading ? 'Loading portfolio...' : isValidAddress(portfolioRegistryAddress) ? 'No assets in portfolio yet.' : 'Set PortfolioRegistry address above to view assets.'}
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-700/50">
+                  <table className="w-full text-xs text-slate-300">
+                    <thead>
+                      <tr className="border-b border-slate-700/50 bg-slate-900/50">
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Symbol</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Name</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Risk Class</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Role</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Token</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Oracle</th>
+                        <th className="px-3 py-2" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {portfolioAssets.map((asset, idx) => (
+                        <tr key={`${asset.token}-${idx}`} className="border-b border-slate-700/30 hover:bg-slate-800/30">
+                          <td className="px-3 py-2 font-semibold text-slate-100">{asset.symbol}</td>
+                          <td className="px-3 py-2">{asset.name}</td>
+                          <td className="px-3 py-2">
+                            <span className="rounded-full px-2 py-0.5 bg-slate-700/60 text-slate-300">
+                              {RISK_CLASS_LABELS[asset.riskClass] ?? asset.riskClass}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] ${
+                              asset.role === 0 ? 'bg-sky-700/40 text-sky-200' :
+                              asset.role === 1 ? 'bg-emerald-700/40 text-emerald-200' :
+                              asset.role === 2 ? 'bg-violet-700/40 text-violet-200' :
+                              asset.role === 3 ? 'bg-amber-700/40 text-amber-200' :
+                              'bg-rose-700/40 text-rose-200'
+                            }`}>
+                              {ASSET_ROLE_LABELS[asset.role] ?? asset.role}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 font-mono">{formatAddressShort(asset.token)}</td>
+                          <td className="px-3 py-2 font-mono">{isValidAddress(asset.oracle) && asset.oracle !== ethers.ZeroAddress ? formatAddressShort(asset.oracle) : <span className="text-slate-500">none</span>}</td>
+                          <td className="px-3 py-2">
+                            {isOp && (
+                              <button
+                                className="px-2 py-1 rounded bg-rose-900/50 hover:bg-rose-800/70 text-rose-200 text-[10px] font-semibold border border-rose-700/40 disabled:opacity-40"
+                                onClick={() => handleRemovePortfolioAsset(false, { symbol: asset.symbol })}
+                                disabled={vaultPaused || configBusy || !!proposalExecId}
+                              >
+                                Propose Remove
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         </section>

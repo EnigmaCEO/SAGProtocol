@@ -1,6 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import MetricCard from '../ui/MetricCard';
-import { Clock } from 'lucide-react';
+import { ClockIcon as Clock } from '../icons/SagittaIcons';
+
+// AAA + PortfolioRegistry types
+type AAAAssetWeight = { symbol: string; weight: number; expectedReturn?: number; volatility?: number; };
+type AAAAllocation = { source: 'aaa' | 'fallback'; timestamp: string; assets: AAAAssetWeight[]; };
+type PortfolioRegistryAsset = { symbol: string; name: string; token: string; riskClass: number; role: number; };
+
+const RISK_CLASS_LABELS = ['Wealth Management','Stablecoin','DeFi Bluechip','Fund of Funds','Large Cap','Private Credit Fund','Real World Asset','External Protocol'];
+const ASSET_ROLE_LABELS = ['Core','Liquidity','Satellite','Defensive','Speculative','Yield Fund','External'];
+const PORTFOLIO_REGISTRY_ABI = [
+  'function getAllAssets() external view returns (tuple(string symbol, string name, address token, address oracle, uint8 riskClass, uint8 role, uint256 addedAt)[])',
+];
+const AAA_ENDPOINT = 'https://aaa.sagitta.systems/api/v1/allocation';
 
 // NEW imports for on-chain interactions
 import { JsonRpcProvider, Contract, Wallet, Interface } from 'ethers';
@@ -64,6 +76,12 @@ export default function EscrowTab() {
   const [activePage, setActivePage] = useState<number>(1);
   const [investedPage, setInvestedPage] = useState<number>(1);
   const [closedPage, setClosedPage] = useState<number>(1);
+
+  // AAA allocation state
+  const [aaaAllocation, setAaaAllocation] = useState<AAAAllocation | null>(null);
+  const [aaaLoading, setAaaLoading] = useState(false);
+  const [aaaError, setAaaError] = useState<string | null>(null);
+  const [portfolioAssets, setPortfolioAssets] = useState<PortfolioRegistryAsset[]>([]);
 
   useEffect(() => {
     const rp = new JsonRpcProvider(LOCALHOST_RPC);
@@ -731,6 +749,58 @@ export default function EscrowTab() {
 
   useEffect(() => { refresh(); }, [provider, escrowAddr]);
 
+  async function fetchPortfolioAssets() {
+    const registryAddr = getRuntimeAddress('PortfolioRegistry');
+    if (!registryAddr || !provider) return;
+    try {
+      const registry = new Contract(registryAddr, PORTFOLIO_REGISTRY_ABI, provider);
+      const raw = await registry.getAllAssets();
+      setPortfolioAssets(raw.map((a: any) => ({
+        symbol: a.symbol,
+        name: a.name,
+        token: a.token,
+        riskClass: Number(a.riskClass),
+        role: Number(a.role),
+      })));
+    } catch (e) {
+      console.warn('Failed to fetch portfolio assets:', e);
+    }
+  }
+
+  async function fetchAAAAllocation(assets: PortfolioRegistryAsset[]) {
+    setAaaLoading(true);
+    setAaaError(null);
+    try {
+      const resp = await fetch(AAA_ENDPOINT, { signal: AbortSignal.timeout(8000) });
+      if (resp.ok) {
+        const data = await resp.json();
+        const fetched: AAAAssetWeight[] = data.assets ?? data.allocations ?? [];
+        if (fetched.length > 0) {
+          setAaaAllocation({ source: 'aaa', timestamp: new Date().toISOString(), assets: fetched });
+          setAaaLoading(false);
+          return;
+        }
+      }
+    } catch (_) {}
+    // Fallback: equal weights across all active portfolio assets
+    if (assets.length > 0) {
+      const w = 1 / assets.length;
+      setAaaAllocation({
+        source: 'fallback',
+        timestamp: new Date().toISOString(),
+        assets: assets.map(a => ({ symbol: a.symbol, weight: w })),
+      });
+      setAaaError('AAA service not reachable — showing equal-weight fallback');
+    } else {
+      setAaaError('AAA service not reachable and no portfolio assets found in registry');
+    }
+    setAaaLoading(false);
+  }
+
+  useEffect(() => {
+    if (provider) fetchPortfolioAssets();
+  }, [provider]);
+
   async function depositReturnForBatch() {
     if (isPaused) {
       setLog(l => ['[escrow] protocol is paused; return deposit is disabled', ...l]);
@@ -1130,7 +1200,7 @@ export default function EscrowTab() {
           <h3 className="section-title">Escrow Snapshot</h3>
           <div className="space-y-3">
             <MetricCard title="Escrow USDC Balance" value={formatUsd6Value(escrowUsdc ?? 0)} tone="neutral" />
-            <div className="rounded-xl border border-slate-700/45 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.005)),rgba(12,20,33,0.88)] p-4">
+            <div className="rounded-xl border border-slate-700/45 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.005)),rgba(8,9,12,0.88)] p-4">
               <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400 font-semibold">Escrow Address</div>
               <div className="mt-3 text-lg text-slate-100 font-mono">{formatAddressShort(escrowAddr)}</div>
               <div className="mt-2 text-xs text-slate-400 break-all">{escrowAddr ?? 'not set'}</div>
@@ -1249,6 +1319,113 @@ export default function EscrowTab() {
           </ul>
         </div>
       </section>
+
+      {activeBatches.length > 0 && (
+        <section className="grid grid-cols-12 gap-5">
+          <div className="sagitta-cell col-span-12">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="section-title !mb-0">AAA Allocation</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Recommended weights from <span className="font-mono">aaa.sagitta.systems</span> for the active batch.
+                  Review before confirming investment.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                {aaaAllocation && (
+                  <span className={`data-chip ${aaaAllocation.source === 'aaa' ? '' : 'text-amber-400'}`}>
+                    {aaaAllocation.source === 'aaa' ? 'Live from AAA' : 'Equal-weight fallback'}
+                  </span>
+                )}
+                <button
+                  className="action-button action-button--secondary"
+                  onClick={() => fetchAAAAllocation(portfolioAssets)}
+                  disabled={aaaLoading}
+                >
+                  {aaaLoading ? 'Fetching...' : aaaAllocation ? 'Refresh AAA' : 'Fetch from AAA'}
+                </button>
+              </div>
+            </div>
+
+            {aaaError && (
+              <div className="text-amber-400 text-xs mb-3 px-1">{aaaError}</div>
+            )}
+
+            {aaaAllocation && (() => {
+              const batch = activeBatches[0];
+              const principal = Number(batch?.totalCollateralUsd ?? 0);
+              return (
+                <div>
+                  <div className="text-xs text-slate-400 mb-3">
+                    Batch #{batch?.id} &middot; {fmtUsd6(principal)} total
+                    {aaaAllocation.source === 'fallback' && (
+                      <span className="ml-2 text-amber-400">
+                        (equal weights — deploy AAA endpoint to get live weights)
+                      </span>
+                    )}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs uppercase tracking-widest text-slate-400 border-b border-slate-700">
+                          <th className="pb-2 pr-6">Asset</th>
+                          <th className="pb-2 pr-6">Risk Class</th>
+                          <th className="pb-2 pr-6">Role</th>
+                          <th className="pb-2 pr-6 text-right">Weight</th>
+                          <th className="pb-2 text-right">USDC Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {aaaAllocation.assets.map((a) => {
+                          const meta = portfolioAssets.find(p => p.symbol === a.symbol);
+                          const usdcAmt = Math.round(principal * a.weight);
+                          return (
+                            <tr key={a.symbol} className="border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors">
+                              <td className="py-2 pr-6">
+                                <span className="font-mono text-slate-100">{a.symbol}</span>
+                                {meta && <span className="ml-2 text-slate-500 text-xs">{meta.name}</span>}
+                              </td>
+                              <td className="py-2 pr-6 text-slate-400 text-xs">
+                                {meta ? RISK_CLASS_LABELS[meta.riskClass] : '–'}
+                              </td>
+                              <td className="py-2 pr-6 text-slate-400 text-xs">
+                                {meta ? ASSET_ROLE_LABELS[meta.role] : '–'}
+                              </td>
+                              <td className="py-2 pr-6 text-right text-slate-200 font-mono">
+                                {(a.weight * 100).toFixed(1)}%
+                              </td>
+                              <td className="py-2 text-right text-slate-200 font-mono">
+                                {fmtUsd6(usdcAmt)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t border-slate-600">
+                          <td colSpan={3} className="pt-2 text-xs text-slate-500">Total</td>
+                          <td className="pt-2 text-right font-mono text-slate-200 text-xs">
+                            {(aaaAllocation.assets.reduce((s, a) => s + a.weight, 0) * 100).toFixed(1)}%
+                          </td>
+                          <td className="pt-2 text-right font-mono text-slate-200 text-xs">
+                            {fmtUsd6(principal)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {!aaaAllocation && !aaaLoading && (
+              <div className="text-slate-500 text-sm py-6 text-center">
+                Click <strong>Fetch from AAA</strong> to load recommended allocation weights for the active batch.
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       <section className="grid grid-cols-12 gap-5">
         <div className="sagitta-cell col-span-12">

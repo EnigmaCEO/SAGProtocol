@@ -8,20 +8,21 @@ interface AppShellProps {
 
 export default function AppShell({ sidebar, topbar, children }: AppShellProps) {
   return (
-    <div className="relative h-screen w-screen overflow-hidden text-slate-100">
-      <div className="pointer-events-none absolute inset-0 opacity-80 [background:radial-gradient(1100px_420px_at_10%_-12%,rgba(78,130,196,0.16),transparent_58%),radial-gradient(850px_380px_at_95%_-10%,rgba(30,159,126,0.1),transparent_55%),repeating-linear-gradient(90deg,rgba(255,255,255,0.02)_0px,rgba(255,255,255,0.02)_1px,transparent_1px,transparent_120px)]" />
+    <div className="relative flex h-screen w-screen overflow-hidden text-slate-100">
+      {/* Ambient background gradients */}
+      <div className="pointer-events-none absolute inset-0 z-0 " />
 
-      <div className="shell-layout">
-        <header className="surface-frame shrink-0">
-          <div className="shell-header-nav">
-            {sidebar}
-          </div>
-          <div className="shell-header-status">
-            {topbar}
-          </div>
+      {/* Left sidebar */}
+      <aside className="sidebar-panel relative z-10 flex shrink-0 flex-col" style={{ width: 220 }}>
+        {sidebar}
+      </aside>
+
+      {/* Right: topbar + content */}
+      <div className="relative z-10 flex flex-1 flex-col min-w-0 overflow-hidden">
+        <header className="shrink-0 topbar-header">
+          {topbar}
         </header>
-
-        <main className="shell-main scrollbar-thin">
+        <main className="flex-1 overflow-y-auto scrollbar-thin">
           <div className="shell-main-inner">
             {children}
           </div>

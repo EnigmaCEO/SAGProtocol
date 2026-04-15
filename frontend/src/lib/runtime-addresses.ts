@@ -9,7 +9,8 @@ export type RuntimeAddressKey =
   | "ReserveController"
   | "GoldOracle"
   | "MockUSDC"
-  | "ReceiptNFT";
+  | "ReceiptNFT"
+  | "PortfolioRegistry";
 
 const STORAGE_PREFIX = "sagitta.runtimeAddress.";
 const GENERATED_SIGNATURE_KEY = `${STORAGE_PREFIX}generatedSignature`;
@@ -21,6 +22,7 @@ const MANAGED_KEYS: RuntimeAddressKey[] = [
   "GoldOracle",
   "MockUSDC",
   "ReceiptNFT",
+  "PortfolioRegistry",
 ];
 let hasSessionSynced = false;
 

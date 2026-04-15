@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { JsonRpcProvider, Contract, Wallet } from 'ethers';
 
 import MetricCard from '../ui/MetricCard';
-import { Clock, RefreshCw } from 'lucide-react';
+import { ClockIcon as Clock, RefreshIcon as RefreshCw } from '../icons/SagittaIcons';
 import PageHeader from '../ui/PageHeader';
 
 import TREASURY_ABI from '../../lib/abis/Treasury.json';
@@ -760,8 +760,12 @@ export default function TreasuryTab() {
   }
 
   // --- Render ---
-  const availableUsdc = Math.max(usdcBalance - collateralizedUsd, 0);
-  const collateralShortfall = Math.max(collateralizedUsd - usdcBalance, 0);
+  // USDC deployed to Escrow has already left Treasury's balance. Only reserve the
+  // *unfunded* portion of depositor liabilities (what Treasury hasn't yet sent out).
+  const deployedToEscrow = escrowUsdcBalance;
+  const unfundedLiability = Math.max(collateralizedUsd - deployedToEscrow, 0);
+  const availableUsdc = Math.max(usdcBalance - unfundedLiability, 0);
+  const collateralShortfall = Math.max(unfundedLiability - usdcBalance, 0);
   const treasuryValuationGap = Math.abs(treasuryUsd - usdcBalance);
   return (
     <div className="tab-screen">
@@ -847,7 +851,11 @@ export default function TreasuryTab() {
           <div className="sagitta-cell">
             <h3 className="section-title">Escrow</h3>
             <div className="panel-stack panel-stack--dense">
-              <MetricCard title="Escrow USDC Balance" value={formatUsd(escrowUsdcBalance)} tone="neutral" />
+              <MetricCard
+                title="Deployed to Batches"
+                value={formatUsd(deployedToEscrow)}
+                tone={deployedToEscrow > 0 ? 'warning' : 'neutral'}
+              />
               <MetricCard title="Escrow Address" value={formatAddressShort(escrowAddress)} tone="neutral" />
             </div>
           </div>

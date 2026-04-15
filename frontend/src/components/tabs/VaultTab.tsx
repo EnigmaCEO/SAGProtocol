@@ -1,4 +1,10 @@
-import { Clock, Lock, Users, Layers, Repeat } from 'lucide-react';
+import {
+  ClockIcon as Clock,
+  LockedIcon as Lock,
+  UsersIcon as Users,
+  LayersIcon as Layers,
+  RepeatIcon as Repeat,
+} from '../icons/SagittaIcons';
 import MetricCard from '../ui/MetricCard';
 import useVaultMetrics from '../../hooks/useVaultMetrics';
 import { useEffect, useState } from 'react';
