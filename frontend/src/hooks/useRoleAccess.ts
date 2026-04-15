@@ -12,6 +12,8 @@ const LOCAL_DEMO_OWNER = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 const LOCALHOST_RPC = RPC_URL;
 const ROLE_VIEW_OVERRIDE_KEY = 'sagitta.roleViewOverride.v1';
 export const ROLE_VIEW_OVERRIDE_EVENT = 'sagitta:role-view-override';
+export const WALLET_MODE_CHANGED_EVENT = 'sagitta:wallet-mode-changed';
+const WALLET_MODE_KEY = 'sagitta.walletMode';
 
 function normalizeAddress(value: unknown): string | null {
   if (typeof value !== 'string' || !ethers.isAddress(value)) return null;
@@ -35,11 +37,25 @@ function readPersistedAddress(): string | null {
 }
 
 async function resolveSessionAddress(): Promise<string | null> {
-  // 1. MetaMask synchronous selectedAddress (available when wallet is unlocked)
+  const walletMode = typeof window !== 'undefined' ? window.localStorage.getItem(WALLET_MODE_KEY) : null;
+
+  // 0. Demo mode — always the hardhat demo address
+  if (walletMode === 'demo') return normalizeAddress(LOCAL_DEMO_OWNER);
+
+  // 1. Injected mode — the specific address the user picked in the wallet modal is the
+  //    authoritative source.  MetaMask's selectedAddress may differ (different account
+  //    unlocked) and must not override the explicit user selection.
+  if (walletMode === 'injected') {
+    const persisted = readPersistedAddress();
+    if (persisted) return persisted;
+    // Fall back to whatever MetaMask currently reports if the key was somehow cleared
+  }
+
+  // 2. MetaMask synchronous selectedAddress (available when wallet is unlocked)
   const injected = readSelectedAddress();
   if (injected) return injected;
 
-  // 2. eth_accounts — non-prompting, returns already-granted accounts after page refresh
+  // 3. eth_accounts — non-prompting, returns already-granted accounts after page refresh
   const eth = typeof window !== 'undefined' ? (window as any).ethereum : null;
   if (eth?.request) {
     try {
@@ -51,15 +67,13 @@ async function resolveSessionAddress(): Promise<string | null> {
     } catch { /* wallet locked */ }
   }
 
-  // 3. localStorage — address persisted by useWallet on last connect
-  // Skip on local chains: the persisted address is likely a live-network wallet
-  // that won't match the local Hardhat deployer, causing the demo to show as viewer.
+  // 4. localStorage persisted address (live networks only)
   if (!IS_LOCAL_CHAIN) {
     const persisted = readPersistedAddress();
     if (persisted) return persisted;
   }
 
-  // 4. Last resort: demo signer (localhost only — gives viewer role on live chains)
+  // 5. Last resort: demo signer (localhost only — gives viewer role on live chains)
   try {
     const signer = await getSigner();
     return normalizeAddress(await signer.getAddress());
@@ -160,8 +174,13 @@ export default function useRoleAccess(): {
 
     const handleAccountsChanged = (accounts: string[]) => {
       if (!active) return;
+      const mode = typeof window !== 'undefined' ? window.localStorage.getItem(WALLET_MODE_KEY) : null;
+      // Don't let MetaMask account changes override an explicit demo mode selection
+      if (mode === 'demo') return;
       const nextAddress = Array.isArray(accounts) && accounts.length > 0 ? normalizeAddress(accounts[0]) : null;
       if (nextAddress) {
+        // Keep the persisted key in sync so header and UserTab stay aligned after reload
+        try { window.localStorage.setItem(WALLET_STORAGE_KEY, nextAddress); } catch { /* ignore */ }
         setAddress(nextAddress);
         return;
       }
@@ -177,6 +196,7 @@ export default function useRoleAccess(): {
       }
       window.addEventListener(ROLES_UPDATED_EVENT, syncAccess as EventListener);
       window.addEventListener(ROLE_VIEW_OVERRIDE_EVENT, syncRoleViewOverride as EventListener);
+      window.addEventListener(WALLET_MODE_CHANGED_EVENT, syncAccess as EventListener);
       window.addEventListener('storage', syncAccess);
 
       return () => {
@@ -186,6 +206,7 @@ export default function useRoleAccess(): {
         }
         window.removeEventListener(ROLES_UPDATED_EVENT, syncAccess as EventListener);
         window.removeEventListener(ROLE_VIEW_OVERRIDE_EVENT, syncRoleViewOverride as EventListener);
+        window.removeEventListener(WALLET_MODE_CHANGED_EVENT, syncAccess as EventListener);
         window.removeEventListener('storage', syncAccess);
       };
     }

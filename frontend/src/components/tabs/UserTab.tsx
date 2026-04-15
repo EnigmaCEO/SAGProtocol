@@ -33,6 +33,7 @@ import PageHeader from '../ui/PageHeader';
 import QRConnectModal, { type ConnectedWallet } from '../ui/QRConnectModal';
 import { RPC_URL, ACTIVE_CHAIN, CHAIN_ID, IS_LOCAL_CHAIN } from '../../lib/network';
 import { useWallet } from '../../hooks/useWallet';
+import { WALLET_MODE_CHANGED_EVENT } from '../../hooks/useRoleAccess';
 
 // Helper to cast ABI and normalize JSON shape { abi: [...] } vs [...]
 function normalizeAbi(x: any) {
@@ -160,6 +161,11 @@ export default function UserTab() {
   // but we show the user's connected wallet in the badge for consistency with the header.
   const [connectedWallet, setConnectedWallet] = useState<ConnectedWallet>(() => {
     if (typeof window !== 'undefined') {
+      const walletMode = window.localStorage.getItem('sagitta.walletMode');
+      // Explicit demo mode takes priority — ignore any stale persisted address
+      if (walletMode === 'demo') {
+        return { address: account.address, mode: 'demo' as const, label: 'Demo (Hardhat #0)' };
+      }
       const persisted = window.localStorage.getItem('sagitta.connectedAccount');
       if (persisted && /^0x[a-fA-F0-9]{40}$/.test(persisted)) {
         return { address: persisted, mode: 'injected' as const, label: 'Browser Wallet' };
@@ -168,10 +174,15 @@ export default function UserTab() {
     return { address: account.address, mode: 'demo' as const, label: 'Demo (Hardhat #0)' };
   });
   const [showQRModal, setShowQRModal] = useState(false);
+  // Bumped on every explicit wallet switch to force data re-fetch even when effectiveAddress is unchanged (localhost)
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Sync with useWallet hook so that connecting from the header updates UserTab too
+  // Skip when demo mode is explicitly active so the demo switch isn't overridden
   const { account: walletAccount } = useWallet();
   useEffect(() => {
+    const mode = typeof window !== 'undefined' ? window.localStorage.getItem('sagitta.walletMode') : null;
+    if (mode === 'demo') return;
     if (walletAccount && /^0x[a-fA-F0-9]{40}$/.test(walletAccount)) {
       setConnectedWallet({ address: walletAccount, mode: 'injected', label: 'Browser Wallet' });
     }
@@ -182,7 +193,10 @@ export default function UserTab() {
     const eth = (window as any).ethereum;
     if (!eth?.on) return;
     const handler = (accounts: string[]) => {
+      const mode = typeof window !== 'undefined' ? window.localStorage.getItem('sagitta.walletMode') : null;
+      if (mode === 'demo') return;
       if (Array.isArray(accounts) && accounts.length > 0) {
+        window.localStorage.setItem('sagitta.connectedAccount', accounts[0]);
         setConnectedWallet({ address: accounts[0], mode: 'injected', label: 'Browser Wallet' });
       }
     };
@@ -191,9 +205,10 @@ export default function UserTab() {
   }, []);
 
   const address = connectedWallet.address;
-  // On localhost all contract calls (reads + writes) use the hardhat test account
-  // so nothing ever routes through MetaMask. On live networks the connected wallet is used.
-  const effectiveAddress: string = IS_LOCAL_CHAIN ? account.address : address;
+  // Reads always use the displayed wallet address so each wallet sees only its own data.
+  // Writes still go through walletClient (hardhat key) on localhost, but receipt/balance
+  // reads are scoped to the connected address.
+  const effectiveAddress: string = address;
   const metrics = useVaultMetrics();
 
   // Use viem publicClient for all balances to ensure consistency
@@ -616,11 +631,11 @@ export default function UserTab() {
     fetchData();
     const interval = setInterval(fetchData, 10_000);
     return () => clearInterval(interval);
-  }, [effectiveAddress]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [effectiveAddress, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchReceipts();
-  }, [receiptCount, effectiveAddress]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [receiptCount, effectiveAddress, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!toast) return;
@@ -1298,7 +1313,22 @@ export default function UserTab() {
         <QRConnectModal
           currentWallet={connectedWallet}
           onConnect={(wallet) => {
+            // Persist wallet mode + address so header (useRoleAccess) and UserTab share one source of truth
+            if (wallet.mode === 'demo') {
+              window.localStorage.removeItem('sagitta.connectedAccount');
+              window.localStorage.setItem('sagitta.walletMode', 'demo');
+            } else {
+              window.localStorage.setItem('sagitta.connectedAccount', wallet.address);
+              window.localStorage.setItem('sagitta.walletMode', 'injected');
+            }
+            window.dispatchEvent(new CustomEvent(WALLET_MODE_CHANGED_EVENT));
+            // Clear stale data so the page shows a fresh load for the new wallet
+            setDeposits([]);
+            setReceiptCount(BigInt(0));
+            setUsdcBalance(BigInt(0));
+            setAllowance(BigInt(0));
             setConnectedWallet(wallet);
+            setRefreshKey(k => k + 1);
             setShowQRModal(false);
             setToast({ tone: 'success', message: `Wallet connected: ${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)} (${wallet.label})` });
           }}
