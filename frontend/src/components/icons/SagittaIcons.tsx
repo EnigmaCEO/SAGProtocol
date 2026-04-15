@@ -6,6 +6,107 @@
 
 import { SVGProps } from 'react';
 
+// ─────────────────────────────────────────────────────────────
+// BRAND LOGO
+// ─────────────────────────────────────────────────────────────
+
+/** Sagitta Shield — brand logo with constellation */
+export function SagittaShieldLogo({ size = 40 }: { size?: number }) {
+  const id = 'sag-shield';
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 40 40"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <defs>
+        {/* Deep blue radial fill for shield body */}
+        <radialGradient id={`${id}-bg`} cx="45%" cy="35%" r="65%">
+          <stop offset="0%" stopColor="#2a4faa" />
+          <stop offset="60%" stopColor="#112080" />
+          <stop offset="100%" stopColor="#060e3a" />
+        </radialGradient>
+        {/* Metallic chrome border */}
+        <linearGradient id={`${id}-border`} x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#a8c8ff" />
+          <stop offset="30%" stopColor="#ffffff" />
+          <stop offset="60%" stopColor="#5588dd" />
+          <stop offset="100%" stopColor="#2255bb" />
+        </linearGradient>
+        {/* Inner highlight rim */}
+        <linearGradient id={`${id}-rim`} x1="0" y1="0" x2="20" y2="40" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#cce0ff" stopOpacity="0.9" />
+          <stop offset="50%" stopColor="#4477cc" stopOpacity="0.4" />
+          <stop offset="100%" stopColor="#1133aa" stopOpacity="0.2" />
+        </linearGradient>
+        {/* Star glow filter */}
+        <filter id={`${id}-glow`} x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="0.6" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+
+      {/* ── Outer metallic border ── */}
+      <path
+        d="M20 1.5 L37 7.5 L37 22 Q37 33.5 20 38.5 Q3 33.5 3 22 L3 7.5 Z"
+        fill={`url(#${id}-border)`}
+      />
+
+      {/* ── Shield body ── */}
+      <path
+        d="M20 3.5 L35 9 L35 22 Q35 32 20 36.5 Q5 32 5 22 L5 9 Z"
+        fill={`url(#${id}-bg)`}
+      />
+
+      {/* ── Inner highlight rim ── */}
+      <path
+        d="M20 5 L33.5 10 L33.5 22 Q33.5 31 20 35 Q6.5 31 6.5 22 L6.5 10 Z"
+        fill="none"
+        stroke={`url(#${id}-rim)`}
+        strokeWidth="1"
+        opacity="0.7"
+      />
+
+      {/* ── Sagitta constellation (arrow pointing right) ── */}
+      {/* Connecting lines first (behind stars) */}
+      <g stroke="rgba(160,200,255,0.55)" strokeWidth="0.75" strokeLinecap="round">
+        <line x1="9.5" y1="23" x2="14.5" y2="21" />
+        <line x1="14.5" y1="21" x2="19.5" y2="19.5" />
+        <line x1="19.5" y1="19.5" x2="26" y2="16.5" />
+        <line x1="19.5" y1="19.5" x2="26" y2="22.5" />
+      </g>
+
+      {/* Stars */}
+      <g filter={`url(#${id}-glow)`}>
+        {/* Tail star */}
+        <circle cx="9.5" cy="23" r="1.4" fill="white" opacity="0.95" />
+        <circle cx="9.5" cy="23" r="0.6" fill="white" />
+
+        {/* Mid-left */}
+        <circle cx="14.5" cy="21" r="1.1" fill="white" opacity="0.9" />
+        <circle cx="14.5" cy="21" r="0.5" fill="white" />
+
+        {/* Center (brightest) */}
+        <circle cx="19.5" cy="19.5" r="1.5" fill="white" opacity="1" />
+        <circle cx="19.5" cy="19.5" r="0.65" fill="white" />
+
+        {/* Upper arrowhead */}
+        <circle cx="26" cy="16.5" r="1.3" fill="white" opacity="0.95" />
+        <circle cx="26" cy="16.5" r="0.55" fill="white" />
+
+        {/* Lower arrowhead */}
+        <circle cx="26" cy="22.5" r="1.1" fill="white" opacity="0.9" />
+        <circle cx="26" cy="22.5" r="0.5" fill="white" />
+      </g>
+    </svg>
+  );
+}
+
 export type IconProps = {
   size?: number;
   strokeWidth?: number;

@@ -1002,7 +1002,7 @@ export default function UserTab() {
                   Add Moonbase Alpha
                 </button>
                 <a
-                  href="https://faucet.moonbase.moonbeam.network/"
+                  href="https://faucet.moonbeam.network/"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="chip-button"

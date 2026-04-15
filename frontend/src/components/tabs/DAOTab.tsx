@@ -448,6 +448,10 @@ export default function DAOTab() {
 
   function getWriteSigner() {
     if (!provider) throw new Error('Local RPC provider not ready');
+    if (!IS_LOCAL_CHAIN) throw new Error(
+      'Proposal execution requires the contract owner key, which is not available in this UI on non-local networks. ' +
+      'Run the transaction directly from the deployer wallet.'
+    );
     return new ethers.Wallet(TEST_PRIVATE_KEY, provider);
   }
 

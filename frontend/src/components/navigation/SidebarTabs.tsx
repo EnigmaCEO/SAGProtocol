@@ -71,7 +71,11 @@ export default function SidebarTabs({ active, paused, network, onChange }: Sideb
       {/* Logo */}
       <div className="sidebar-logo">
         <div className="sidebar-logo__icon">
-          <img alt="SAGITTA icon" src="/images/icon.png" width={40} height={40} />
+          <a
+            href="/"
+          >
+          <img alt="SAGITTA logo" src="/logo.png" width={100} height={100} />
+          </a>
         </div>
         <div className="sidebar-logo__text">
           <span className="sidebar-logo__name">SAGITTA</span>
