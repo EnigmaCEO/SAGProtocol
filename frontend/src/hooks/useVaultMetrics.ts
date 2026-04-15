@@ -222,31 +222,35 @@ export default function useVaultMetrics(
         const uniqueDepositors = activeDepositors.size;
 
         // Query reserve-backed capacity (raw usd6) and compute remaining capacity
-        let reserveCapacityUsd6Bn: any = BigNumberFrom(0);
+        let reserveCapacityUsd6Bn: any = null; // null = read failed (preserve previous)
         try {
           const treasuryAddr = treasuryAddress;
           if (treasuryAddr && treasuryAddr !== ZERO_ADDRESS) {
             const treasuryContract = new (ethers as any).Contract(treasuryAddr, TREASURY_ABI, provider);
             reserveCapacityUsd6Bn =
               await treasuryContract.getReserveValueUsd().catch(async () =>
-                treasuryContract.getTargetReserveUsd().catch(() => BigNumberFrom(0))
+                treasuryContract.getTargetReserveUsd().catch(() => null)
               );
           }
         } catch {
-          reserveCapacityUsd6Bn = BigNumberFrom(0);
+          reserveCapacityUsd6Bn = null;
         }
 
+        const treasuryReadFailed = reserveCapacityUsd6Bn === null || reserveCapacityUsd6Bn === undefined;
+
         // convert big numbers to safe strings (usd6 integers)
-        const treasuryUsd6Str = bnToString(reserveCapacityUsd6Bn);
+        const treasuryUsd6Str = treasuryReadFailed ? null : bnToString(reserveCapacityUsd6Bn);
         const totalActiveUsd6Str = String(activeUsdSumUsd6); // already integer USD6 sum
         // compute maxAvailable = max(0, reserveCapacity - active)
-        const reserveCapacityUsd6BigInt = BigInt(treasuryUsd6Str || '0');
-        const totalActiveUsd6BigInt = BigInt(totalActiveUsd6Str || '0');
-        const maxAvailableUsd6Str = (
-          reserveCapacityUsd6BigInt > totalActiveUsd6BigInt
-            ? reserveCapacityUsd6BigInt - totalActiveUsd6BigInt
-            : BigInt(0)
-        ).toString();
+        const maxAvailableUsd6Str = treasuryReadFailed ? null : (() => {
+          const reserveCapacityUsd6BigInt = BigInt(treasuryUsd6Str || '0');
+          const totalActiveUsd6BigInt = BigInt(totalActiveUsd6Str || '0');
+          return (
+            reserveCapacityUsd6BigInt > totalActiveUsd6BigInt
+              ? reserveCapacityUsd6BigInt - totalActiveUsd6BigInt
+              : BigInt(0)
+          ).toString();
+        })();
 
         // tvlUsd: sum of activeUsd (you can expand to include other sources)
         const tvlUsd = activeUsd;
@@ -270,7 +274,7 @@ export default function useVaultMetrics(
         }
 
         if (!mounted) return;
-        setState({
+        setState((prev) => ({
           loading: false,
           updatedAt: Date.now(),
           tvlUsd,
@@ -283,11 +287,13 @@ export default function useVaultMetrics(
           autoReturnRatePct,
           autoReturnedCount,
           manualReturnedCount: withdrawnCount,
-          treasuryUsd6: treasuryUsd6Str,
+          // Preserve previous treasury values on transient read failure to avoid
+          // flipping the UI to N/A every time the RPC hiccups.
+          treasuryUsd6: treasuryUsd6Str ?? prev.treasuryUsd6,
           totalActiveUsd6: totalActiveUsd6Str,
-          maxAvailableUsd6: maxAvailableUsd6Str,
+          maxAvailableUsd6: maxAvailableUsd6Str ?? prev.maxAvailableUsd6,
           error: null,
-        });
+        }));
       } catch (err: any) {
         if (!mounted) return;
         // eslint-disable-next-line no-console

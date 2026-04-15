@@ -80,7 +80,7 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>Sagitta Protocol — Gold-Backed DeFi Vault</title>
+        <title>Sagitta Protocol - Trustless Wealth Management</title>
       </Head>
       <AppShell
         topbar={<TopBar address={address} ownerAddress={ownerAddress} />}

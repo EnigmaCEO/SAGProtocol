@@ -917,7 +917,7 @@ export default function UserTab() {
         title="User Dashboard"
         description="Monitor balances, submit deposits, and track the maturity flow from wallet entry through auto-return."
         meta={
-          <>
+          <div className="hero-balance-wrapper">
             <button
               className="data-chip data-chip--btn"
               onClick={() => setShowQRModal(true)}
@@ -927,14 +927,21 @@ export default function UserTab() {
               {address.slice(0, 6)}…{address.slice(-4)}
               <span style={{ opacity: 0.55, fontSize: '0.65rem' }}>{IS_LOCAL_CHAIN ? 'LOCAL' : connectedWallet.mode === 'demo' ? 'DEMO' : 'LIVE'}</span>
             </button>
-            <span className="data-chip">USDC {formatUsdcValue(walletUsdc)}</span>
-            <span className="data-chip" data-tone={lockedDeposits.length > 0 ? 'purple' : 'warning'}>
-              {lockedDeposits.length > 0 ? `${lockedDeposits.length} active lock${lockedDeposits.length === 1 ? '' : 's'}` : 'No active locks'}
-            </span>
-          </>
+            <div className="hero-balance-display">
+              <div className="hero-balance-display__primary">
+                <div className="hero-balance-display__label">Available to Deposit</div>
+                <div className="hero-balance-display__value">{formatUsdcValue(walletUsdc)} USDC</div>
+              </div>
+              <div className="hero-balance-display__divider" aria-hidden="true" />
+              <div className="hero-balance-display__secondary">
+                <div className="hero-balance-display__stat-label">Active Locks</div>
+                <div className="hero-balance-display__stat-value">{lockedDeposits.length}</div>
+              </div>
+            </div>
+          </div>
         }
         actions={
-          <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <button
               onClick={() => setShowQRModal(true)}
               className="action-button action-button--purple"
@@ -943,30 +950,53 @@ export default function UserTab() {
               <ConnectWalletIcon size={14} style={{ marginRight: '0.35rem' }} />
               Connect Wallet
             </button>
-            <button
-              onClick={handleMintUSDC}
-              disabled={isPaused || isLoading}
-              className="action-button action-button--ghost"
-              title="Mint 1000 test USDC to your wallet"
-            >
-              Mint 1000 USDC
-            </button>
-            <button
-              onClick={handleAddMoonbaseNetwork}
-              className="action-button action-button--ghost"
-              title="Add Moonbase Alpha to MetaMask"
-            >
-              Add Moonbase Alpha
-            </button>
-            <a
-              href="https://faucet.moonbase.moonbeam.network/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="action-button action-button--ghost"
-              title="Get free DEV tokens for gas on Moonbase Alpha"
-            >
-              Get DEV (faucet) ↗
-            </a>
+            <div className="nav-divider" style={{ height: '1.5rem' }} />
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.35rem',
+              padding: '0.45rem 0.7rem',
+              borderRadius: '0.6rem',
+              border: '1px solid rgba(255,255,255,0.06)',
+              background: 'rgba(6,8,14,0.5)',
+            }}>
+              <span style={{
+                fontSize: '0.55rem',
+                fontWeight: 800,
+                letterSpacing: '0.2em',
+                textTransform: 'uppercase',
+                color: 'var(--text-500)',
+                opacity: 0.7,
+              }}>
+                Test Actions
+              </span>
+              <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap' }}>
+                <button
+                  onClick={handleMintUSDC}
+                  disabled={isPaused || isLoading}
+                  className="chip-button"
+                  title="Mint 1000 test USDC to your wallet"
+                >
+                  Mint 1000 USDC
+                </button>
+                <button
+                  onClick={handleAddMoonbaseNetwork}
+                  className="chip-button"
+                  title="Add Moonbase Alpha to MetaMask"
+                >
+                  Add Moonbase Alpha
+                </button>
+                <a
+                  href="https://faucet.moonbase.moonbeam.network/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="chip-button"
+                  title="Get free DEV tokens for gas on Moonbase Alpha"
+                >
+                  Get DEV (faucet) ↗
+                </a>
+              </div>
+            </div>
           </div>
         }
       />
@@ -1229,13 +1259,13 @@ export default function UserTab() {
                         <td className="px-4 py-3">{formatShortDate(receipt.unlockDate)}</td>
                         <td className="px-4 py-3">
                           {receipt.status === 'LOCKED' && (
-                            <span className="flex items-center gap-2 text-orange-400"><Lock size={14} /> Locked</span>
+                            <span className="status-badge status-badge--locked"><Lock size={11} /> Locked</span>
                           )}
                           {receipt.status === 'PENDING_RETURN' && (
-                            <span className="flex items-center gap-2 text-yellow-400"><Unlock size={14} /> Pending Return</span>
+                            <span className="status-badge status-badge--pending"><Unlock size={11} /> Pending Return</span>
                           )}
                           {receipt.status === 'RETURNED' && (
-                            <span className="flex items-center gap-2 text-emerald-400"><Unlock size={14} /> Returned</span>
+                            <span className="status-badge status-badge--returned"><Unlock size={11} /> Returned</span>
                           )}
                         </td>
                       </tr>

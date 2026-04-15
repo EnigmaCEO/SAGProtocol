@@ -6,6 +6,7 @@ interface PageHeaderProps {
   meta?: ReactNode;
   actions?: ReactNode;
   eyebrow?: string;
+  tagline?: string;
 }
 
 export default function PageHeader({
@@ -14,6 +15,7 @@ export default function PageHeader({
   meta,
   actions,
   eyebrow,
+  tagline,
 }: PageHeaderProps) {
   return (
     <div className="sagitta-hero">
@@ -24,6 +26,11 @@ export default function PageHeader({
           <p className="page-header__description">{description}</p>
           {meta ? <div className="page-header__meta">{meta}</div> : null}
         </div>
+        {tagline ? (
+          <div className="page-header__tagline">
+            {tagline}
+          </div>
+        ) : null}
         {actions ? <div className="page-header__actions">{actions}</div> : null}
       </div>
     </div>
