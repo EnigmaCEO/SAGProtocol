@@ -5,14 +5,28 @@
 @tailwind utilities;
 
 :root {
-  /* ── Deep midnight-indigo base ── */
-  --bg-900: #020206;
-  --bg-850: #05060f;
-  --bg-800: #090b18;
+  /* ── App background gradient stops ── */
+  --bg-app:    #09101f;
+  --bg-app-2:  #060a18;
+  /* ── Hero / header panel gradient stops ── */
+  --bg-hero-1: #0d1228;
+  --bg-hero-2: #0a0e22;
+  --bg-hero-3: #08091c;
+  /* ── Card gradient stops ── */
+  --bg-card-1: #161e44;
+  --bg-card-2: #121838;
+  /* ── RGB accent channels (used in rgba(var(--accent-x), alpha)) ── */
+  --accent-blue:   58, 76, 180;
+  --accent-purple: 110, 62, 200;
+  --accent-gold:   212, 168, 48;
+  /* ── Legacy bg aliases (kept for compat) ── */
+  --bg-900: var(--bg-app-2);
+  --bg-850: var(--bg-app);
+  --bg-800: #0d1228;
   --sidebar-bg: #0b0d2b;
-  --sidebar-border: rgba(100, 65, 195, 0.18);
-  --panel-700: rgba(10, 10, 20, 0.88);
-  --panel-680: rgba(12, 12, 22, 0.95);
+  --sidebar-border: rgba(100, 65, 195, 0.2);
+  --panel-700: rgba(16, 21, 38, 0.88);
+  --panel-680: rgba(12, 16, 32, 0.95);
   --line-soft: rgba(255, 255, 255, 0.07);
   --line-strong: rgba(255, 255, 255, 0.13);
   /* ── Text ── */
@@ -50,8 +64,9 @@ body,
   body {
     @apply scrollbar-thin antialiased;
     font-family: "Manrope", "Segoe UI Variable", "Segoe UI", sans-serif;
-    background: radial-gradient(circle at 50% 0%, rgba(58, 76, 180, 0.10) 0%, rgba(58, 76, 180, 0) 38%),
-    linear-gradient(180deg, #0a0f23 0%, #090d1f 100%);
+    background:
+      radial-gradient(circle at 50% 0%, rgba(var(--accent-blue), 0.10) 0%, rgba(var(--accent-blue), 0) 38%),
+      linear-gradient(180deg, var(--bg-app) 0%, var(--bg-app-2) 100%);
     color: var(--text-100);
     letter-spacing: 0.01em;
   }
@@ -510,13 +525,13 @@ body,
     position: relative;
     padding: 1.25rem 1.4rem;
     background:
-    linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0) 100%),
-    linear-gradient(180deg, #10152f 0%, #0d1228 100%);
+      linear-gradient(180deg, rgba(255, 255, 255, 0.022) 0%, rgba(255, 255, 255, 0) 100%),
+      linear-gradient(180deg, var(--bg-card-1) 0%, var(--bg-card-2) 100%);
     border-radius: 0.9rem;
-    border: 1px solid rgba(255, 255, 255, 0.068);
+    border: 1px solid rgba(255, 255, 255, 0.07);
     box-shadow:
       0 0 0 1px rgba(0, 0, 0, 0.45),
-      0 22px 44px rgba(1, 1, 12, 0.65),
+      0 22px 44px rgba(2, 4, 16, 0.65),
       inset 0 1px 0 rgba(255, 255, 255, 0.08),
       inset 0 -1px 0 rgba(0, 0, 0, 0.25);
   }
@@ -630,9 +645,11 @@ body,
     justify-content: space-between;
     gap: 1.5rem;
     overflow: hidden;
-    background: linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0) 100%),
-    linear-gradient(180deg, #10152f 0%, #0d1228 100%);
-    border-color: rgba(255, 255, 255, 0.068);
+    background:
+      radial-gradient(circle at 85% 20%, rgba(var(--accent-purple), 0.10) 0%, rgba(var(--accent-purple), 0) 28%),
+      radial-gradient(circle at 18% 0%,  rgba(var(--accent-blue),   0.14) 0%, rgba(var(--accent-blue),   0) 42%),
+      linear-gradient(135deg, var(--bg-hero-1) 0%, var(--bg-hero-2) 52%, var(--bg-hero-3) 100%);
+    border-color: rgba(255, 255, 255, 0.07);
   }
 
   .page-header__copy {
@@ -1384,6 +1401,45 @@ body,
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* ── Sagitta surface utility classes ─────────────────────────────────────────
+ * Use these on layout containers and card variants.
+ * Accent channels use the rgba(var(--accent-x), alpha) pattern so opacity is
+ * controlled at the call-site without duplicating hex values.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.app-bg {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(var(--accent-blue), 0.10) 0%, rgba(var(--accent-blue), 0) 38%),
+    linear-gradient(180deg, var(--bg-app) 0%, var(--bg-app-2) 100%);
+}
+
+.hero-panel {
+  background:
+    radial-gradient(circle at 85% 20%, rgba(var(--accent-purple), 0.10) 0%, rgba(var(--accent-purple), 0) 28%),
+    radial-gradient(circle at 18% 0%,  rgba(var(--accent-blue),   0.14) 0%, rgba(var(--accent-blue),   0) 42%),
+    linear-gradient(135deg, var(--bg-hero-1) 0%, var(--bg-hero-2) 52%, var(--bg-hero-3) 100%);
+}
+
+.card {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.022) 0%, rgba(255,255,255,0) 100%),
+    linear-gradient(180deg, var(--bg-card-1) 0%, var(--bg-card-2) 100%);
+}
+
+.card-gold {
+  background:
+    radial-gradient(circle at 92% 18%, rgba(var(--accent-gold),   0.13) 0%, rgba(var(--accent-gold),   0) 22%),
+    linear-gradient(180deg, rgba(255,255,255,0.022) 0%, rgba(255,255,255,0) 100%),
+    linear-gradient(180deg, var(--bg-card-1) 0%, var(--bg-card-2) 100%);
+}
+
+.card-purple {
+  background:
+    radial-gradient(circle at 92% 18%, rgba(var(--accent-purple), 0.11) 0%, rgba(var(--accent-purple), 0) 24%),
+    linear-gradient(180deg, rgba(255,255,255,0.022) 0%, rgba(255,255,255,0) 100%),
+    linear-gradient(180deg, var(--bg-card-1) 0%, var(--bg-card-2) 100%);
 }
 
 /* Fallback layout rules: keep critical grids side-by-side even if layered rules are dropped */

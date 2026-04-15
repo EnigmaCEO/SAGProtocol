@@ -8,8 +8,29 @@ interface MetricCardProps {
   icon?: ReactNode;
 }
 
+const BASE_CARD = [
+  'linear-gradient(180deg, rgba(255,255,255,0.022) 0%, rgba(255,255,255,0) 100%)',
+  'linear-gradient(180deg, var(--bg-card-1) 0%, var(--bg-card-2) 100%)',
+].join(', ');
+
+const GOLD_CARD = [
+  'radial-gradient(circle at 92% 18%, rgba(212,168,48,0.13) 0%, rgba(212,168,48,0) 22%)',
+  BASE_CARD,
+].join(', ');
+
+const PURPLE_CARD = [
+  'radial-gradient(circle at 92% 18%, rgba(110,62,200,0.11) 0%, rgba(110,62,200,0) 24%)',
+  BASE_CARD,
+].join(', ');
+
+const DANGER_CARD = [
+  'radial-gradient(circle at 92% 18%, rgba(236,86,86,0.10) 0%, rgba(236,86,86,0) 22%)',
+  BASE_CARD,
+].join(', ');
+
 const toneConfig = {
   neutral: {
+    background: PURPLE_CARD,
     value:      'var(--text-100)',
     ruleFrom:   'rgba(255,255,255,0.12)',
     ruleTo:     'rgba(255,255,255,0.0)',
@@ -21,10 +42,11 @@ const toneConfig = {
     glow:       'rgba(90,50,190,0.1)',
   },
   success: {
+    background: GOLD_CARD,
     value:      'var(--gold-300)',
     ruleFrom:   'rgba(212,168,48,0.38)',
     ruleTo:     'rgba(212,168,48,0.0)',
-    border:     'rgba(212,168,48,0.14)',
+    border:     'rgba(212,168,48,0.16)',
     leftAccent: 'rgba(212,168,48,0.45)',
     circleBg:   'rgba(100,66,8,0.38)',
     circleBdr:  'rgba(212,168,48,0.28)',
@@ -32,6 +54,7 @@ const toneConfig = {
     glow:       'rgba(180,140,20,0.1)',
   },
   warning: {
+    background: GOLD_CARD,
     value:      'var(--gold-300)',
     ruleFrom:   'rgba(212,168,48,0.42)',
     ruleTo:     'rgba(212,168,48,0.0)',
@@ -43,6 +66,7 @@ const toneConfig = {
     glow:       'rgba(212,168,48,0.1)',
   },
   danger: {
+    background: DANGER_CARD,
     value:      '#fca5a5',
     ruleFrom:   'rgba(236,86,86,0.38)',
     ruleTo:     'rgba(236,86,86,0.0)',
@@ -62,8 +86,7 @@ export default function MetricCard({ title, value, hint, tone = 'neutral', icon 
     <div
       className="group relative overflow-hidden rounded-xl p-4 transition-all duration-200 hover:translate-y-[-1px]"
       style={{
-        background: `linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0) 100%),
-        linear-gradient(180deg, #10152f 0%, #0d1228 100%)`,
+        background: cfg.background,
         border: `1px solid ${cfg.border}`,
         boxShadow: `0 0 0 1px rgba(0,0,0,0.4), 0 20px 42px rgba(1,1,12,0.62), inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.2)`,
       }}
