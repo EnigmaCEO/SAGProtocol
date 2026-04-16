@@ -35,7 +35,7 @@ export type RuntimeAddressKey =
 const STORAGE_PREFIX = "sagitta.runtimeAddress.";
 const GENERATED_SIGNATURE_KEY = `${STORAGE_PREFIX}generatedSignature`;
 const GENERATED_CHAIN_KEY = `${STORAGE_PREFIX}generatedChainId`;
-const ADDRESSES_UPDATED_EVENT = "sagitta:addresses-updated";
+export const ADDRESSES_UPDATED_EVENT = "sagitta:addresses-updated";
 
 const MANAGED_KEYS: RuntimeAddressKey[] = [
   "ProtocolDAO",

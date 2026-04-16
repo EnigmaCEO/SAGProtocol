@@ -3,7 +3,7 @@ import { ethers } from 'ethers';
 
 import { getEffectiveRole, type AppRole, ROLES_UPDATED_EVENT } from '../lib/roles';
 import { getSigner } from '../lib/ethers';
-import { getRuntimeAddress, isValidAddress } from '../lib/runtime-addresses';
+import { ADDRESSES_UPDATED_EVENT, getRuntimeAddress, isValidAddress, ZERO_ADDRESS } from '../lib/runtime-addresses';
 import { RPC_URL, IS_LOCAL_CHAIN } from '../lib/network';
 
 // Hardhat/Anvil default account #0 — always the deployer on local chains
@@ -134,7 +134,7 @@ export default function useRoleAccess(): {
 
     const syncOwner = async () => {
       const vaultAddress = getRuntimeAddress('Vault');
-      if (!isValidAddress(vaultAddress)) {
+      if (!isValidAddress(vaultAddress) || vaultAddress === ZERO_ADDRESS) {
         if (active) {
           setOwnerAddress(null);
           setLoading(false);
@@ -221,6 +221,7 @@ export default function useRoleAccess(): {
       window.addEventListener(ROLES_UPDATED_EVENT, syncAccess as EventListener);
       window.addEventListener(ROLE_VIEW_OVERRIDE_EVENT, syncRoleViewOverride as EventListener);
       window.addEventListener(WALLET_MODE_CHANGED_EVENT, syncAccess as EventListener);
+      window.addEventListener(ADDRESSES_UPDATED_EVENT, syncOwner as EventListener);
       window.addEventListener('storage', syncAccess);
 
       return () => {
@@ -232,6 +233,7 @@ export default function useRoleAccess(): {
         window.removeEventListener(ROLES_UPDATED_EVENT, syncAccess as EventListener);
         window.removeEventListener(ROLE_VIEW_OVERRIDE_EVENT, syncRoleViewOverride as EventListener);
         window.removeEventListener(WALLET_MODE_CHANGED_EVENT, syncAccess as EventListener);
+        window.removeEventListener(ADDRESSES_UPDATED_EVENT, syncOwner as EventListener);
         window.removeEventListener('storage', syncAccess);
       };
     }
