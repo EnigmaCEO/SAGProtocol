@@ -8,4 +8,4 @@ frontend/.env.*.local
 cache/
 frontend/.next/
 deployments.json
-frontend/src/lib/addresses.ts
+.vercel

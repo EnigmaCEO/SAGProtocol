@@ -270,7 +270,9 @@ export default function UserTab() {
       if (!code || code === '0x') {
         setContractError(
           `No contract found at current Vault address (${VAULT_ADDRESS}). ` +
-          `Open DAO tab, click "Load Generated", then "Refresh On-Chain".`
+          (IS_LOCAL_CHAIN
+            ? `Open DAO tab, click "Load Generated", then "Refresh On-Chain".`
+            : `Deploy contracts to testnet (npx hardhat run scripts/deploy.ts --network moonbase), regenerate addresses.ts, then rebuild the frontend.`)
         );
         return;
       }
