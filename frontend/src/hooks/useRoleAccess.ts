@@ -112,6 +112,7 @@ export function setRoleViewOverride(nextRole: AppRole | null): void {
 export default function useRoleAccess(): {
   address: string | null;
   ownerAddress: string | null;
+  councilMembers: string[];
   actualRole: AppRole;
   role: AppRole;
   roleViewOverride: AppRole | null;
@@ -123,6 +124,7 @@ export default function useRoleAccess(): {
 } {
   const [address, setAddress] = useState<string | null>(() => readSelectedAddress());
   const [ownerAddress, setOwnerAddress] = useState<string | null>(null);
+  const [councilMembers, setCouncilMembers] = useState<string[]>([]);
   const [roleViewOverride, setRoleViewOverrideState] = useState<AppRole | null>(() => getRoleViewOverride());
   const [loading, setLoading] = useState(true);
 
@@ -156,6 +158,22 @@ export default function useRoleAccess(): {
         if (active) setOwnerAddress(IS_LOCAL_CHAIN ? LOCAL_DEMO_OWNER : null);
       } finally {
         if (active) setLoading(false);
+      }
+
+      // Fetch DAO council from ProtocolDAO contract.
+      try {
+        const daoAddress = getRuntimeAddress('ProtocolDAO');
+        if (isValidAddress(daoAddress)) {
+          const dao = new ethers.Contract(
+            daoAddress,
+            ['function getCouncilMembers() external view returns (address[])'],
+            readProvider
+          );
+          const members: string[] = await dao.getCouncilMembers();
+          if (active) setCouncilMembers(members.map((m) => m.toLowerCase()));
+        }
+      } catch {
+        // Non-fatal — council defaults to empty (contract owner approves solo).
       }
     };
 
@@ -253,6 +271,7 @@ export default function useRoleAccess(): {
   return {
     address,
     ownerAddress,
+    councilMembers,
     actualRole,
     role,
     roleViewOverride,

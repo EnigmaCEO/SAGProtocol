@@ -1660,6 +1660,45 @@
       "artifacts": [
         "PortfolioRegistry"
       ]
+    },
+    "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\ProtocolDAO.sol": {
+      "lastModificationDate": 1776345142706,
+      "contentHash": "969a0c3d3c7c3799a2cc3b9c7b863e17",
+      "sourceName": "contracts/ProtocolDAO.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/access/Ownable.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "ProtocolDAO"
+      ]
     }
   }
 }

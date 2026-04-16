@@ -2,9 +2,9 @@
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "initialPrice",
-        "type": "uint256"
+        "internalType": "address",
+        "name": "_proxy",
+        "type": "address"
       }
     ],
     "stateMutability": "nonpayable",
@@ -38,24 +38,11 @@
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "price",
+        "name": "newMaxAge",
         "type": "uint256"
       }
     ],
-    "name": "GoldPriceSet",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "valid",
-        "type": "bool"
-      }
-    ],
-    "name": "OracleValiditySet",
+    "name": "MaxAgeUpdated",
     "type": "event"
   },
   {
@@ -75,6 +62,25 @@
       }
     ],
     "name": "OwnershipTransferred",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousProxy",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newProxy",
+        "type": "address"
+      }
+    ],
+    "name": "ProxyUpdated",
     "type": "event"
   },
   {
@@ -105,19 +111,6 @@
   },
   {
     "inputs": [],
-    "name": "goldPrice",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
     "name": "latest",
     "outputs": [
       {
@@ -127,13 +120,26 @@
       },
       {
         "internalType": "uint256",
-        "name": "timestamp",
+        "name": "ts",
         "type": "uint256"
       },
       {
         "internalType": "bool",
         "name": "isValid",
         "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "maxAge",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -154,6 +160,19 @@
   },
   {
     "inputs": [],
+    "name": "proxy",
+    "outputs": [
+      {
+        "internalType": "contract IApi3Proxy",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "renounceOwnership",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -163,11 +182,11 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "price",
+        "name": "_maxAge",
         "type": "uint256"
       }
     ],
-    "name": "setGoldPrice",
+    "name": "setMaxAge",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -175,12 +194,12 @@
   {
     "inputs": [
       {
-        "internalType": "bool",
-        "name": "_valid",
-        "type": "bool"
+        "internalType": "address",
+        "name": "_proxy",
+        "type": "address"
       }
     ],
-    "name": "setValid",
+    "name": "setProxy",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

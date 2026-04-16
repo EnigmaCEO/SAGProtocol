@@ -215,6 +215,7 @@ export default function DAOTab() {
   const {
     address: connectedAddress,
     ownerAddress: connectedOwnerAddress,
+    councilMembers: onChainCouncil,
     actualRole,
     role: signerRole,
     isOperator: isOp,
@@ -223,9 +224,11 @@ export default function DAOTab() {
   } = useRoleAccess();
   const address = connectedAddress ?? '';
   const ownerAddress = connectedOwnerAddress ?? '';
-  const canApproveAsActualSigner = isActualOwner;
   const canExecuteAsActualSigner = actualRole === 'owner' || actualRole === 'operator';
   const [adminAddresses, setAdminAddresses] = useState<string[]>([]);
+  const [councilMemberInput, setCouncilMemberInput] = useState('');
+  const [councilStatus, setCouncilStatus] = useState<string | null>(null);
+  const [councilBusy, setCouncilBusy] = useState(false);
   const [vaultPaused, setVaultPaused] = useState(false);
   const [newOwner, setNewOwner] = useState('');
   const [loading, setLoading] = useState(true);
@@ -329,16 +332,22 @@ export default function DAOTab() {
   }, []);
 
   const nextBatchRollDue = escrowLastRollTime ? escrowLastRollTime + batchCadenceSeconds : null;
-  const ownerCouncil = dedupeAddresses(
-    [
-      ownerAddress,
-      ...adminAddresses,
-      ...roleAssignments.filter(item => item.role === 'owner').map(item => item.address),
-    ].filter(
-      (addr): addr is string => isValidAddress(addr) && addr.toLowerCase() !== ethers.ZeroAddress.toLowerCase()
+
+  // DAO Council: read from ProtocolDAO on-chain — same for every participant.
+  const daoCouncil = dedupeAddresses(
+    onChainCouncil.filter((addr): addr is string =>
+      isValidAddress(addr) && addr.toLowerCase() !== ethers.ZeroAddress.toLowerCase()
     )
   );
-  const requiredProposalApprovals = Math.max(1, ownerCouncil.length);
+
+  // A signer can approve a proposal if they are the on-chain contract owner OR a DAO council member.
+  const canApproveAsActualSigner =
+    isActualOwner ||
+    (isValidAddress(address) && daoCouncil.some(a => a.toLowerCase() === address.toLowerCase()));
+
+  // Proposals require approval from all DAO council members. If no council is configured,
+  // the contract owner alone is sufficient (single-sig fallback).
+  const requiredProposalApprovals = Math.max(1, daoCouncil.length);
   const pendingProposalCount = governanceProposals.filter(p => p.status === 'pending').length;
   const isResumeProposal = (proposal?: Pick<DaoProposal, 'action' | 'payload'> | null): boolean =>
     proposal?.action === 'TOGGLE_VAULT_PAUSE' && proposal?.payload?.targetPaused === false;
@@ -1438,8 +1447,8 @@ export default function DAOTab() {
     bypassProposal = false,
     payload?: { newOwner?: string }
   ): Promise<boolean> => {
-    if (!canApproveAsActualSigner) {
-      setConfigStatus('Only owner can transfer ownership');
+    if (!isActualOwner) {
+      setConfigStatus('Only the contract owner can transfer ownership');
       return false;
     }
     if (vaultPaused) {
@@ -1901,6 +1910,60 @@ export default function DAOTab() {
     }
     setRoleStatus(`Removed role assignment for ${formatAddressShort(normalizedTarget)}`);
     setRoleAssignments(listRoleAssignments());
+  }
+
+  async function handleAddCouncilMember() {
+    const target = councilMemberInput.trim();
+    if (!isValidAddress(target)) { setCouncilStatus('Invalid address'); return; }
+    if (!signerIsOwner) { setCouncilStatus('Only the contract owner can manage the council'); return; }
+    setCouncilBusy(true);
+    setCouncilStatus(null);
+    try {
+      const eth = typeof window !== 'undefined' ? (window as any).ethereum : null;
+      if (!eth) { setCouncilStatus('No wallet connected'); return; }
+      const signer = await new ethers.BrowserProvider(eth).getSigner();
+      const dao = new ethers.Contract(
+        getRuntimeAddress('ProtocolDAO'),
+        ['function addCouncilMember(address member) external'],
+        signer
+      );
+      const tx = await dao.addCouncilMember(target);
+      setCouncilStatus(`Adding ${formatAddressShort(target)}… tx ${tx.hash.slice(0, 10)}`);
+      await tx.wait();
+      setCouncilStatus(`${formatAddressShort(target)} added to council ✓`);
+      setCouncilMemberInput('');
+      // Trigger a re-fetch of council via the syncOwner path
+      window.dispatchEvent(new CustomEvent('sagitta:roles-updated'));
+    } catch (e: any) {
+      setCouncilStatus(`Failed: ${e?.reason || e?.message || String(e)}`);
+    } finally {
+      setCouncilBusy(false);
+    }
+  }
+
+  async function handleRemoveCouncilMember(member: string) {
+    if (!signerIsOwner) { setCouncilStatus('Only the contract owner can manage the council'); return; }
+    setCouncilBusy(true);
+    setCouncilStatus(null);
+    try {
+      const eth = typeof window !== 'undefined' ? (window as any).ethereum : null;
+      if (!eth) { setCouncilStatus('No wallet connected'); return; }
+      const signer = await new ethers.BrowserProvider(eth).getSigner();
+      const dao = new ethers.Contract(
+        getRuntimeAddress('ProtocolDAO'),
+        ['function removeCouncilMember(address member) external'],
+        signer
+      );
+      const tx = await dao.removeCouncilMember(member);
+      setCouncilStatus(`Removing ${formatAddressShort(member)}… tx ${tx.hash.slice(0, 10)}`);
+      await tx.wait();
+      setCouncilStatus(`${formatAddressShort(member)} removed from council ✓`);
+      window.dispatchEvent(new CustomEvent('sagitta:roles-updated'));
+    } catch (e: any) {
+      setCouncilStatus(`Failed: ${e?.reason || e?.message || String(e)}`);
+    } finally {
+      setCouncilBusy(false);
+    }
   }
 
   if (loading && !ownerAddress) {
@@ -2374,14 +2437,14 @@ export default function DAOTab() {
 
           <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-4">
-              <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Current Owner</div>
+              <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Contract Owner</div>
               <div className="mt-2 kpi-value text-xl text-slate-100">{ownerShort}</div>
               <div className="mt-2 text-xs font-mono text-slate-400 break-all">{isValidAddress(ownerAddress) ? ownerAddress : 'Owner not resolved'}</div>
             </div>
             <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-4">
-              <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Owner Council</div>
-              <div className="mt-2 kpi-value text-xl text-slate-100">{ownerCouncil.length}</div>
-              <div className="mt-2 text-xs text-slate-400">Approvals required: {requiredProposalApprovals}</div>
+              <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">DAO Council</div>
+              <div className="mt-2 kpi-value text-xl text-slate-100">{daoCouncil.length}</div>
+              <div className="mt-2 text-xs text-slate-400">{daoCouncil.length === 0 ? 'No council — contract owner approves' : `Approvals required: ${requiredProposalApprovals}`}</div>
             </div>
             <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-4">
               <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Open Proposals</div>
@@ -2443,9 +2506,68 @@ export default function DAOTab() {
           </div>
         ) : null}
 
+        {/* ── DAO Council (on-chain) ───────────────────────────────────────── */}
         <div className="sagitta-cell col-span-12 lg:col-span-4">
-          <h3 className="flex items-center gap-2"><Users size={20} /> Access Control</h3>
-          <div className="mt-2 text-xs text-slate-400">Local role whitelist for test ops. Unlisted wallets default to viewer.</div>
+          <h3 className="flex items-center gap-2"><Users size={20} /> DAO Council</h3>
+          <div className="mt-1 text-xs text-slate-400">
+            On-chain — every participant sees the same list. Members can create and approve governance proposals.
+          </div>
+
+          {signerIsOwner && (
+            <div className="mt-3 space-y-2">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={councilMemberInput}
+                  onChange={e => setCouncilMemberInput(e.target.value)}
+                  placeholder="0x... wallet address"
+                  className="flex-1 px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 text-sm"
+                  disabled={councilBusy}
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCouncilMember}
+                  disabled={councilBusy || !councilMemberInput}
+                  className="px-3 py-2 rounded bg-violet-700 hover:bg-violet-600 text-white text-sm font-semibold disabled:opacity-50"
+                >
+                  Add
+                </button>
+              </div>
+              {councilStatus && <div className="text-xs text-slate-300">{councilStatus}</div>}
+            </div>
+          )}
+
+          <div className="mt-3 space-y-2">
+            {daoCouncil.length === 0 ? (
+              <div className="rounded-lg border border-slate-700/50 bg-slate-900/35 p-3 text-sm text-slate-400">
+                No council members — contract owner approves proposals solo.
+              </div>
+            ) : (
+              daoCouncil.map((member) => (
+                <div key={member} className="grid grid-cols-[1fr_auto] gap-2 items-center rounded-lg border border-violet-700/30 bg-violet-900/10 p-3">
+                  <span className="font-mono text-xs truncate text-slate-300">{member}</span>
+                  {signerIsOwner && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveCouncilMember(member)}
+                      disabled={councilBusy}
+                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* ── UI Role Whitelist (localStorage) ────────────────────────────── */}
+        <div className="sagitta-cell col-span-12 lg:col-span-4">
+          <h3 className="flex items-center gap-2"><Users size={20} /> UI Access Roles</h3>
+          <div className="mt-1 text-xs text-slate-400">
+            Local-only whitelist. Controls which wallets can see operator/owner UI panels. Unlisted wallets default to viewer.
+          </div>
 
           {signerIsOwner ? (
             <div className="mt-3 space-y-2">
@@ -2454,15 +2576,15 @@ export default function DAOTab() {
                 value={roleAddressInput}
                 onChange={e => setRoleAddressInput(e.target.value)}
                 placeholder="0x... wallet address"
-                className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
-                disabled={vaultPaused || !signerIsOwner || loading || configBusy}
+                className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 text-sm"
+                disabled={vaultPaused || loading || configBusy}
               />
               <div className="grid grid-cols-2 gap-2">
                 <select
                   value={roleValueInput}
                   onChange={e => setRoleValueInput(e.target.value as AppRole)}
-                  className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
-                  disabled={vaultPaused || !signerIsOwner || loading || configBusy}
+                  className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 text-sm"
+                  disabled={vaultPaused || loading || configBusy}
                 >
                   <option value="viewer">viewer</option>
                   <option value="operator">operator</option>
@@ -2471,7 +2593,7 @@ export default function DAOTab() {
                 <button
                   type="button"
                   onClick={handleSaveRoleAssignment}
-                  disabled={vaultPaused || !signerIsOwner || loading || configBusy}
+                  disabled={vaultPaused || loading || configBusy}
                   className="w-full px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold disabled:opacity-50"
                 >
                   Save Role
@@ -2503,7 +2625,7 @@ export default function DAOTab() {
                     <button
                       type="button"
                       onClick={() => handleDeleteRoleAssignment(item.address)}
-                      disabled={vaultPaused || !signerIsOwner || loading || configBusy}
+                      disabled={vaultPaused || loading || configBusy}
                       className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 disabled:opacity-50"
                     >
                       Remove
@@ -2574,9 +2696,9 @@ export default function DAOTab() {
                     <div className="mt-2 text-xs text-rose-300">{proposal.error}</div>
                   )}
 
-                  {((signerIsOwner && canApproveAsActualSigner) || showExecuteButton) && (
+                  {(canApproveAsActualSigner || showExecuteButton) && (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {signerIsOwner && canApproveAsActualSigner && (
+                      {canApproveAsActualSigner && (
                         <button
                           className="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold disabled:opacity-50"
                           onClick={() => handleApproveProposal(proposal.id)}

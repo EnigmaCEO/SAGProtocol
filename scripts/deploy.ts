@@ -45,14 +45,19 @@ function addr(d: any): string {
 
 async function deployAndVerify(factory: any, ...args: any[]) {
   const contract = await factory.deploy(...args);
-  await contract.waitForDeployment();
+  // Wait for the deployment tx to be mined (1 confirmation minimum).
+  const deployTx = contract.deploymentTransaction();
+  if (deployTx) await deployTx.wait(1);
+  else await contract.waitForDeployment();
 
   const deployed = addr(contract);
-  const code = await ethers.provider.getCode(deployed);
-  if (!code || code === "0x") {
-    throw new Error(`Deployment verification failed: no bytecode at ${deployed}`);
+  // Retry getCode up to 5 times — live testnets can lag slightly after confirmation.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = await ethers.provider.getCode(deployed);
+    if (code && code !== "0x") return contract;
+    await new Promise((r) => setTimeout(r, 2000));
   }
-  return contract;
+  throw new Error(`Deployment verification failed: no bytecode at ${deployed}`);
 }
 
 function getConstructorInputs(factory: any): any[] {
@@ -107,9 +112,26 @@ async function syncPairIfSupported(pairAddr: string, label: string, owner: strin
 }
 
 function writeAddresses(deployments: Record<string, string | number | null>) {
+  const isLocal =
+    Number(deployments.chainId) === 1337 || Number(deployments.chainId) === 31337;
+
+  // Non-local chains: only write the ProtocolDAO address.
+  // All other addresses are fetched at runtime from the ProtocolDAO contract,
+  // so they don't need to live in the repo.
+  // Local chains: write all addresses (needed for the localStorage dev-override system).
+  const payload = isLocal
+    ? deployments
+    : {
+        network: deployments.network,
+        chainId: deployments.chainId,
+        ProtocolDAO: deployments.ProtocolDAO,
+      };
+
   const content =
     `// AUTO-GENERATED. DO NOT EDIT.\n` +
-    `export const CONTRACT_ADDRESSES = ${JSON.stringify(deployments, null, 2)} as const;\n`;
+    (isLocal ? `` : `// Non-local deploy: only ProtocolDAO address is stored here.\n`) +
+    (isLocal ? `` : `// All other addresses are read from ProtocolDAO on-chain at runtime.\n`) +
+    `export const CONTRACT_ADDRESSES: Record<string, any> = ${JSON.stringify(payload, null, 2)};\n`;
 
   const outputDirs = [
     path.join(__dirname, "../frontend/src/lib"),
@@ -121,6 +143,11 @@ function writeAddresses(deployments: Record<string, string | number | null>) {
     const outFile = path.join(dir, "addresses.ts");
     fs.writeFileSync(outFile, content);
     console.log(`Saved addresses -> ${outFile}`);
+  }
+
+  if (!isLocal) {
+    console.log(`\nSet this in Vercel / .env.local for the frontend:`);
+    console.log(`  NEXT_PUBLIC_PROTOCOL_DAO_ADDRESS=${deployments.ProtocolDAO}`);
   }
 }
 
@@ -189,23 +216,8 @@ async function main() {
   console.log("ReceiptNFT:", addr(receiptNft));
 
   console.log("\n=== Deploying AMM pair (USDC/GOLD) ===");
-  const pairCtorInputs = getConstructorInputs(Pair);
-  let ammUSDCGOLD: any;
-  try {
-    let pairArgs: any[] = [];
-    if (
-      pairCtorInputs.length === 2 &&
-      pairCtorInputs.every((i: any) => String(i.type ?? "").toLowerCase() === "address")
-    ) {
-      pairArgs = [addr(usdc), addr(gold)];
-    } else if (pairCtorInputs.length > 0) {
-      pairArgs = buildArgsForConstructor(pairCtorInputs, { usdc, gold, vault, reserve, treasury, deployer });
-    }
-    ammUSDCGOLD = await deployAndVerify(Pair, ...pairArgs);
-  } catch (e) {
-    console.warn("USDC/GOLD AMM inferred constructor deploy failed, retrying with zero args");
-    ammUSDCGOLD = await deployAndVerify(Pair);
-  }
+  // MockAmmPair constructor: (address _tokenA, address _tokenB)
+  const ammUSDCGOLD = await deployAndVerify(Pair, addr(usdc), addr(gold));
   console.log("AmmUSDCGOLD:", addr(ammUSDCGOLD));
 
   const escrow = await deployAndVerify(InvestmentEscrow, addr(usdc), addr(treasury));
@@ -214,6 +226,10 @@ async function main() {
   const PortfolioRegistry = await getFactorySafe("PortfolioRegistry", "contracts/PortfolioRegistry.sol:PortfolioRegistry");
   const portfolioRegistry = await deployAndVerify(PortfolioRegistry);
   console.log("PortfolioRegistry:", addr(portfolioRegistry));
+
+  const ProtocolDAO = await getFactorySafe("ProtocolDAO", "contracts/ProtocolDAO.sol:ProtocolDAO");
+  const protocolDao = await deployAndVerify(ProtocolDAO, deployer.address);
+  console.log("ProtocolDAO:", addr(protocolDao));
 
   console.log("\n=== Wiring contracts ===");
 
@@ -404,9 +420,25 @@ async function main() {
     console.warn("Portfolio seeding failed (non-fatal):", e);
   }
 
+  // ── Register all protocol addresses in ProtocolDAO ────────────────────────
+  console.log("\n=== Registering addresses in ProtocolDAO ===");
+  const daoKeys = [
+    "Vault", "Treasury", "ReserveController", "InvestmentEscrow",
+    "GoldOracle", "UsdcOracle", "ReceiptNFT", "AmmUSDCGOLD",
+    "PortfolioRegistry", "MockUSDC", "MockGOLD",
+  ];
+  const daoAddrs = [
+    addr(vault), addr(treasury), addr(reserve), addr(escrow),
+    addr(oracleGold), addr(oracleUsdc), addr(receiptNft), addr(ammUSDCGOLD),
+    addr(portfolioRegistry), addr(usdc), addr(gold),
+  ];
+  await (await (protocolDao as any).setAddresses(daoKeys, daoAddrs)).wait();
+  console.log("ProtocolDAO registry populated with", daoKeys.length, "addresses");
+
   const deployments: Record<string, string | number | null> = {
     network: String(network.name),
     chainId,
+    ProtocolDAO: addr(protocolDao),
     MockUSDC: addr(usdc),
     MockGOLD: addr(gold),
     Vault: addr(vault),
@@ -447,6 +479,7 @@ async function main() {
       ["InvestmentEscrow",  addr(escrow)],
       ["ReceiptNFT",        addr(receiptNft)],
       ["PortfolioRegistry", addr(portfolioRegistry)],
+      ["ProtocolDAO",       addr(protocolDao)],
     ];
     for (const [name, contractAddr] of ownables) {
       try {

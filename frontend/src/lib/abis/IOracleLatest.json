@@ -1,0 +1,25 @@
+[
+  {
+    "inputs": [],
+    "name": "latest",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "price8",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "updatedAt",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "valid",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

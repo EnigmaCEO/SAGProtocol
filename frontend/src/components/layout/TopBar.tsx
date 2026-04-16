@@ -7,9 +7,10 @@ interface TopBarProps {
   onSwitch?: () => void;
 }
 
-function roleLabel(role: 'viewer' | 'operator' | 'owner') {
+function roleLabel(role: 'viewer' | 'operator' | 'owner' | 'dao-council') {
   if (role === 'owner') return 'Owner';
   if (role === 'operator') return 'Operator';
+  if (role === 'dao-council') return 'DAO Council';
   return 'Viewer';
 }
 

@@ -1,19 +1,8 @@
 // AUTO-GENERATED. DO NOT EDIT.
-export const CONTRACT_ADDRESSES = {
+// Non-local deploy: only ProtocolDAO address is stored here.
+// All other addresses are read from ProtocolDAO on-chain at runtime.
+export const CONTRACT_ADDRESSES: Record<string, any> = {
   "network": "moonbase",
   "chainId": 1287,
-  "MockUSDC": "0xcb31cC5BF4D150922Af1cE73aD14f6Bb452e6CB9",
-  "MockGOLD": "0xB9470B6a226C297465D2D693e48BAb5380F29878",
-  "Vault": "0xd4A32f4a5a09DbCc4673d4D84C895E2E88b3C508",
-  "Treasury": "0x16B144dde3e54f49796aC332D652eD867f35468A",
-  "ReserveController": "0xba87FB18792107c9b00743b35315225eFA3b7509",
-  "InvestmentEscrow": "0x098a72e2716840b58fB8A5b7b5d34D40121ab262",
-  "GoldOracle": "0xC077331E74cF5eD2a3ec9cb55FF7d68893Fd6610",
-  "UsdcOracle": "0xDb136aA7F12fc1208E6Fc087F9F07DFc2C58A540",
-  "ReceiptNFT": "0xdd518b2b4067Ce21E18a38a10b3CE83d6448e4cC",
-  "AmmUSDCGOLD": "0xe1b37E8F34abE740303F8eaF100BC32D7E3B355B",
-  "PortfolioRegistry": "0x23a11e18BC7a4A9cff52ee0702e35de0929a74ae",
-  "SAGToken": null,
-  "SagOracle": null,
-  "AmmSAGUSDC": null
-} as const;
+  "ProtocolDAO": "0xfda956995a699b064b10E2bf1D8f309058FB49B0"
+};

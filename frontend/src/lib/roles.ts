@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 
-export type AppRole = 'viewer' | 'operator' | 'owner';
+export type AppRole = 'viewer' | 'operator' | 'owner' | 'dao-council';
 
 const ROLE_BOOK_KEY = 'sagitta.roleBook.v1';
 export const ROLES_UPDATED_EVENT = 'sagitta:roles-updated';
@@ -32,7 +32,7 @@ function readRoleBook(): RoleBook {
     for (const [addr, role] of Object.entries(parsed as Record<string, unknown>)) {
       const normalized = normalizeAddress(addr);
       if (!normalized) continue;
-      if (role === 'owner' || role === 'operator' || role === 'viewer') {
+      if (role === 'owner' || role === 'operator' || role === 'viewer' || role === 'dao-council') {
         result[normalized.toLowerCase()] = role;
       }
     }
@@ -90,7 +90,8 @@ export function getEffectiveRole(address: string | null | undefined, onChainOwne
     return 'owner';
   }
   const assigned = getAssignedRole(normalized);
-  if (assigned) return assigned;
+  // dao-council is a governance role only — for UI access-level purposes treat as viewer
+  if (assigned && assigned !== 'dao-council') return assigned;
   return 'viewer';
 }
 
