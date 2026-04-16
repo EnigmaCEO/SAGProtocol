@@ -26,7 +26,7 @@ import MockOracleABI from '../../lib/abis/MockOracle.json';
 import TreasuryABI from '../../lib/abis/Treasury.json';
 import InvestmentEscrowABI from '../../lib/abis/InvestmentEscrow.json';
 import useVaultMetrics from '../../hooks/useVaultMetrics';
-import { getRuntimeAddress } from '../../lib/runtime-addresses';
+import { getRuntimeAddress, useRuntimeAddress } from '../../lib/runtime-addresses';
 import { emitUiRefresh } from '../../lib/ui-refresh';
 import useProtocolPause from '../../hooks/useProtocolPause';
 import PageHeader from '../ui/PageHeader';
@@ -128,10 +128,10 @@ function formatNullableUsdValue(value: number | null): string {
 
 export default function UserTab() {
   const { isPaused } = useProtocolPause();
-  const VAULT_ADDRESS = getRuntimeAddress('Vault') || DEFAULT_VAULT_ADDRESS;
-  const MOCK_USDC_ADDRESS = getRuntimeAddress('MockUSDC') || DEFAULT_MOCK_USDC_ADDRESS;
-  const TREASURY_ADDRESS = getRuntimeAddress('Treasury') || DEFAULT_TREASURY_ADDRESS;
-  const ESCROW_ADDRESS = getRuntimeAddress('InvestmentEscrow') || DEFAULT_ESCROW_ADDRESS;
+  const VAULT_ADDRESS = useRuntimeAddress('Vault') || DEFAULT_VAULT_ADDRESS;
+  const MOCK_USDC_ADDRESS = useRuntimeAddress('MockUSDC') || DEFAULT_MOCK_USDC_ADDRESS;
+  const TREASURY_ADDRESS = useRuntimeAddress('Treasury') || DEFAULT_TREASURY_ADDRESS;
+  const ESCROW_ADDRESS = useRuntimeAddress('InvestmentEscrow') || DEFAULT_ESCROW_ADDRESS;
   const MOCK_ORACLE_ADDRESS = DEFAULT_MOCK_ORACLE_ADDRESS;
 
   const [depositAmount, setDepositAmount] = useState('');

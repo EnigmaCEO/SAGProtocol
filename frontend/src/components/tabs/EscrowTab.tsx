@@ -83,6 +83,21 @@ export default function EscrowTab() {
   const [aaaError, setAaaError] = useState<string | null>(null);
   const [portfolioAssets, setPortfolioAssets] = useState<PortfolioRegistryAsset[]>([]);
 
+  // Keep address states in sync whenever loadGeneratedRuntimeAddresses() or setRuntimeAddress() fires.
+  useEffect(() => {
+    const sync = () => {
+      setEscrowAddr(getRuntimeAddress('InvestmentEscrow'));
+      setVaultLinkInput(getRuntimeAddress('Vault'));
+      setKeeperInput(getRuntimeAddress('Treasury'));
+    };
+    window.addEventListener('sagitta:addresses-updated', sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener('sagitta:addresses-updated', sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
+
   useEffect(() => {
     const rp = new JsonRpcProvider(LOCALHOST_RPC);
     const w = new Wallet(TEST_PRIVATE_KEY, rp);

@@ -142,6 +142,23 @@ export default function TreasuryTab() {
   // NEW: show configured vault address and helper formatting
   const [vaultAddress, setVaultAddress] = useState<string | null>(null);
 
+  // Keep address states in sync whenever loadGeneratedRuntimeAddresses() or setRuntimeAddress() fires.
+  useEffect(() => {
+    const sync = () => {
+      setTreasuryAddress(getRuntimeAddress('Treasury'));
+      setGoldOracleAddress(getRuntimeAddress('GoldOracle'));
+      setVaultLinkInput(getRuntimeAddress('Vault'));
+      setEscrowLinkInput(getRuntimeAddress('InvestmentEscrow'));
+      setReserveLinkInput(getRuntimeAddress('ReserveController'));
+    };
+    window.addEventListener('sagitta:addresses-updated', sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener('sagitta:addresses-updated', sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
+
   // On mount: setup provider and contracts
   useEffect(() => {
     if (!isValidAddress(treasuryAddress) || !isValidAddress(goldOracleAddress)) {

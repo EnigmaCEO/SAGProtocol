@@ -89,6 +89,21 @@ export default function ReserveTab() {
   };
   // --- end helpers ---
 
+  // Keep address states in sync whenever loadGeneratedRuntimeAddresses() or setRuntimeAddress() fires.
+  useEffect(() => {
+    const sync = () => {
+      setReserveAddress(getRuntimeAddress('ReserveController'));
+      setGoldOracleAddress(getRuntimeAddress('GoldOracle'));
+      setTreasuryLinkInput(getRuntimeAddress('Treasury'));
+    };
+    window.addEventListener('sagitta:addresses-updated', sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener('sagitta:addresses-updated', sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
+
   useEffect(() => {
     setReserveAddressInput(reserveAddress);
   }, [reserveAddress]);

@@ -132,6 +132,21 @@ export default function VaultTab() {
     }
   }
 
+  // Keep address states in sync whenever loadGeneratedRuntimeAddresses() or setRuntimeAddress() fires.
+  useEffect(() => {
+    const sync = () => {
+      setVaultAddressState(getRuntimeAddress('Vault'));
+      setTreasuryLinkInput(getRuntimeAddress('Treasury'));
+      setEscrowLinkInput(getRuntimeAddress('InvestmentEscrow'));
+    };
+    window.addEventListener('sagitta:addresses-updated', sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener('sagitta:addresses-updated', sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
+
   useEffect(() => {
     setVaultAddressInput(vaultAddress);
     refreshLockDurationConfig(vaultAddress);

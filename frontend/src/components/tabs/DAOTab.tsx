@@ -310,6 +310,24 @@ export default function DAOTab() {
   const [newAssetRiskClass, setNewAssetRiskClass] = useState(0);
   const [newAssetRole, setNewAssetRole] = useState(0);
 
+  // Keep address states in sync whenever loadGeneratedRuntimeAddresses() or setRuntimeAddress() fires.
+  useEffect(() => {
+    const sync = () => {
+      setTreasuryAddress(getRuntimeAddress('Treasury'));
+      setVaultAddress(getRuntimeAddress('Vault'));
+      setEscrowAddress(getRuntimeAddress('InvestmentEscrow'));
+      setReserveAddress(getRuntimeAddress('ReserveController'));
+      setGoldOracleAddress(getRuntimeAddress('GoldOracle'));
+      setPortfolioRegistryAddress(getRuntimeAddress('PortfolioRegistry'));
+    };
+    window.addEventListener('sagitta:addresses-updated', sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener('sagitta:addresses-updated', sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
+
   const nextBatchRollDue = escrowLastRollTime ? escrowLastRollTime + batchCadenceSeconds : null;
   const ownerCouncil = dedupeAddresses(
     [

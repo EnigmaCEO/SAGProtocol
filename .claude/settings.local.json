@@ -44,7 +44,8 @@
       "Bash(curl -s http://localhost:3001)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3001)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3002)",
-      "Bash(curl -s http://localhost:3000)"
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(grep -n \"useState.*getRuntimeAddress\\\\|getRuntimeAddress.*useState\\\\|const.*getRuntimeAddress\" frontend/src/components/tabs/*.tsx frontend/src/hooks/*.ts)"
     ]
   }
 }
