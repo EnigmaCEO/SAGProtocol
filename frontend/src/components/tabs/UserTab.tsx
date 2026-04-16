@@ -26,7 +26,7 @@ import MockOracleABI from '../../lib/abis/MockOracle.json';
 import TreasuryABI from '../../lib/abis/Treasury.json';
 import InvestmentEscrowABI from '../../lib/abis/InvestmentEscrow.json';
 import useVaultMetrics from '../../hooks/useVaultMetrics';
-import { getRuntimeAddress, useRuntimeAddress } from '../../lib/runtime-addresses';
+import { getRuntimeAddress, useRuntimeAddress, ZERO_ADDRESS } from '../../lib/runtime-addresses';
 import { emitUiRefresh } from '../../lib/ui-refresh';
 import useProtocolPause from '../../hooks/useProtocolPause';
 import PageHeader from '../ui/PageHeader';
@@ -132,7 +132,7 @@ export default function UserTab() {
   const MOCK_USDC_ADDRESS = useRuntimeAddress('MockUSDC') || DEFAULT_MOCK_USDC_ADDRESS;
   const TREASURY_ADDRESS = useRuntimeAddress('Treasury') || DEFAULT_TREASURY_ADDRESS;
   const ESCROW_ADDRESS = useRuntimeAddress('InvestmentEscrow') || DEFAULT_ESCROW_ADDRESS;
-  const MOCK_ORACLE_ADDRESS = DEFAULT_MOCK_ORACLE_ADDRESS;
+  const USDC_ORACLE_ADDRESS = useRuntimeAddress('UsdcOracle') || DEFAULT_MOCK_ORACLE_ADDRESS;
 
   const [depositAmount, setDepositAmount] = useState('');
   const [deposits, setDeposits] = useState<DepositReceipt[]>([]);
@@ -264,6 +264,9 @@ export default function UserTab() {
 
   // Fetch balances and data
   const fetchData = async () => {
+    // On non-local chains the vault address is fetched async from ProtocolDAO.
+    // Skip until the real address is known to avoid a spurious "no contract" error.
+    if (!VAULT_ADDRESS || VAULT_ADDRESS === ZERO_ADDRESS) return;
     try {
       // Verify contract is deployed and ABI-compatible
       const code = await publicClient.getCode({ address: VAULT_ADDRESS as `0x${string}` });
@@ -381,9 +384,8 @@ export default function UserTab() {
         // NOTE: do NOT include TREASURY_ADDRESS here — probing Treasury as an oracle produced large values
         const candidates = [
           assetInfo?.oracle,
-          (CONTRACT_ADDRESSES as any).UsdcOracle,
-          CONTRACT_ADDRESSES.GoldOracle,
-          MOCK_ORACLE_ADDRESS
+          USDC_ORACLE_ADDRESS,
+          getRuntimeAddress('GoldOracle'),
         ].filter((c, i, arr) => c && validAddr(c) && arr.indexOf(c) === i) as string[];
 
         console.log("Oracle probe candidates:", candidates);
@@ -404,10 +406,9 @@ export default function UserTab() {
         let price: bigint | null = null;
         // helpers: treat addresses known from frontend as MockOracle deployments
         const knownOracleAddrs = [
-          (CONTRACT_ADDRESSES as any).UsdcOracle,
-          CONTRACT_ADDRESSES.GoldOracle,
-          MOCK_ORACLE_ADDRESS
-        ].filter(Boolean) as string[];
+          USDC_ORACLE_ADDRESS,
+          getRuntimeAddress('GoldOracle'),
+        ].filter(validAddr) as string[];
 
         const tryFns: { abi: any[]; fn: string }[] = [
           { abi: ["function getPrice() view returns (uint256)"], fn: "getPrice" },
@@ -633,7 +634,7 @@ export default function UserTab() {
     fetchData();
     const interval = setInterval(fetchData, 10_000);
     return () => clearInterval(interval);
-  }, [effectiveAddress, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [effectiveAddress, refreshKey, VAULT_ADDRESS]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchReceipts();
@@ -820,7 +821,7 @@ export default function UserTab() {
         const aDecimals = Number(assetInfo?.decimals ?? tokenDecimals);
         const oracleAddr = (assetInfo && assetInfo.oracle && assetInfo.oracle !== '0x0000000000000000000000000000000000000000') 
           ? assetInfo.oracle 
-          : MOCK_ORACLE_ADDRESS;
+          : USDC_ORACLE_ADDRESS;
 
         // read price (8-decimals) from oracle
         const priceBn = await publicClient.readContract({

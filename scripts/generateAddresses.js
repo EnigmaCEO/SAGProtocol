@@ -25,9 +25,10 @@ export const contractAddresses = {
 };
 `;
   
-  const outputPath = path.join(__dirname, '../frontend/src/lib/addresses.ts');
+  const network = deployments.network ?? 'local';
+  const outputPath = path.join(__dirname, `../frontend/src/lib/addresses.${network}.ts`);
   fs.writeFileSync(outputPath, content);
-  console.log('Generated addresses.ts successfully!');
+  console.log(`Generated addresses.${network}.ts successfully!`);
 }
 
 main().catch(console.error);

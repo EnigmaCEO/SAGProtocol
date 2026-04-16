@@ -27,6 +27,7 @@ export type RuntimeAddressKey =
   | "InvestmentEscrow"
   | "ReserveController"
   | "GoldOracle"
+  | "UsdcOracle"
   | "MockUSDC"
   | "ReceiptNFT"
   | "PortfolioRegistry";
@@ -43,6 +44,7 @@ const MANAGED_KEYS: RuntimeAddressKey[] = [
   "InvestmentEscrow",
   "ReserveController",
   "GoldOracle",
+  "UsdcOracle",
   "MockUSDC",
   "ReceiptNFT",
   "PortfolioRegistry",

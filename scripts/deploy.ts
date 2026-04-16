@@ -133,6 +133,7 @@ function writeAddresses(deployments: Record<string, string | number | null>) {
     (isLocal ? `` : `// All other addresses are read from ProtocolDAO on-chain at runtime.\n`) +
     `export const CONTRACT_ADDRESSES: Record<string, any> = ${JSON.stringify(payload, null, 2)};\n`;
 
+  const networkName = String(deployments.network ?? (isLocal ? "local" : "unknown"));
   const outputDirs = [
     path.join(__dirname, "../frontend/src/lib"),
     path.join(__dirname, "../src/lib"),
@@ -140,7 +141,7 @@ function writeAddresses(deployments: Record<string, string | number | null>) {
 
   for (const dir of outputDirs) {
     if (!fs.existsSync(dir)) continue;
-    const outFile = path.join(dir, "addresses.ts");
+    const outFile = path.join(dir, `addresses.${networkName}.ts`);
     fs.writeFileSync(outFile, content);
     console.log(`Saved addresses -> ${outFile}`);
   }

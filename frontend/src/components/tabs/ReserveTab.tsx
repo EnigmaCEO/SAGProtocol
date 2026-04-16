@@ -313,14 +313,8 @@ export default function ReserveTab() {
             <span className="data-chip">
               Treasury Link: {hasConfiguredTreasury ? `${configuredTreasuryAddress.slice(0, 6)}...${configuredTreasuryAddress.slice(-4)}` : 'Not set'}
             </span>
-            <span className="data-chip" data-tone={linkedTreasuryAddress ? 'success' : 'warning'}>
-              Reserve Link: {linkedTreasuryAddress ? `${linkedTreasuryAddress.slice(0, 6)}...${linkedTreasuryAddress.slice(-4)}` : 'Not linked'}
-            </span>
             <span className="data-chip" data-tone={isOperator ? 'warning' : 'neutral'}>
               Role: {role}
-            </span>
-            <span className="data-chip" data-tone={account ? 'success' : 'warning'}>
-              {account ? 'Wallet Connected' : 'Wallet Needed For Writes'}
             </span>
           </>
         }
