@@ -728,15 +728,22 @@ export default function UserTab() {
     });
   }
 
+  async function getWriteSigner() {
+    const { ethers } = await import('ethers');
+    if (IS_LOCAL_CHAIN) {
+      return new ethers.Wallet(TEST_PRIVATE_KEY, new ethers.JsonRpcProvider(RPC_URL));
+    }
+    const eth = typeof window !== 'undefined' ? (window as any).ethereum : null;
+    if (!eth) throw new Error('No wallet connected');
+    return new ethers.BrowserProvider(eth).getSigner();
+  }
+
   const handleMintUSDC = async () => {
     if (isPaused) return;
     try {
       setIsLoading(true);
       const { ethers } = await import('ethers');
-      // Use the local hardhat signer directly — no wallet connection required.
-      // MockUSDC.mint() is permissionless; the test key has ETH for gas on localhost.
-      const provider = new ethers.JsonRpcProvider(RPC_URL);
-      const signer = new ethers.Wallet(TEST_PRIVATE_KEY, provider);
+      const signer = await getWriteSigner();
       const usdc = new ethers.Contract(MOCK_USDC_ADDRESS, normalizeAbi(MockUSDCABI), signer);
       const tx = await (usdc as any).mint(effectiveAddress, parseUnits('1000', tokenDecimals));
       await waitForTx(tx.hash);
@@ -757,7 +764,7 @@ export default function UserTab() {
     try {
       setIsLoading(true);
       const { ethers } = await import('ethers');
-      const signer = new ethers.Wallet(TEST_PRIVATE_KEY, new ethers.JsonRpcProvider(RPC_URL));
+      const signer = await getWriteSigner();
       const usdc = new ethers.Contract(MOCK_USDC_ADDRESS, normalizeAbi(MockUSDCABI), signer);
       const tx = await (usdc as any).approve(VAULT_ADDRESS, parseUnits(depositAmount, tokenDecimals));
       await waitForTx(tx.hash);
@@ -779,7 +786,7 @@ export default function UserTab() {
     try {
       setIsLoading(true);
       const { ethers } = await import('ethers');
-      const signer = new ethers.Wallet(TEST_PRIVATE_KEY, new ethers.JsonRpcProvider(RPC_URL));
+      const signer = await getWriteSigner();
       const usdc = new ethers.Contract(MOCK_USDC_ADDRESS, normalizeAbi(MockUSDCABI), signer);
       const tx = await (usdc as any).approve(VAULT_ADDRESS, MAX_UINT256);
       await waitForTx(tx.hash);
@@ -799,7 +806,7 @@ export default function UserTab() {
     try {
       setIsLoading(true);
       const { ethers } = await import('ethers');
-      const signer = new ethers.Wallet(TEST_PRIVATE_KEY, new ethers.JsonRpcProvider(RPC_URL));
+      const signer = await getWriteSigner();
       const vault = new ethers.Contract(VAULT_ADDRESS, normalizeAbi(VaultABI), signer);
       const amountArg = parseUnits(depositAmount, tokenDecimals);
       await (async () => {
