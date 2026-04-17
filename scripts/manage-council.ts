@@ -23,11 +23,18 @@
  */
 
 import hre from "hardhat";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 const { ethers } = hre;
 
-// Read the deployed ProtocolDAO address from the generated addresses file.
-// This is safe to import as ESM since deploy.ts writes it.
-import { CONTRACT_ADDRESSES } from "../frontend/src/lib/addresses.js";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const deploymentsPath = path.join(__dirname, "../deployments.json");
+const CONTRACT_ADDRESSES: Record<string, any> = fs.existsSync(deploymentsPath)
+  ? JSON.parse(fs.readFileSync(deploymentsPath, "utf8"))
+  : {};
 
 const PROTOCOL_DAO_ABI = [
   "function addCouncilMember(address member) external",
