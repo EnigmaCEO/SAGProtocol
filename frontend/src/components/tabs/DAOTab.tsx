@@ -542,13 +542,14 @@ export default function DAOTab() {
     }
   }
 
-  function getWriteSigner() {
-    if (!provider) throw new Error('Local RPC provider not ready');
-    if (!IS_LOCAL_CHAIN) throw new Error(
-      'Proposal execution requires the contract owner key, which is not available in this UI on non-local networks. ' +
-      'Run the transaction directly from the deployer wallet.'
-    );
-    return new ethers.Wallet(TEST_PRIVATE_KEY, provider);
+  async function getWriteSigner() {
+    if (IS_LOCAL_CHAIN) {
+      if (!provider) throw new Error('Local RPC provider not ready');
+      return new ethers.Wallet(TEST_PRIVATE_KEY, provider);
+    }
+    const eth = typeof window !== 'undefined' ? (window as any).ethereum : null;
+    if (!eth) throw new Error('No wallet connected');
+    return new ethers.BrowserProvider(eth).getSigner();
   }
 
   async function hasContractCode(address: string): Promise<boolean> {
@@ -1020,7 +1021,7 @@ export default function DAOTab() {
     setConfigStatus('Applying runtime addresses and linking contracts...');
     try {
       handleSaveAddressBook();
-      const signer = getWriteSigner();
+      const signer = await getWriteSigner();
       const signerAddress = await signer.getAddress();
       const network = await signer.provider?.getNetwork();
       setLinkRunContext(`Signer ${formatAddressShort(signerAddress)} on chain ${network ? Number(network.chainId) : 'unknown'}`);
@@ -1219,7 +1220,7 @@ export default function DAOTab() {
     try {
       setConfigBusy(true);
       const nextVault = treasuryVaultInput.trim();
-      const c = new ethers.Contract(treasuryAddress, ['function setVault(address _vault) external'], getWriteSigner());
+      const c = new ethers.Contract(treasuryAddress, ['function setVault(address _vault) external'], await getWriteSigner());
       const tx = await c.setVault(nextVault);
       await tx.wait();
       setRuntimeAddress('Vault', nextVault);
@@ -1241,7 +1242,7 @@ export default function DAOTab() {
     try {
       setConfigBusy(true);
       const nextEscrow = treasuryEscrowInput.trim();
-      const c = new ethers.Contract(treasuryAddress, ['function setEscrow(address _escrow) external'], getWriteSigner());
+      const c = new ethers.Contract(treasuryAddress, ['function setEscrow(address _escrow) external'], await getWriteSigner());
       const tx = await c.setEscrow(nextEscrow);
       await tx.wait();
       setRuntimeAddress('InvestmentEscrow', nextEscrow);
@@ -1263,7 +1264,7 @@ export default function DAOTab() {
     try {
       setConfigBusy(true);
       const nextReserve = treasuryReserveInput.trim();
-      const c = new ethers.Contract(treasuryAddress, ['function setReserveAddress(address _reserve) external'], getWriteSigner());
+      const c = new ethers.Contract(treasuryAddress, ['function setReserveAddress(address _reserve) external'], await getWriteSigner());
       const tx = await c.setReserveAddress(nextReserve);
       await tx.wait();
       setRuntimeAddress('ReserveController', nextReserve);
@@ -1285,7 +1286,7 @@ export default function DAOTab() {
     try {
       setConfigBusy(true);
       const nextTreasury = vaultTreasuryInput.trim();
-      const c = new ethers.Contract(vaultAddress, ['function setTreasury(address _treasury) external'], getWriteSigner());
+      const c = new ethers.Contract(vaultAddress, ['function setTreasury(address _treasury) external'], await getWriteSigner());
       const tx = await c.setTreasury(nextTreasury);
       await tx.wait();
       setRuntimeAddress('Treasury', nextTreasury);
@@ -1307,7 +1308,7 @@ export default function DAOTab() {
     try {
       setConfigBusy(true);
       const nextEscrow = vaultEscrowInput.trim();
-      const c = new ethers.Contract(vaultAddress, ['function setEscrow(address _escrow) external'], getWriteSigner());
+      const c = new ethers.Contract(vaultAddress, ['function setEscrow(address _escrow) external'], await getWriteSigner());
       const tx = await c.setEscrow(nextEscrow);
       await tx.wait();
       setRuntimeAddress('InvestmentEscrow', nextEscrow);
@@ -1350,7 +1351,7 @@ export default function DAOTab() {
     }
     try {
       setConfigBusy(true);
-      const c = new ethers.Contract(vaultAddress, ['function setLockDuration(uint64 _duration) external'], getWriteSigner());
+      const c = new ethers.Contract(vaultAddress, ['function setLockDuration(uint64 _duration) external'], await getWriteSigner());
       const tx = await c.setLockDuration(BigInt(nextDuration));
       await tx.wait();
       setLockDurationSeconds(nextDuration);
@@ -1374,7 +1375,7 @@ export default function DAOTab() {
     try {
       setConfigBusy(true);
       const nextVault = escrowVaultInput.trim();
-      const c = new ethers.Contract(escrowAddress, ['function setVault(address _vault) external'], getWriteSigner());
+      const c = new ethers.Contract(escrowAddress, ['function setVault(address _vault) external'], await getWriteSigner());
       const tx = await c.setVault(nextVault);
       await tx.wait();
       setRuntimeAddress('Vault', nextVault);
@@ -1395,7 +1396,7 @@ export default function DAOTab() {
     }
     try {
       setConfigBusy(true);
-      const c = new ethers.Contract(escrowAddress, ['function setKeeper(address _keeper) external'], getWriteSigner());
+      const c = new ethers.Contract(escrowAddress, ['function setKeeper(address _keeper) external'], await getWriteSigner());
       const tx = await c.setKeeper(escrowKeeperInput.trim());
       await tx.wait();
       setEscrowStatus('Escrow keeper updated');
@@ -1415,7 +1416,7 @@ export default function DAOTab() {
     try {
       setConfigBusy(true);
       const nextTreasury = reserveTreasuryInput.trim();
-      const c = new ethers.Contract(reserveAddress, ['function setTreasury(address _treasury) external'], getWriteSigner());
+      const c = new ethers.Contract(reserveAddress, ['function setTreasury(address _treasury) external'], await getWriteSigner());
       const tx = await c.setTreasury(nextTreasury);
       await tx.wait();
       setRuntimeAddress('Treasury', nextTreasury);
@@ -1605,7 +1606,7 @@ export default function DAOTab() {
 
     setConfigBusy(true);
     try {
-      const signer = getWriteSigner();
+      const signer = await getWriteSigner();
       const oracleWrite = new ethers.Contract(
         goldOracleAddress,
         ['function setPrice(uint256 price) external', 'function setGoldPrice(uint256 price) external'],
@@ -1657,7 +1658,7 @@ export default function DAOTab() {
 
     setConfigBusy(true);
     try {
-      const signer = getWriteSigner();
+      const signer = await getWriteSigner();
       const treasuryWrite = new ethers.Contract(
         treasuryAddress,
         ['function rebalanceReserve() external'],
@@ -1730,7 +1731,7 @@ export default function DAOTab() {
 
     setConfigBusy(true);
     try {
-      const signer = getWriteSigner();
+      const signer = await getWriteSigner();
       const treasuryRead = new ethers.Contract(
         treasuryAddress,
         ['function previewReceiptProfitUsd(uint256 receiptId) external view returns (uint256 batchId,uint256 dueUsd,uint256 alreadyPaidUsd,uint256 unpaidUsd,address recipient)'],
@@ -1893,7 +1894,7 @@ export default function DAOTab() {
 
     setConfigBusy(true);
     try {
-      const signer = getWriteSigner();
+      const signer = await getWriteSigner();
       const registry = new ethers.Contract(portfolioRegistryAddress, PORTFOLIO_REGISTRY_ABI, signer);
       const tx = await registry.addAsset(symbol, name, tokenAddr, oracleAddr, riskClass, role, minimumInvestmentUsd6);
       await tx.wait();
@@ -2008,7 +2009,7 @@ export default function DAOTab() {
 
     setConfigBusy(true);
     try {
-      const signer = getWriteSigner();
+      const signer = await getWriteSigner();
       const registry = new ethers.Contract(portfolioRegistryAddress, PORTFOLIO_REGISTRY_ABI, signer);
       const tx = await registry.updateAsset(symbol, name, tokenAddr, oracleAddr, riskClass, role, minimumInvestmentUsd6);
       await tx.wait();
@@ -2063,7 +2064,7 @@ export default function DAOTab() {
 
     setConfigBusy(true);
     try {
-      const signer = getWriteSigner();
+      const signer = await getWriteSigner();
       const registry = new ethers.Contract(portfolioRegistryAddress, PORTFOLIO_REGISTRY_ABI, signer);
       const tx = await registry.removeAsset(symbol);
       await tx.wait();
@@ -2169,7 +2170,7 @@ export default function DAOTab() {
 
     setConfigBusy(true);
     try {
-      const signer = getWriteSigner();
+      const signer = await getWriteSigner();
       const registry = new ethers.Contract(routeRegistryAddress, EXECUTION_ROUTE_REGISTRY_ABI, signer);
       const args = [
         routeAssetSymbolInput.trim(),
@@ -2218,7 +2219,7 @@ export default function DAOTab() {
 
     setConfigBusy(true);
     try {
-      const signer = getWriteSigner();
+      const signer = await getWriteSigner();
       const registry = new ethers.Contract(routeRegistryAddress, EXECUTION_ROUTE_REGISTRY_ABI, signer);
       const tx = await registry.removeRoute(routeId);
       await tx.wait();
