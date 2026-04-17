@@ -65,11 +65,23 @@ interface IReceiptNFTForTreasury {
 
 // NEW: Minimal Escrow interface so Treasury can validate which batch a receipt belongs to (best-effort)
 interface IEscrowForTreasury {
+    struct RouteAllocation {
+        uint256 routeId;
+        uint256 maxAllocationUsd6;
+    }
+
     function receiptBatchId(uint256 tokenId) external view returns (uint256);
     function currentBatchId() external view returns (uint256);
     function lastBatchRollTime() external view returns (uint256);
     function BATCH_INTERVAL() external view returns (uint256);
     function rollToNewBatch() external;
+    function authorizeBatchExecution(
+        uint256 batchId,
+        uint256 expectedCloseTime,
+        bytes32 settlementUnit,
+        RouteAllocation[] calldata routeAllocations
+    ) external;
+    function freezeBatch(uint256 batchId, bool frozen) external;
     function batches(uint256 batchId) external view returns (
         uint256 id,
         uint256 startTime,
@@ -226,6 +238,8 @@ contract Treasury is Ownable {
     mapping(uint256 => uint256) public batchProfitUsd;
     // per-batch stored final NAV (1e18)
     mapping(uint256 => uint256) public batchFinalNavPerShare;
+    mapping(uint256 => bytes32) public batchSettlementReportHash;
+    mapping(uint256 => bytes32) public batchComplianceDigestHash;
     // per-batch, per-receipt cumulative profit already paid (USD6)
     mapping(uint256 => mapping(uint256 => uint256)) public receiptBatchProfitPaidUsd;
     // Track processed deposit/receipt IDs to make collateralizeForReceipt idempotent
@@ -277,6 +291,11 @@ contract Treasury is Ownable {
     // NEW EVENTS
     event BatchFunded(uint256 indexed batchId, uint256 amountUsd);
     event BatchResult(uint256 indexed batchId, uint256 principalUsd, uint256 userProfitUsd, uint256 feeUsd);
+    event BatchResultExtended(
+        uint256 indexed batchId,
+        bytes32 settlementReportHash,
+        bytes32 complianceDigestHash
+    );
     event ReceiptProfitPaid(uint256 indexed receiptId, address indexed recipient, uint256 amountUsd);
     event ReceiptProfitPaidDetailed(
         uint256 indexed batchId,
@@ -360,6 +379,21 @@ contract Treasury is Ownable {
     function setEscrow(address _escrow) external onlyOwner {
         require(_escrow != address(0), "Escrow cannot be zero");
         escrow = _escrow;
+    }
+
+    function authorizeEscrowBatch(
+        uint256 batchId,
+        uint256 expectedCloseTime,
+        bytes32 settlementUnit,
+        IEscrowForTreasury.RouteAllocation[] calldata routeAllocations
+    ) external onlyOwner {
+        require(escrow != address(0), "escrow not set");
+        IEscrowForTreasury(escrow).authorizeBatchExecution(batchId, expectedCloseTime, settlementUnit, routeAllocations);
+    }
+
+    function freezeEscrowBatch(uint256 batchId, bool frozen) external onlyOwner {
+        require(escrow != address(0), "escrow not set");
+        IEscrowForTreasury(escrow).freezeBatch(batchId, frozen);
     }
 
     /// @notice Toggle the dev/test USDC auto-mint fallback. MUST remain false on mainnet.
@@ -712,7 +746,6 @@ contract Treasury is Ownable {
         emit BatchFunded(batchId, amountUsd);
     }
 
-    // NEW: Escrow reports back results for a closed batch and distributes user profits to batch participants
     function reportBatchResult(
         uint256 batchId,
         uint256 principalUsd,
@@ -720,19 +753,27 @@ contract Treasury is Ownable {
         uint256 feeUsd,
         uint256 finalNavPerShare
     ) external onlyEscrow {
-        // Record protocol profit
-        protocolProfitUsd += feeUsd;
-        // Record batch profit
-        batchProfitUsd[batchId] = userProfitUsd;
-        // Record final NAV per share
-        batchFinalNavPerShare[batchId] = finalNavPerShare;
-        // Close Treasury collateral for this batch
-        if (totalCollateralUsd >= principalUsd) {
-            totalCollateralUsd -= principalUsd;
-        } else {
-            totalCollateralUsd = 0;
-        }
-        emit BatchResult(batchId, principalUsd, userProfitUsd, feeUsd);
+        _recordBatchResult(batchId, principalUsd, userProfitUsd, feeUsd, finalNavPerShare, bytes32(0), bytes32(0));
+    }
+
+    function reportBatchResult(
+        uint256 batchId,
+        uint256 principalUsd,
+        uint256 userProfitUsd,
+        uint256 feeUsd,
+        uint256 finalNavPerShare,
+        bytes32 settlementReportHash,
+        bytes32 complianceDigestHash
+    ) external onlyEscrow {
+        _recordBatchResult(
+            batchId,
+            principalUsd,
+            userProfitUsd,
+            feeUsd,
+            finalNavPerShare,
+            settlementReportHash,
+            complianceDigestHash
+        );
     }
 
     // Overloaded: reportBatchResult + immediate distribution to Vault per-token (by share).
@@ -745,17 +786,7 @@ contract Treasury is Ownable {
         uint256 finalNavPerShare,
         uint256[] calldata tokenIds
     ) external onlyEscrow {
-        // Bookkeeping: fees/nav/profit & close collateral
-        protocolProfitUsd += feeUsd;
-        batchProfitUsd[batchId] = userProfitUsd;
-        batchFinalNavPerShare[batchId] = finalNavPerShare;
-        if (totalCollateralUsd >= principalUsd) {
-            totalCollateralUsd -= principalUsd;
-        } else {
-            totalCollateralUsd = 0;
-        }
-
-        emit BatchResult(batchId, principalUsd, userProfitUsd, feeUsd);
+        _recordBatchResult(batchId, principalUsd, userProfitUsd, feeUsd, finalNavPerShare, bytes32(0), bytes32(0));
 
         // If there's no user profit or no receipts, nothing to distribute
         if (userProfitUsd == 0 || tokenIds.length == 0) {
@@ -990,6 +1021,31 @@ contract Treasury is Ownable {
 
         emit ReceiptProfitPaid(receiptId, recipient, unpaidUsd);
         emit ReceiptProfitPaidDetailed(batchId, receiptId, recipient, unpaidUsd, newPaid, dueUsd);
+    }
+
+    function _recordBatchResult(
+        uint256 batchId,
+        uint256 principalUsd,
+        uint256 userProfitUsd,
+        uint256 feeUsd,
+        uint256 finalNavPerShare,
+        bytes32 settlementReportHash,
+        bytes32 complianceDigestHash
+    ) internal {
+        protocolProfitUsd += feeUsd;
+        batchProfitUsd[batchId] = userProfitUsd;
+        batchFinalNavPerShare[batchId] = finalNavPerShare;
+        batchSettlementReportHash[batchId] = settlementReportHash;
+        batchComplianceDigestHash[batchId] = complianceDigestHash;
+
+        if (totalCollateralUsd >= principalUsd) {
+            totalCollateralUsd -= principalUsd;
+        } else {
+            totalCollateralUsd = 0;
+        }
+
+        emit BatchResult(batchId, principalUsd, userProfitUsd, feeUsd);
+        emit BatchResultExtended(batchId, settlementReportHash, complianceDigestHash);
     }
 
     function _resolveProfitRecipient(IVaultForTreasury vaultContract, uint256 receiptId) internal view returns (address recipient) {

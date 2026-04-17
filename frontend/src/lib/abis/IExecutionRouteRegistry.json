@@ -1,0 +1,114 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getRoute",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "id",
+        "type": "uint256"
+      },
+      {
+        "internalType": "string",
+        "name": "assetSymbol",
+        "type": "string"
+      },
+      {
+        "internalType": "uint8",
+        "name": "routeType",
+        "type": "uint8"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "counterpartyRefHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "jurisdictionRefHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "custodyRefHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bool",
+        "name": "documentsComplete",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "sagittaFundApproved",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "ndaSigned",
+        "type": "bool"
+      },
+      {
+        "internalType": "string",
+        "name": "pnlEndpoint",
+        "type": "string"
+      },
+      {
+        "internalType": "bool",
+        "name": "manualMarksRequired",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "active",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      }
+    ],
+    "name": "isRouteBatchEligible",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      }
+    ],
+    "name": "routeExists",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

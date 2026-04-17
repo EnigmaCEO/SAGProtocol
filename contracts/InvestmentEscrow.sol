@@ -1,117 +1,187 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-/// Minimal Treasury interface used by Escrow
-interface ITreasury {
+interface ITreasuryForEscrow {
     function fundEscrowBatch(uint256 batchId, uint256 amountUsd) external;
-    // include finalNavPerShare so Treasury can compute per-receipt payouts
-    function reportBatchResult(uint256 batchId, uint256 principalUsd, uint256 userProfitUsd, uint256 feeUsd, uint256 finalNavPerShare) external;
+    function reportBatchResult(
+        uint256 batchId,
+        uint256 principalUsd,
+        uint256 userProfitUsd,
+        uint256 feeUsd,
+        uint256 finalNavPerShare,
+        bytes32 settlementReportHash,
+        bytes32 complianceDigestHash
+    ) external;
 }
 
-// Minimal Vault interface for depositInfo
-interface IVault {
-    function depositInfo(uint256 id) external view returns (
-        address user,
-        address asset,
-        uint256 amount,
-        uint256 amountUsd6,
-        uint256 shares,
-        uint64 createdAt,
-        uint64 lockUntil,
-        bool withdrawn
+interface IExecutionRouteRegistry {
+    function routeExists(uint256 routeId) external view returns (bool);
+    function isRouteBatchEligible(uint256 routeId) external view returns (bool);
+    function getRoute(uint256 routeId) external view returns (
+        uint256 id,
+        string memory assetSymbol,
+        uint8 routeType,
+        bytes32 counterpartyRefHash,
+        bytes32 jurisdictionRefHash,
+        bytes32 custodyRefHash,
+        bool documentsComplete,
+        bool sagittaFundApproved,
+        bool ndaSigned,
+        string memory pnlEndpoint,
+        bool manualMarksRequired,
+        bool active
     );
 }
 
-/**
- * @title InvestmentEscrow
- * @notice Manages batched USDC deposits from the Vault into off-chain investment rounds.
- * @dev Lifecycle per batch:
- *      Pending → Running (rollToNewBatch) → Invested (investBatch) → Closed (depositReturnForBatch)
- *      → Distributed (distributeBatch) or the Treasury's reportBatchResult handles distribution.
- *
- *      Profit split: USER_PROFIT_BPS of gross profit goes to depositors, PROTOCOL_FEE_BPS to the
- *      protocol (via Treasury). Both constants are defined as public immutables for audit clarity.
- *
- *      SECURITY — CUSTODY RISK:
- *        When investBatch() is called, principal USDC is transferred to 0x000...dEaD representing
- *        an irrecoverable off-chain outflow. Ensure the operator has an authenticated off-chain
- *        channel to signal returns before calling this function.
- *
- *      SECURITY — KEEPER KEY:
- *        The keeper address can roll, invest, and close batches. Compromise of this key can
- *        trigger premature batch rolls but cannot steal funds without also controlling the
- *        Treasury and Vault. Rotate keeper promptly if compromised.
- */
 contract InvestmentEscrow is Ownable {
     using SafeERC20 for IERC20;
 
-    IERC20 public usdc;
-    ITreasury public treasury;
-
-    // Authorities
-    address public vault; // Vault contract registers deposits
-    address public keeper; // keeper or owner may roll/close
-
-    // Batching parameters
     uint256 public constant BATCH_INTERVAL = 7 days;
-    uint256 public currentBatchId; // default pending batch id used by registerDeposit()
-    uint256 public lastBatchRollTime;
-    uint256 public nextBatchCounter; // for generating new batch ids
-
-    // NOTE: appended Invested last to avoid changing numeric values of existing statuses.
-    enum BatchStatus { Pending, Running, Closed, Distributed, Invested }
-
-    /// @dev Percentage of batch profit allocated to depositors (basis points).
-    uint256 public constant USER_PROFIT_BPS = 8_000; // 80%
-    /// @dev Protocol fee retained from batch profit (basis points). Must equal BPS_SCALE - USER_PROFIT_BPS.
-    uint256 public constant PROTOCOL_FEE_BPS = 2_000; // 20%
+    uint256 public constant USER_PROFIT_BPS = 8_000;
+    uint256 public constant PROTOCOL_FEE_BPS = 2_000;
     uint256 private constant BPS_SCALE = 10_000;
+    address private constant DEAD_ADDRESS = 0x000000000000000000000000000000000000dEaD;
+
+    IERC20 public immutable usdc;
+    ITreasuryForEscrow public treasury;
+    IExecutionRouteRegistry public routeRegistry;
+
+    address public vault;
+    address public keeper;
+
+    uint256 public currentBatchId;
+    uint256 public batchAwaitingAllocationId;
+    uint256 public lastBatchRollTime;
+    uint256 public nextBatchCounter;
+    uint256 public nextPositionId;
+
+    enum BatchStatus { Pending, Running, Closed, Distributed, Invested }
+    enum PositionStatus { None, Open, Closed, WrittenDown }
 
     struct Batch {
         uint256 id;
         uint256 startTime;
         uint256 endTime;
-        uint256 totalCollateralUsd; // USD value in 6 decimals
-        uint256 totalShares;        // 1e18-based share units
-        uint256 finalNavPerShare;   // 1e18-based NAV
+        uint256 totalCollateralUsd;
+        uint256 totalShares;
+        uint256 finalNavPerShare;
         BatchStatus status;
-        bool distributed;          // whether batch payouts were distributed to investors
+        bool distributed;
+    }
+
+    struct RouteAllocation {
+        uint256 routeId;
+        uint256 maxAllocationUsd6;
+    }
+
+    struct BatchMandate {
+        uint256 expectedCloseTime;
+        bytes32 settlementUnit;
+        uint256 principalAuthorizedUsd6;
+        bool configured;
+    }
+
+    struct BatchMandateView {
+        uint256 expectedCloseTime;
+        bytes32 settlementUnit;
+        uint256 principalAuthorizedUsd6;
+        bool configured;
+        uint256[] routeIds;
+        uint256[] maxAllocationUsd6;
+    }
+
+    struct BatchAccounting {
+        uint256 principalAuthorizedUsd6;
+        uint256 principalFundedUsd6;
+        uint256 principalCommittedUsd6;
+        uint256 principalReturnedUsd6;
+        uint256 feesUsd6;
+        int256 realizedPnlUsd6;
+        int256 unrealizedPnlUsd6;
+        uint256 lastMarkedAt;
+        bool frozen;
+    }
+
+    struct BatchSettlement {
+        uint256 finalValueUsd6;
+        uint256 protocolFeeUsd6;
+        uint256 userProfitUsd6;
+        uint256 finalNavPerShare;
+        bytes32 settlementReportHash;
+        bytes32 complianceDigestHash;
+        uint256 finalizedAt;
+        bool finalized;
+    }
+
+    struct Position {
+        uint256 id;
+        uint256 batchId;
+        uint256 routeId;
+        string assetSymbol;
+        uint256 commitmentUsd6;
+        uint256 quantityE18;
+        uint256 carryingValueUsd6;
+        uint256 proceedsUsd6;
+        uint256 feeUsd6;
+        bytes32 externalRefHash;
+        bytes32 lastMarkHash;
+        bytes32 closeRefHash;
+        uint256 openedAt;
+        uint256 markedAt;
+        uint256 closedAt;
+        PositionStatus status;
+    }
+
+    struct ComplianceAttestation {
+        bytes32 attestationHash;
+        address approvedBy;
+        uint256 approvedAt;
+        uint256 expiresAt;
     }
 
     mapping(uint256 => Batch) public batches;
-    // tokenId (receipt) -> batchId
     mapping(uint256 => uint256) public receiptBatchId;
+    mapping(uint256 => BatchMandate) private batchMandates;
+    mapping(uint256 => BatchAccounting) private batchAccounting;
+    mapping(uint256 => BatchSettlement) private batchSettlements;
+    mapping(uint256 => uint256[]) private batchPositionIds;
+    mapping(uint256 => Position) private positions;
+    mapping(uint256 => uint256[]) private batchMandateRouteIds;
+    mapping(uint256 => mapping(uint256 => uint256)) private batchRouteMaxAllocationUsd6;
+    mapping(uint256 => mapping(uint256 => uint256)) private batchRouteCommittedUsd6;
+    mapping(uint256 => mapping(uint256 => ComplianceAttestation)) private batchRouteAttestations;
 
-    // NEW event: created pending batch
     event BatchCreated(uint256 indexed batchId, uint256 createdAt);
-    // Events
     event DepositRegistered(uint256 indexed tokenId, uint256 indexed batchId, uint256 amountUsd, uint256 shares);
     event BatchRolled(uint256 indexed batchId, uint256 amountUsd);
     event BatchClosed(uint256 indexed batchId, uint256 principalUsd, uint256 userProfitUsd, uint256 feeUsd, uint256 finalNavPerShare);
-    // Emitted when returned USDC is deposited into escrow for a closed batch
+    event BatchInvested(uint256 indexed batchId, uint256 committedUsd);
     event BatchReturnDeposited(uint256 indexed batchId, uint256 amountUsd);
-    // Emitted when escrow distributes returned USDC to investors (simulation)
-    event BatchDistributed(uint256 indexed batchId, uint256 totalDistributedUsd);
-    // NEW: event when a batch is invested (escrow USDC burned / invested)
-    event BatchInvested(uint256 indexed batchId, uint256 burnedUsd);
-    // NEW diagnostic event emitted immediately before attempting the USDC burn
-    event PreInvestDiagnostics(uint256 indexed batchId, uint256 principalUsd, uint256 escrowUsdcBalance, address usdcToken);
-    // Emitted when admin burns escrow USDC for a running batch
-    event AdminBatchBurned(uint256 indexed batchId, uint256 burnedUsd, address executor);
+    event BatchMandateAuthorized(uint256 indexed batchId, uint256 expectedCloseTime, bytes32 settlementUnit, uint256 principalAuthorizedUsd6);
+    event BatchFrozen(uint256 indexed batchId, bool frozen);
+    event ComplianceAttestationPosted(uint256 indexed batchId, uint256 indexed routeId, bytes32 attestationHash, uint256 expiresAt, address approvedBy);
+    event PositionOpened(uint256 indexed positionId, uint256 indexed batchId, uint256 indexed routeId, string assetSymbol, uint256 commitmentUsd6, uint256 quantityE18, bytes32 externalRefHash, uint256 feeUsd6);
+    event PositionMarked(uint256 indexed positionId, uint256 carryingValueUsd6, bytes32 markHash, uint256 markedAt);
+    event PositionClosed(uint256 indexed positionId, uint256 proceedsUsd6, uint256 feeUsd6, bytes32 closeRefHash, PositionStatus status);
+    event BatchSettlementFinalized(uint256 indexed batchId, uint256 finalValueUsd6, uint256 userProfitUsd6, uint256 protocolFeeUsd6, bytes32 settlementReportHash, bytes32 complianceDigestHash);
+    event RouteRegistrySet(address indexed routeRegistry);
+    event KeeperSet(address indexed keeper);
+    event VaultSet(address indexed vault);
+    event BatchAllocationPending(uint256 indexed batchId);
+    event BatchAllocationCleared(uint256 indexed batchId);
 
-    // Pass deploying account as initial owner to OpenZeppelin Ownable (compatible with current Ownable impl)
     constructor(address _usdc, address _treasury) Ownable(msg.sender) {
         require(_usdc != address(0) && _treasury != address(0), "zero address");
         usdc = IERC20(_usdc);
-        treasury = ITreasury(_treasury);
+        treasury = ITreasuryForEscrow(_treasury);
 
-        // Initialize first pending batch
         currentBatchId = 1;
         nextBatchCounter = 2;
+        nextPositionId = 1;
         batches[currentBatchId] = Batch({
             id: currentBatchId,
             startTime: 0,
@@ -126,17 +196,6 @@ contract InvestmentEscrow is Ownable {
         lastBatchRollTime = block.timestamp;
     }
 
-    // --- Admin setters ---
-    function setVault(address _vault) external onlyOwner {
-        require(_vault != address(0), "zero vault");
-        vault = _vault;
-    }
-
-    function setKeeper(address _keeper) external onlyOwner {
-        keeper = _keeper;
-    }
-
-    // --- Modifiers ---
     modifier onlyVaultOrTreasury() {
         require(msg.sender == vault || msg.sender == address(treasury), "Only vault or treasury");
         _;
@@ -148,100 +207,483 @@ contract InvestmentEscrow is Ownable {
     }
 
     modifier onlyKeeperOwnerOrTreasury() {
-        require(
-            msg.sender == owner() || msg.sender == keeper || msg.sender == address(treasury),
-            "Only keeper, owner, or treasury"
-        );
+        require(msg.sender == owner() || msg.sender == keeper || msg.sender == address(treasury), "Only keeper, owner, or treasury");
         _;
     }
 
-    // --- Deposit registration (called by Vault or Treasury when deposit is collateralized) ---
+    modifier onlyTreasuryOrOwner() {
+        require(msg.sender == address(treasury) || msg.sender == owner(), "Only treasury or owner");
+        _;
+    }
+
+    function setVault(address _vault) external onlyOwner {
+        require(_vault != address(0), "zero vault");
+        vault = _vault;
+        emit VaultSet(_vault);
+    }
+
+    function setKeeper(address _keeper) external onlyOwner {
+        keeper = _keeper;
+        emit KeeperSet(_keeper);
+    }
+
+    function setRouteRegistry(address _routeRegistry) external onlyOwner {
+        require(_routeRegistry != address(0), "zero route registry");
+        routeRegistry = IExecutionRouteRegistry(_routeRegistry);
+        emit RouteRegistrySet(_routeRegistry);
+    }
+
     function registerDeposit(uint256 tokenId, uint256 amountUsd6, uint256 shares) external onlyVaultOrTreasury {
-        Batch storage b = batches[currentBatchId];
-        require(b.status == BatchStatus.Pending, "Batch not pending");
-        b.totalCollateralUsd += amountUsd6;
-        b.totalShares += shares;
+        Batch storage batch_ = batches[currentBatchId];
+        require(batch_.status == BatchStatus.Pending, "Batch not pending");
+        batch_.totalCollateralUsd += amountUsd6;
+        batch_.totalShares += shares;
         receiptBatchId[tokenId] = currentBatchId;
         emit DepositRegistered(tokenId, currentBatchId, amountUsd6, shares);
     }
 
-    /// @notice Register deposit into a specific pending batch (optional, Vault keeps using registerDeposit default)
     function registerDepositTo(uint256 batchId, uint256 tokenId, uint256 amountUsd6, uint256 shares) external onlyVaultOrTreasury {
-        // If the requested batch does not exist yet, create it as Pending so tests may register to numeric ids.
-        if (batches[batchId].id != batchId) {
-            batches[batchId] = Batch({
-                id: batchId,
-                startTime: 0,
-                endTime: 0,
-                totalCollateralUsd: 0,
-                totalShares: 0,
-                finalNavPerShare: 0,
-                status: BatchStatus.Pending,
-                distributed: false
-            });
-            // ensure nextBatchCounter is beyond any explicit batch ids created this way
-            if (batchId >= nextBatchCounter) {
-                nextBatchCounter = batchId + 1;
-            }
-        }
-        Batch storage b = batches[batchId];
-        require(b.status == BatchStatus.Pending, "Batch not pending");
-        b.totalCollateralUsd += amountUsd6;
-        b.totalShares += shares;
+        _ensurePendingBatchExists(batchId);
+        Batch storage batch_ = batches[batchId];
+        require(batch_.status == BatchStatus.Pending, "Batch not pending");
+        batch_.totalCollateralUsd += amountUsd6;
+        batch_.totalShares += shares;
         receiptBatchId[tokenId] = batchId;
         emit DepositRegistered(tokenId, batchId, amountUsd6, shares);
     }
 
-    /// @notice Create a new pending batch. Keeper/owner can create several pending batches concurrently.
     function createPendingBatch() external onlyKeeperOrOwner returns (uint256) {
-        // Allow creating a new pending batch even if the current pending batch has no deposits.
-        // Tests and some admin flows expect to be able to create pending batches freely.
         uint256 id = nextBatchCounter;
-        nextBatchCounter = nextBatchCounter + 1;
-        batches[id] = Batch({
-            id: id,
-            startTime: 0,
-            endTime: 0,
-            totalCollateralUsd: 0,
-            totalShares: 0,
-            finalNavPerShare: 0,
-            status: BatchStatus.Pending,
-            distributed: false
-        });
-        emit BatchCreated(id, block.timestamp);
+        nextBatchCounter = id + 1;
+        _createPendingBatch(id);
         return id;
     }
 
-    /// @notice Set which pending batch is the default destination for registerDeposit()
     function setCurrentPendingBatch(uint256 batchId) external onlyKeeperOrOwner {
         require(batches[batchId].id == batchId, "Batch not found");
         require(batches[batchId].status == BatchStatus.Pending, "Batch not pending");
         currentBatchId = batchId;
     }
 
-    // --- Weekly roll: move pending batch to running and request funds from Treasury ---
-    /// @notice Roll the default current pending batch into Running and create a new default pending batch (backward-compatible)
     function rollToNewBatch() public onlyKeeperOwnerOrTreasury {
-        Batch storage cur = batches[currentBatchId];
-
-        // If no collateral in current batch, just advance time (no-op)
-        if (cur.totalCollateralUsd == 0) {
+        Batch storage current = batches[currentBatchId];
+        if (current.totalCollateralUsd == 0) {
             lastBatchRollTime = block.timestamp;
             return;
         }
 
-        // Activate current pending batch
-        cur.status = BatchStatus.Running;
-        cur.startTime = block.timestamp;
+        _activateBatch(currentBatchId, current.totalCollateralUsd);
 
-        uint256 amountUsd = cur.totalCollateralUsd;
-        treasury.fundEscrowBatch(currentBatchId, amountUsd);
-        emit BatchRolled(currentBatchId, amountUsd);
+        uint256 newId = nextBatchCounter;
+        nextBatchCounter = newId + 1;
+        _createPendingBatch(newId);
+        currentBatchId = newId;
+        lastBatchRollTime = block.timestamp;
+    }
 
-        // Create a new default pending batch and switch currentBatchId to it
-        uint256 newId = nextBatchCounter++;
-        batches[newId] = Batch({
-            id: newId,
+    function rollBatch(uint256 batchId) external onlyKeeperOwnerOrTreasury {
+        Batch storage batch_ = batches[batchId];
+        require(batch_.id == batchId, "Batch not found");
+        require(batch_.status == BatchStatus.Pending, "Batch not pending");
+        require(batch_.totalCollateralUsd > 0, "Empty batch");
+        _activateBatch(batchId, batch_.totalCollateralUsd);
+        lastBatchRollTime = block.timestamp;
+    }
+
+    function authorizeBatchExecution(
+        uint256 batchId,
+        uint256 expectedCloseTime,
+        bytes32 settlementUnit,
+        RouteAllocation[] calldata routeAllocations
+    ) external onlyTreasuryOrOwner {
+        require(address(routeRegistry) != address(0), "Route registry not set");
+        Batch storage batch_ = batches[batchId];
+        require(batch_.id == batchId, "Batch not found");
+        require(batch_.status == BatchStatus.Running || batch_.status == BatchStatus.Invested, "Batch not executable");
+
+        BatchAccounting storage accounting = batchAccounting[batchId];
+        require(accounting.principalCommittedUsd6 == 0, "Batch already committed");
+
+        uint256 existingCount = batchMandateRouteIds[batchId].length;
+        for (uint256 i = 0; i < existingCount; i++) {
+            uint256 oldRouteId = batchMandateRouteIds[batchId][i];
+            delete batchRouteMaxAllocationUsd6[batchId][oldRouteId];
+        }
+        delete batchMandateRouteIds[batchId];
+
+        uint256 principalAuthorizedUsd6 = 0;
+        uint256 fundingCap = accounting.principalFundedUsd6 == 0 ? batch_.totalCollateralUsd : accounting.principalFundedUsd6;
+        require(routeAllocations.length > 0, "No routes");
+
+        for (uint256 i = 0; i < routeAllocations.length; i++) {
+            RouteAllocation calldata allocation = routeAllocations[i];
+            require(allocation.routeId != 0, "Invalid route");
+            require(allocation.maxAllocationUsd6 > 0, "Invalid route allocation");
+            require(routeRegistry.routeExists(allocation.routeId), "Route missing");
+            require(routeRegistry.isRouteBatchEligible(allocation.routeId), "Route not compliant");
+            require(batchRouteMaxAllocationUsd6[batchId][allocation.routeId] == 0, "Duplicate route");
+            batchMandateRouteIds[batchId].push(allocation.routeId);
+            batchRouteMaxAllocationUsd6[batchId][allocation.routeId] = allocation.maxAllocationUsd6;
+            principalAuthorizedUsd6 += allocation.maxAllocationUsd6;
+        }
+
+        require(principalAuthorizedUsd6 <= fundingCap, "Authorization exceeds funding");
+
+        batchMandates[batchId] = BatchMandate({
+            expectedCloseTime: expectedCloseTime,
+            settlementUnit: settlementUnit,
+            principalAuthorizedUsd6: principalAuthorizedUsd6,
+            configured: true
+        });
+
+        accounting.principalAuthorizedUsd6 = principalAuthorizedUsd6;
+        if (batchAwaitingAllocationId == batchId) {
+            batchAwaitingAllocationId = 0;
+            emit BatchAllocationCleared(batchId);
+        }
+        emit BatchMandateAuthorized(batchId, expectedCloseTime, settlementUnit, principalAuthorizedUsd6);
+    }
+
+    function freezeBatch(uint256 batchId, bool frozen) external onlyTreasuryOrOwner {
+        require(batches[batchId].id == batchId, "Batch not found");
+        batchAccounting[batchId].frozen = frozen;
+        emit BatchFrozen(batchId, frozen);
+    }
+
+    function postComplianceAttestation(
+        uint256 batchId,
+        uint256 routeId,
+        bytes32 attestationHash,
+        uint256 expiresAt
+    ) external onlyKeeperOwnerOrTreasury {
+        require(batches[batchId].id == batchId, "Batch not found");
+        require(batchMandates[batchId].configured, "Mandate not configured");
+        require(batchRouteMaxAllocationUsd6[batchId][routeId] > 0, "Route not in mandate");
+        require(expiresAt > block.timestamp, "Attestation expired");
+
+        batchRouteAttestations[batchId][routeId] = ComplianceAttestation({
+            attestationHash: attestationHash,
+            approvedBy: msg.sender,
+            approvedAt: block.timestamp,
+            expiresAt: expiresAt
+        });
+
+        emit ComplianceAttestationPosted(batchId, routeId, attestationHash, expiresAt, msg.sender);
+    }
+
+    function openPosition(
+        uint256 batchId,
+        uint256 routeId,
+        string calldata assetSymbol,
+        uint256 commitmentUsd6,
+        uint256 quantityE18,
+        bytes32 externalRefHash,
+        uint256 feeUsd6
+    ) external onlyKeeperOwnerOrTreasury returns (uint256 positionId) {
+        Batch storage batch_ = batches[batchId];
+        require(batch_.id == batchId, "Batch not found");
+        require(batch_.status == BatchStatus.Running || batch_.status == BatchStatus.Invested, "Batch not executable");
+        require(!batchAccounting[batchId].frozen, "Batch frozen");
+        require(commitmentUsd6 > 0, "Invalid commitment");
+
+        BatchAccounting storage accounting = batchAccounting[batchId];
+        BatchMandate storage mandate = batchMandates[batchId];
+        require(mandate.configured, "Mandate not configured");
+        require(batchRouteMaxAllocationUsd6[batchId][routeId] > 0, "Route not approved");
+        _requireActiveRoute(routeId, assetSymbol);
+        require(routeRegistry.isRouteBatchEligible(routeId), "Route not compliant");
+
+        uint256 nextRouteCommitted = batchRouteCommittedUsd6[batchId][routeId] + commitmentUsd6;
+        require(nextRouteCommitted <= batchRouteMaxAllocationUsd6[batchId][routeId], "Route allocation exceeded");
+        require(accounting.principalCommittedUsd6 + commitmentUsd6 <= accounting.principalFundedUsd6, "Funding exceeded");
+        require(accounting.principalCommittedUsd6 + commitmentUsd6 <= accounting.principalAuthorizedUsd6, "Authorization exceeded");
+        require(usdc.balanceOf(address(this)) >= commitmentUsd6, "Escrow lacks USDC");
+
+        usdc.safeTransfer(DEAD_ADDRESS, commitmentUsd6);
+
+        positionId = nextPositionId++;
+        uint256 initialCarryingValueUsd6 = commitmentUsd6 > feeUsd6 ? commitmentUsd6 - feeUsd6 : 0;
+        positions[positionId] = Position({
+            id: positionId,
+            batchId: batchId,
+            routeId: routeId,
+            assetSymbol: assetSymbol,
+            commitmentUsd6: commitmentUsd6,
+            quantityE18: quantityE18,
+            carryingValueUsd6: initialCarryingValueUsd6,
+            proceedsUsd6: 0,
+            feeUsd6: feeUsd6,
+            externalRefHash: externalRefHash,
+            lastMarkHash: bytes32(0),
+            closeRefHash: bytes32(0),
+            openedAt: block.timestamp,
+            markedAt: 0,
+            closedAt: 0,
+            status: PositionStatus.Open
+        });
+
+        batchPositionIds[batchId].push(positionId);
+        batchRouteCommittedUsd6[batchId][routeId] = nextRouteCommitted;
+        accounting.principalCommittedUsd6 += commitmentUsd6;
+        accounting.feesUsd6 += feeUsd6;
+        accounting.unrealizedPnlUsd6 += int256(initialCarryingValueUsd6) - int256(commitmentUsd6);
+
+        if (batch_.status == BatchStatus.Running) {
+            batch_.status = BatchStatus.Invested;
+            emit BatchInvested(batchId, accounting.principalCommittedUsd6);
+        }
+
+        emit PositionOpened(positionId, batchId, routeId, assetSymbol, commitmentUsd6, quantityE18, externalRefHash, feeUsd6);
+    }
+
+    function markPosition(
+        uint256 positionId,
+        uint256 carryingValueUsd6,
+        bytes32 markHash,
+        uint256 markedAt
+    ) external onlyKeeperOwnerOrTreasury {
+        Position storage position = positions[positionId];
+        require(position.status == PositionStatus.Open, "Position not open");
+        BatchAccounting storage accounting = batchAccounting[position.batchId];
+        require(!accounting.frozen, "Batch frozen");
+
+        accounting.unrealizedPnlUsd6 += int256(carryingValueUsd6) - int256(position.carryingValueUsd6);
+        accounting.lastMarkedAt = markedAt == 0 ? block.timestamp : markedAt;
+
+        position.carryingValueUsd6 = carryingValueUsd6;
+        position.lastMarkHash = markHash;
+        position.markedAt = accounting.lastMarkedAt;
+
+        emit PositionMarked(positionId, carryingValueUsd6, markHash, position.markedAt);
+    }
+
+    function closePosition(
+        uint256 positionId,
+        uint256 proceedsUsd6,
+        bytes32 closeRefHash,
+        uint256 feeUsd6
+    ) external onlyKeeperOwnerOrTreasury {
+        Position storage position = positions[positionId];
+        require(position.status == PositionStatus.Open, "Position not open");
+        Batch storage batch_ = batches[position.batchId];
+        require(batch_.status == BatchStatus.Invested || batch_.status == BatchStatus.Running, "Batch not active");
+        BatchAccounting storage accounting = batchAccounting[position.batchId];
+        require(!accounting.frozen, "Batch frozen");
+
+        uint256 netProceedsUsd6 = proceedsUsd6 > feeUsd6 ? proceedsUsd6 - feeUsd6 : 0;
+        if (netProceedsUsd6 > 0) {
+            _collectReturnFunds(netProceedsUsd6);
+        }
+
+        accounting.unrealizedPnlUsd6 -= int256(position.carryingValueUsd6) - int256(position.commitmentUsd6);
+        accounting.principalReturnedUsd6 += netProceedsUsd6;
+        accounting.feesUsd6 += feeUsd6;
+        accounting.realizedPnlUsd6 += int256(netProceedsUsd6) - int256(position.commitmentUsd6);
+
+        position.carryingValueUsd6 = 0;
+        position.proceedsUsd6 = netProceedsUsd6;
+        position.feeUsd6 += feeUsd6;
+        position.closeRefHash = closeRefHash;
+        position.closedAt = block.timestamp;
+        position.status = PositionStatus.Closed;
+
+        emit PositionClosed(positionId, netProceedsUsd6, feeUsd6, closeRefHash, PositionStatus.Closed);
+    }
+
+    function writeDownPosition(uint256 positionId, bytes32 closeRefHash, uint256 feeUsd6) external onlyTreasuryOrOwner {
+        Position storage position = positions[positionId];
+        require(position.status == PositionStatus.Open, "Position not open");
+        BatchAccounting storage accounting = batchAccounting[position.batchId];
+
+        accounting.unrealizedPnlUsd6 -= int256(position.carryingValueUsd6) - int256(position.commitmentUsd6);
+        accounting.feesUsd6 += feeUsd6;
+        accounting.realizedPnlUsd6 -= int256(position.commitmentUsd6) + int256(feeUsd6);
+
+        position.carryingValueUsd6 = 0;
+        position.proceedsUsd6 = 0;
+        position.feeUsd6 += feeUsd6;
+        position.closeRefHash = closeRefHash;
+        position.closedAt = block.timestamp;
+        position.status = PositionStatus.WrittenDown;
+
+        emit PositionClosed(positionId, 0, feeUsd6, closeRefHash, PositionStatus.WrittenDown);
+    }
+
+    function finalizeBatchSettlement(uint256 batchId, bytes32 settlementReportHash, bytes32 complianceDigestHash) public onlyKeeperOwnerOrTreasury {
+        Batch storage batch_ = batches[batchId];
+        require(batch_.id == batchId, "Batch not found");
+        require(batch_.status == BatchStatus.Invested || batch_.status == BatchStatus.Running, "Batch not finalizable");
+
+        BatchSettlement storage settlement = batchSettlements[batchId];
+        require(!settlement.finalized, "Already finalized");
+        require(_allPositionsResolved(batchId), "Open positions remain");
+
+        BatchAccounting storage accounting = batchAccounting[batchId];
+        uint256 idleCapitalUsd6 = accounting.principalFundedUsd6 - accounting.principalCommittedUsd6;
+        uint256 finalValueUsd6 = accounting.principalReturnedUsd6 + idleCapitalUsd6;
+        require(usdc.balanceOf(address(this)) >= finalValueUsd6, "Escrow lacks returned USDC");
+
+        uint256 profitUsd6 = finalValueUsd6 > accounting.principalFundedUsd6 ? finalValueUsd6 - accounting.principalFundedUsd6 : 0;
+        uint256 userProfitUsd6 = (profitUsd6 * USER_PROFIT_BPS) / BPS_SCALE;
+        uint256 protocolFeeUsd6 = profitUsd6 - userProfitUsd6;
+        uint256 finalNavPerShare = accounting.principalFundedUsd6 == 0 ? 0 : (finalValueUsd6 * 1e18) / accounting.principalFundedUsd6;
+
+        settlement.finalValueUsd6 = finalValueUsd6;
+        settlement.protocolFeeUsd6 = protocolFeeUsd6;
+        settlement.userProfitUsd6 = userProfitUsd6;
+        settlement.finalNavPerShare = finalNavPerShare;
+        settlement.settlementReportHash = settlementReportHash;
+        settlement.complianceDigestHash = complianceDigestHash;
+        settlement.finalizedAt = block.timestamp;
+        settlement.finalized = true;
+
+        batch_.finalNavPerShare = finalNavPerShare;
+        batch_.status = BatchStatus.Closed;
+        batch_.endTime = block.timestamp;
+
+        usdc.safeTransfer(address(treasury), finalValueUsd6);
+        treasury.reportBatchResult(batchId, accounting.principalFundedUsd6, userProfitUsd6, protocolFeeUsd6, finalNavPerShare, settlementReportHash, complianceDigestHash);
+
+        emit BatchClosed(batchId, accounting.principalFundedUsd6, userProfitUsd6, protocolFeeUsd6, finalNavPerShare);
+        emit BatchSettlementFinalized(batchId, finalValueUsd6, userProfitUsd6, protocolFeeUsd6, settlementReportHash, complianceDigestHash);
+    }
+
+    function depositReturnForBatch(uint256 batchId, uint256 finalNavPerShare) external onlyKeeperOrOwner {
+        Batch storage batch_ = batches[batchId];
+        require(batch_.id == batchId, "Batch not found");
+        require(batch_.status == BatchStatus.Invested || batch_.status == BatchStatus.Running, "Batch not invested or running");
+        require(batchPositionIds[batchId].length == 0, "Use positions");
+
+        BatchAccounting storage accounting = batchAccounting[batchId];
+        if (batch_.status == BatchStatus.Running) {
+            batch_.status = BatchStatus.Invested;
+        }
+        if (accounting.principalCommittedUsd6 == 0) {
+            accounting.principalCommittedUsd6 = accounting.principalFundedUsd6;
+        }
+
+        uint256 totalReturnUsd6 = (accounting.principalFundedUsd6 * finalNavPerShare) / 1e18;
+        _collectReturnFunds(totalReturnUsd6);
+        accounting.principalReturnedUsd6 = totalReturnUsd6;
+        accounting.realizedPnlUsd6 = int256(totalReturnUsd6) - int256(accounting.principalFundedUsd6);
+
+        emit BatchReturnDeposited(batchId, totalReturnUsd6);
+        finalizeBatchSettlement(batchId, bytes32(0), bytes32(0));
+    }
+
+    function distributeBatch(uint256, uint256[] calldata) external pure {
+        revert("Escrow no longer settles users directly");
+    }
+
+    function investBatch(uint256 batchId) public onlyKeeperOrOwner {
+        Batch storage batch_ = batches[batchId];
+        require(batch_.id == batchId, "Batch not found");
+        require(batch_.status == BatchStatus.Running, "Batch not running");
+
+        BatchAccounting storage accounting = batchAccounting[batchId];
+        uint256 principalUsd6 = accounting.principalFundedUsd6;
+        require(principalUsd6 > 0, "No funded principal");
+        require(usdc.balanceOf(address(this)) >= principalUsd6, "Escrow lacks USDC");
+
+        usdc.safeTransfer(DEAD_ADDRESS, principalUsd6);
+        accounting.principalCommittedUsd6 = principalUsd6;
+        accounting.principalAuthorizedUsd6 = principalUsd6;
+        batch_.status = BatchStatus.Invested;
+
+        emit BatchInvested(batchId, principalUsd6);
+    }
+
+    function adminBurnBatch(uint256 batchId) external onlyOwner {
+        investBatch(batchId);
+    }
+
+    function distributeBatchBurn(uint256 batchId) external onlyKeeperOrOwner {
+        investBatch(batchId);
+    }
+
+    function setBatchInvested(uint256 batchId) external onlyKeeperOrOwner {
+        Batch storage batch_ = batches[batchId];
+        require(batch_.id == batchId, "Batch not found");
+        require(batch_.status == BatchStatus.Running, "Batch not running");
+        batch_.status = BatchStatus.Invested;
+        emit BatchInvested(batchId, batchAccounting[batchId].principalCommittedUsd6);
+    }
+
+    function forceSetBatchInvested(uint256 batchId) external onlyOwner {
+        require(batches[batchId].id == batchId, "Batch not found");
+        batches[batchId].status = BatchStatus.Invested;
+        emit BatchInvested(batchId, batchAccounting[batchId].principalCommittedUsd6);
+    }
+
+    function markBatchInvestedWithoutTransfer(uint256 batchId) external onlyKeeperOrOwner {
+        Batch storage batch_ = batches[batchId];
+        require(batch_.id == batchId, "Batch not found");
+        require(batch_.status == BatchStatus.Running, "Batch not running");
+        batch_.status = BatchStatus.Invested;
+        emit BatchInvested(batchId, batchAccounting[batchId].principalCommittedUsd6);
+    }
+
+    function getBatch(uint256 batchId) external view returns (Batch memory) {
+        return batches[batchId];
+    }
+
+    function getBatchMandate(uint256 batchId) external view returns (BatchMandateView memory view_) {
+        BatchMandate storage mandate = batchMandates[batchId];
+        uint256 len = batchMandateRouteIds[batchId].length;
+        uint256[] memory routeIds = new uint256[](len);
+        uint256[] memory maxAllocationUsd6 = new uint256[](len);
+        for (uint256 i = 0; i < len; i++) {
+            uint256 routeId = batchMandateRouteIds[batchId][i];
+            routeIds[i] = routeId;
+            maxAllocationUsd6[i] = batchRouteMaxAllocationUsd6[batchId][routeId];
+        }
+        view_ = BatchMandateView({
+            expectedCloseTime: mandate.expectedCloseTime,
+            settlementUnit: mandate.settlementUnit,
+            principalAuthorizedUsd6: mandate.principalAuthorizedUsd6,
+            configured: mandate.configured,
+            routeIds: routeIds,
+            maxAllocationUsd6: maxAllocationUsd6
+        });
+    }
+
+    function getBatchAccounting(uint256 batchId) external view returns (BatchAccounting memory) {
+        return batchAccounting[batchId];
+    }
+
+    function getBatchSettlement(uint256 batchId) external view returns (BatchSettlement memory) {
+        return batchSettlements[batchId];
+    }
+
+    function getBatchPositionIds(uint256 batchId) external view returns (uint256[] memory) {
+        return batchPositionIds[batchId];
+    }
+
+    function getPosition(uint256 positionId) external view returns (Position memory) {
+        return positions[positionId];
+    }
+
+    function getComplianceAttestation(uint256 batchId, uint256 routeId) external view returns (ComplianceAttestation memory) {
+        return batchRouteAttestations[batchId][routeId];
+    }
+
+    function getBatchRouteCommittedUsd6(uint256 batchId, uint256 routeId) external view returns (uint256) {
+        return batchRouteCommittedUsd6[batchId][routeId];
+    }
+
+    function _ensurePendingBatchExists(uint256 batchId) internal {
+        if (batches[batchId].id == batchId) {
+            return;
+        }
+        if (batchId >= nextBatchCounter) {
+            nextBatchCounter = batchId + 1;
+        }
+        _createPendingBatch(batchId);
+    }
+
+    function _createPendingBatch(uint256 batchId) internal {
+        batches[batchId] = Batch({
+            id: batchId,
             startTime: 0,
             endTime: 0,
             totalCollateralUsd: 0,
@@ -250,294 +692,73 @@ contract InvestmentEscrow is Ownable {
             status: BatchStatus.Pending,
             distributed: false
         });
-        emit BatchCreated(newId, block.timestamp);
-        currentBatchId = newId;
-        lastBatchRollTime = block.timestamp;
+        emit BatchCreated(batchId, block.timestamp);
     }
 
-    /// @notice Roll a specific pending batch (does not change current default pending batch)
-    function rollBatch(uint256 batchId) external onlyKeeperOwnerOrTreasury {
-        Batch storage b = batches[batchId];
-        require(b.id == batchId, "Batch not found");
-        require(b.status == BatchStatus.Pending, "Batch not pending");
-        require(b.totalCollateralUsd > 0, "Empty batch");
-
-        b.status = BatchStatus.Running;
-        b.startTime = block.timestamp;
-        uint256 amountUsd = b.totalCollateralUsd;
-        treasury.fundEscrowBatch(batchId, amountUsd);
-        emit BatchRolled(batchId, amountUsd);
-        lastBatchRollTime = block.timestamp;
-    }
-
-    // --- Close a running batch: compute P&L, transfer USDC back to Treasury, and report result ---
-    // finalNavPerShare is 1e18-based (1e18 == no change)
-    function closeBatch(uint256 batchId, uint256 finalNavPerShare) internal {
-        Batch storage b = batches[batchId];
-        require(b.status == BatchStatus.Invested, "Batch not invested");
-
-        b.status = BatchStatus.Closed;
-        b.finalNavPerShare = finalNavPerShare;
-        b.endTime = block.timestamp;
-
-        uint256 principalUsd = b.totalCollateralUsd; // 6 decimals
-        // finalValueUsd = principalUsd * nav / 1e18
-        uint256 finalValueUsd = (principalUsd * finalNavPerShare) / 1e18;
-        uint256 profitUsd = finalValueUsd > principalUsd ? finalValueUsd - principalUsd : 0;
-
-        uint256 userProfitUsd = (profitUsd * USER_PROFIT_BPS) / BPS_SCALE;
-        uint256 feeUsd = profitUsd - userProfitUsd;
-
-        uint256 totalReturnUsd = principalUsd + profitUsd;
-
-        // Expect that investments returned funds to this contract prior to calling closeBatch.
-        require(usdc.balanceOf(address(this)) >= totalReturnUsd, "Escrow lacks returned USDC");
-
-        // Transfer all USDC back to Treasury
-        usdc.safeTransfer(address(treasury), totalReturnUsd);
-
-        // Notify Treasury about principal, userProfit, fee and final NAV so Treasury can pay users (protocol profit prioritized)
-        treasury.reportBatchResult(batchId, principalUsd, userProfitUsd, feeUsd, finalNavPerShare);
-
-        emit BatchClosed(batchId, principalUsd, userProfitUsd, feeUsd, finalNavPerShare);
-    }
-
-    /// @notice Deposit returned USDC into Escrow for a batch and set final NAV per share (keeper/owner).
-    /// @dev Caller must approve USDC to this contract for transferFrom OR the USDC mock must expose mint() for local fallback.
-    function depositReturnForBatch(uint256 batchId, uint256 finalNavPerShare) external onlyKeeperOrOwner {
-        require(batches[batchId].id == batchId, "Batch not found");
-        Batch storage b = batches[batchId];
-        // Accept either an Invested batch (canonical) or a Running batch where the keeper/owner wants to
-        // directly deposit returned USDC and close the batch without a separate invest step.
-        require(
-            b.status == BatchStatus.Invested || b.status == BatchStatus.Running,
-            "Batch not invested or running"
-        );
-        // If the batch is still Running, mark it Invested so closeBatch (which requires Invested) can proceed.
-        if (b.status == BatchStatus.Running) {
-            b.status = BatchStatus.Invested;
+    function _activateBatch(uint256 batchId, uint256 amountUsd6) internal {
+        require(batchAwaitingAllocationId == 0, "Allocate current batch first");
+        Batch storage batch_ = batches[batchId];
+        batch_.status = BatchStatus.Running;
+        batch_.startTime = block.timestamp;
+        treasury.fundEscrowBatch(batchId, amountUsd6);
+        batchAccounting[batchId].principalFundedUsd6 += amountUsd6;
+        if (batchAccounting[batchId].principalAuthorizedUsd6 == 0) {
+            batchAccounting[batchId].principalAuthorizedUsd6 = amountUsd6;
         }
+        batchAwaitingAllocationId = batchId;
+        emit BatchAllocationPending(batchId);
+        emit BatchRolled(batchId, amountUsd6);
+    }
 
-        // compute totalReturnUsd = principalUsd * finalNavPerShare / 1e18
-        uint256 principalUsd = b.totalCollateralUsd;
-        uint256 totalReturnUsd = (principalUsd * finalNavPerShare) / 1e18;
-        require(totalReturnUsd > 0, "Invalid return amount");
-
-        // Try transferFrom caller; caller should approve USDC to this contract
+    function _collectReturnFunds(uint256 amountUsd6) internal {
         bool transferred = false;
-        try usdc.transferFrom(msg.sender, address(this), totalReturnUsd) returns (bool ok) {
+        try usdc.transferFrom(msg.sender, address(this), amountUsd6) returns (bool ok) {
             transferred = ok;
         } catch {
             transferred = false;
         }
 
         if (!transferred) {
-            // Best-effort test-only fallback: try to mint to this contract if MockUSDC exposes mint()
-            (bool okMint, ) = address(usdc).call(abi.encodeWithSignature("mint(address,uint256)", address(this), totalReturnUsd));
+            (bool okMint, ) = address(usdc).call(abi.encodeWithSignature("mint(address,uint256)", address(this), amountUsd6));
             require(okMint, "funding escrow failed");
         }
-
-        emit BatchReturnDeposited(batchId, totalReturnUsd);
-
-        // Instantly close batch and transfer funds to Treasury
-        closeBatch(batchId, finalNavPerShare);
     }
 
-    /// @notice Simulate distribution of returned USDC to investors for a closed batch.
-    /// @param batchId id of the closed batch
-    /// @param tokenIds list of receipt tokenIds to distribute for this batch (only those mapped to this batch will be paid)
-    /// @dev Must be called by keeper/owner. Transfers USDC from escrow balance to receipt owners.
-    function distributeBatch(uint256 batchId, uint256[] calldata tokenIds) external onlyKeeperOrOwner {
-        require(batches[batchId].id == batchId, "Batch not found");
-        Batch storage b = batches[batchId];
-        require(b.status == BatchStatus.Closed, "Batch not closed");
-        require(!b.distributed, "Already distributed");
-        require(b.finalNavPerShare > 0, "finalNavPerShare not set");
+    function _requireActiveRoute(uint256 routeId, string calldata assetSymbol) internal view {
+        (
+            uint256 id,
+            string memory routeAssetSymbol,
+            uint8 routeType_,
+            bytes32 counterpartyRefHash_,
+            bytes32 jurisdictionRefHash_,
+            bytes32 custodyRefHash_,
+            bool documentsComplete_,
+            bool sagittaFundApproved_,
+            bool ndaSigned_,
+            string memory pnlEndpoint_,
+            bool manualMarksRequired_,
+            bool active
+        ) = routeRegistry.getRoute(routeId);
+        routeType_;
+        counterpartyRefHash_;
+        jurisdictionRefHash_;
+        custodyRefHash_;
+        documentsComplete_;
+        sagittaFundApproved_;
+        ndaSigned_;
+        pnlEndpoint_;
+        manualMarksRequired_;
+        require(id == routeId && active, "Route inactive");
+        require(keccak256(bytes(routeAssetSymbol)) == keccak256(bytes(assetSymbol)), "Asset mismatch");
+    }
 
-        uint256 totalDistributed = 0;
-        IVault vaultContract = IVault(vault);
-
-        for (uint256 i = 0; i < tokenIds.length; i++) {
-            uint256 tid = tokenIds[i];
-            // only pay receipts that belong to this batch (best-effort check)
-            if (receiptBatchId[tid] != batchId) continue;
-
-            // read deposit info from Vault to obtain user and amountUsd6
-            try vaultContract.depositInfo(tid) returns (
-                address user,
-                address /*asset*/,
-                uint256 /*amount*/,
-                uint256 amountUsd6,
-                uint256 /*shares*/,
-                uint64 /*createdAt*/,
-                uint64 /*lockUntil*/,
-                bool /*withdrawn*/
-            ) {
-                if (user == address(0)) continue;
-                uint256 payoutUsd6 = (amountUsd6 * b.finalNavPerShare) / 1e18;
-                if (payoutUsd6 == 0) continue;
-
-                // Directly transfer USDC to the receipt owner (original behavior).
-                // Best-effort: continue on individual transfer failures rather than revert entire loop.
-                try usdc.transfer(user, payoutUsd6) {
-                    totalDistributed += payoutUsd6;
-                } catch {
-                    // fallback: try a low-level ERC20 transfer call (does not use SafeERC20 internal wrapper)
-                    // this avoids using `try` on an internal/library function and prevents a full revert on failure
-                    (bool ok, ) = address(usdc).call(abi.encodeWithSelector(IERC20.transfer.selector, user, payoutUsd6));
-                    if (ok) {
-                        totalDistributed += payoutUsd6;
-                    } else {
-                        // give up on this token and continue
-                        continue;
-                    }
-                }
-            } catch {
-                // skip receipts that fail to read
-                continue;
+    function _allPositionsResolved(uint256 batchId) internal view returns (bool) {
+        uint256 len = batchPositionIds[batchId].length;
+        for (uint256 i = 0; i < len; i++) {
+            if (positions[batchPositionIds[batchId][i]].status == PositionStatus.Open) {
+                return false;
             }
         }
-
-        b.distributed = true;
-        b.status = BatchStatus.Distributed;
-        emit BatchDistributed(batchId, totalDistributed);
-    }
-
-    /**
-     * @notice Burn the escrow USDC for a Running batch and mark it Invested.
-     * @dev Transfers principal USDC to the dead address (0x000...dEaD), representing
-     *      the funds leaving the protocol for an off-chain investment. The return of
-     *      capital is handled via depositReturnForBatch() when the investment matures.
-     * @param batchId ID of a Running batch with positive collateral.
-     */
-    function investBatch(uint256 batchId) public onlyKeeperOrOwner {
-        require(batches[batchId].id == batchId, "Batch not found");
-        Batch storage b = batches[batchId];
-        require(b.status == BatchStatus.Running, "Batch not running");
-        require(!b.distributed, "Already distributed/invested");
-
-        uint256 principalUsd = b.totalCollateralUsd;
-        require(principalUsd > 0, "No collateral");
-
-        uint256 escrowBal = usdc.balanceOf(address(this));
-        require(escrowBal >= principalUsd, "Escrow lacks USDC to invest");
-
-        emit PreInvestDiagnostics(batchId, principalUsd, escrowBal, address(usdc));
-
-        // Transfer USDC to the dead address to represent off-chain investment outflow.
-        // In production this would be replaced by a bridge / custodian transfer.
-        address burnAddr = 0x000000000000000000000000000000000000dEaD;
-        (bool ok, bytes memory returnData) = address(usdc).call(
-            abi.encodeWithSelector(IERC20.transfer.selector, burnAddr, principalUsd)
-        );
-        require(ok, "USDC transfer call reverted");
-        if (returnData.length >= 32) {
-            require(abi.decode(returnData, (bool)), "USDC transfer returned false");
-        }
-
-        b.distributed = true;
-        b.status = BatchStatus.Invested;
-        emit BatchInvested(batchId, principalUsd);
-    }
-
-    /**
-     * @notice Owner-only emergency path: burn escrow USDC for a Running batch and mark it Invested.
-     * @dev Equivalent to investBatch but restricted to the owner for additional safety in recovery scenarios.
-     * @param batchId ID of a Running batch with positive collateral.
-     */
-    function adminBurnBatch(uint256 batchId) external onlyOwner {
-        require(batches[batchId].id == batchId, "Batch not found");
-        Batch storage b = batches[batchId];
-        require(b.status == BatchStatus.Running, "Batch not running");
-        require(!b.distributed, "Already distributed/invested");
-
-        uint256 principalUsd = b.totalCollateralUsd;
-        require(principalUsd > 0, "No collateral");
-        uint256 escrowBal = usdc.balanceOf(address(this));
-        require(escrowBal >= principalUsd, "Escrow lacks USDC to burn");
-
-        emit PreInvestDiagnostics(batchId, principalUsd, escrowBal, address(usdc));
-
-        address burnAddr = 0x000000000000000000000000000000000000dEaD;
-        (bool ok, bytes memory returnData) = address(usdc).call(
-            abi.encodeWithSelector(IERC20.transfer.selector, burnAddr, principalUsd)
-        );
-        require(ok, "USDC transfer call reverted (admin)");
-        if (returnData.length >= 32) {
-            require(abi.decode(returnData, (bool)), "USDC transfer returned false (admin)");
-        }
-
-        b.distributed = true;
-        b.status = BatchStatus.Invested;
-        emit AdminBatchBurned(batchId, principalUsd, msg.sender);
-        emit BatchInvested(batchId, principalUsd);
-    }
-
-    // Keep a compatibility wrapper named distributeBatchBurn that routes to investBatch for Running batches
-    function distributeBatchBurn(uint256 batchId) external onlyKeeperOrOwner {
-        // If running -> invest (burn) using canonical function
-        if (batches[batchId].id != batchId) revert("Batch not found");
-        Batch storage b = batches[batchId];
-        if (b.status == BatchStatus.Running) {
-            investBatch(batchId);
-            return;
-        }
-        // For other statuses instruct to use distributeBatch (payouts) or closeBatch flows
-        revert("Use distributeBatch for closed payouts");
-    }
-
-    /// @notice Mark a running batch as Invested (keeps funds in Escrow / moves to investment state)
-    /// @dev Only keeper or owner. Useful to acknowledge that Rolling/Investment step happened without closing.
-    function setBatchInvested(uint256 batchId) external onlyKeeperOrOwner {
-        require(batches[batchId].id == batchId, "Batch not found");
-        Batch storage b = batches[batchId];
-        require(b.status == BatchStatus.Running, "Batch not running");
-        b.status = BatchStatus.Invested;
-        // emit a BatchDistributed event with zero payout to signal state change (frontend listens)
-        emit BatchDistributed(batchId, 0);
-    }
-
-    /**
-     * @notice Owner-only emergency: force a batch into Invested state bypassing status checks.
-     * @dev SECURITY: This function intentionally skips status validation to unblock stuck
-     *      migrations. It must not be used in normal operations — always prefer investBatch()
-     *      or setBatchInvested() which enforce the correct state machine. Only call this when
-     *      a batch is genuinely stuck and you have verified the underlying USDC accounting.
-     * @param batchId The batch to force into Invested state.
-     */
-    function forceSetBatchInvested(uint256 batchId) external onlyOwner {
-        require(batches[batchId].id == batchId, "Batch not found");
-        Batch storage b = batches[batchId];
-        b.status = BatchStatus.Invested;
-        emit BatchDistributed(batchId, 0);
-    }
-
-    /**
-     * @notice Mark a Running batch as Invested without performing the USDC burn/transfer.
-     * @dev Use when the USDC has already been transferred out-of-band (e.g. custodian wire).
-     *      Requires keeper or owner authorisation. The Escrow must already hold the required USDC
-     *      balance as a sanity check before accounting can move forward.
-     * @param batchId ID of a Running batch with positive collateral.
-     */
-    function markBatchInvestedWithoutTransfer(uint256 batchId) external onlyKeeperOrOwner {
-        require(batches[batchId].id == batchId, "Batch not found");
-        Batch storage b = batches[batchId];
-        require(b.status == BatchStatus.Running, "Batch not running");
-        require(!b.distributed, "Already distributed/invested");
-
-        uint256 principalUsd = b.totalCollateralUsd;
-        require(principalUsd > 0, "No collateral");
-
-        uint256 escrowBal = usdc.balanceOf(address(this));
-        require(escrowBal >= principalUsd, "Escrow lacks USDC");
-
-        b.distributed = true;
-        b.status = BatchStatus.Invested;
-        emit BatchInvested(batchId, principalUsd);
-    }
-
-    // --- Helpers for view (optional) ---
-    function getBatch(uint256 batchId) external view returns (Batch memory) {
-        return batches[batchId];
+        return true;
     }
 }

@@ -13,6 +13,7 @@ const DEFAULT_METADATA_BASE_URI = "https://protocol.sagitta.systems/api/metadata
 // On live networks, transfer ownership to this address after deploy.
 // Set to empty string to keep ownership with the deployer.
 const OWNER_ADDRESS = process.env.OWNER_ADDRESS || "";
+const LOCAL_TRANSFER_OWNERSHIP = process.env.LOCAL_TRANSFER_OWNERSHIP === "true";
 
 async function getFactorySafe(name: string, preferredFqn?: string) {
   if (preferredFqn) {
@@ -41,6 +42,16 @@ async function getFactorySafe(name: string, preferredFqn?: string) {
 
 function addr(d: any): string {
   return (d?.target ?? d?.address) as string;
+}
+
+function isLocalChainId(chainId: number): boolean {
+  return chainId === 1337 || chainId === 31337;
+}
+
+function normalizeDeploymentNetworkName(chainId: number, networkName: string | null | undefined): string {
+  if (isLocalChainId(chainId)) return "local";
+  const normalized = String(networkName ?? "").trim();
+  return normalized || "unknown";
 }
 
 async function deployAndVerify(factory: any, ...args: any[]) {
@@ -111,19 +122,29 @@ async function syncPairIfSupported(pairAddr: string, label: string, owner: strin
   }
 }
 
+function writeDeploymentsSnapshot(deployments: Record<string, string | number | null>) {
+  const outFile = path.join(__dirname, "../deployments.json");
+  fs.writeFileSync(outFile, `${JSON.stringify(deployments, null, 2)}\n`);
+  console.log(`Saved deployments -> ${outFile}`);
+}
+
 function writeAddresses(deployments: Record<string, string | number | null>) {
-  const isLocal =
-    Number(deployments.chainId) === 1337 || Number(deployments.chainId) === 31337;
+  const chainId = Number(deployments.chainId);
+  const isLocal = isLocalChainId(chainId);
+  const networkName = normalizeDeploymentNetworkName(
+    chainId,
+    typeof deployments.network === "string" ? deployments.network : undefined
+  );
 
   // Non-local chains: only write the ProtocolDAO address.
   // All other addresses are fetched at runtime from the ProtocolDAO contract,
   // so they don't need to live in the repo.
   // Local chains: write all addresses (needed for the localStorage dev-override system).
   const payload = isLocal
-    ? deployments
+    ? { ...deployments, network: networkName }
     : {
-        network: deployments.network,
-        chainId: deployments.chainId,
+        network: networkName,
+        chainId,
         ProtocolDAO: deployments.ProtocolDAO,
       };
 
@@ -133,7 +154,6 @@ function writeAddresses(deployments: Record<string, string | number | null>) {
     (isLocal ? `` : `// All other addresses are read from ProtocolDAO on-chain at runtime.\n`) +
     `export const CONTRACT_ADDRESSES: Record<string, any> = ${JSON.stringify(payload, null, 2)};\n`;
 
-  const networkName = String(deployments.network ?? (isLocal ? "local" : "unknown"));
   const outputDirs = [
     path.join(__dirname, "../frontend/src/lib"),
     path.join(__dirname, "../src/lib"),
@@ -146,9 +166,42 @@ function writeAddresses(deployments: Record<string, string | number | null>) {
     console.log(`Saved addresses -> ${outFile}`);
   }
 
-  if (!isLocal) {
-    console.log(`\nSet this in Vercel / .env.local for the frontend:`);
+  if (isLocal) {
+    console.log(`\nSet this in frontend/.env.local for localhost:`);
+    console.log(`  NEXT_PUBLIC_NETWORK=local`);
+    console.log(`  NEXT_PUBLIC_RPC_URL=http://127.0.0.1:8545`);
+    console.log(`  NEXT_PUBLIC_CHAIN_ID=${chainId}`);
     console.log(`  NEXT_PUBLIC_PROTOCOL_DAO_ADDRESS=${deployments.ProtocolDAO}`);
+  } else {
+    console.log(`\nSet this in Vercel / .env.local for the frontend:`);
+    console.log(`  NEXT_PUBLIC_NETWORK=${networkName}`);
+    console.log(`  NEXT_PUBLIC_PROTOCOL_DAO_ADDRESS=${deployments.ProtocolDAO}`);
+  }
+}
+
+async function verifyProtocolDaoRegistry(
+  protocolDao: any,
+  entries: Array<[string, string]>
+) {
+  const [keys, addrs]: [string[], string[]] = await (protocolDao as any).getAllAddresses();
+  const registry = new Map<string, string>();
+
+  for (let i = 0; i < keys.length; i++) {
+    registry.set(keys[i], addrs[i]);
+  }
+
+  for (const [key, expectedAddress] of entries) {
+    const actual = registry.get(key);
+    if (!actual || actual.toLowerCase() !== expectedAddress.toLowerCase()) {
+      throw new Error(
+        `ProtocolDAO registry mismatch for ${key}: expected ${expectedAddress}, got ${actual ?? "missing"}`
+      );
+    }
+
+    const code = await ethers.provider.getCode(actual);
+    if (!code || code === "0x") {
+      throw new Error(`ProtocolDAO registry entry ${key} has no bytecode at ${actual}`);
+    }
   }
 }
 
@@ -160,7 +213,7 @@ async function main() {
   const network = await ethers.provider.getNetwork();
   const chainId = Number(network.chainId);
   console.log("Network:", network.name, "Chain ID:", chainId);
-  if (chainId !== 1337 && chainId !== 31337) {
+  if (!isLocalChainId(chainId)) {
     console.warn(`Warning: deploying on non-local chain (chainId=${chainId})`);
   }
 
@@ -224,6 +277,10 @@ async function main() {
   const escrow = await deployAndVerify(InvestmentEscrow, addr(usdc), addr(treasury));
   console.log("InvestmentEscrow:", addr(escrow));
 
+  const ExecutionRouteRegistry = await getFactorySafe("ExecutionRouteRegistry", "contracts/ExecutionRouteRegistry.sol:ExecutionRouteRegistry");
+  const executionRouteRegistry = await deployAndVerify(ExecutionRouteRegistry);
+  console.log("ExecutionRouteRegistry:", addr(executionRouteRegistry));
+
   const PortfolioRegistry = await getFactorySafe("PortfolioRegistry", "contracts/PortfolioRegistry.sol:PortfolioRegistry");
   const portfolioRegistry = await deployAndVerify(PortfolioRegistry);
   console.log("PortfolioRegistry:", addr(portfolioRegistry));
@@ -277,9 +334,17 @@ async function main() {
     console.warn("escrow.setVault failed (non-fatal):", e);
   }
 
+  try {
+    if (typeof (escrow as any).setRouteRegistry === "function") {
+      await (await (escrow as any).setRouteRegistry(addr(executionRouteRegistry))).wait();
+    }
+  } catch (e) {
+    console.warn("escrow.setRouteRegistry failed (non-fatal):", e);
+  }
+
   // On local chains, authorize the deployer as keeper so manual batch operations work
   // without a separate keeper service. On live networks, set keeper via OWNER_ADDRESS env.
-  if (chainId === 1337 || chainId === 31337) {
+  if (isLocalChainId(chainId)) {
     try {
       if (typeof (escrow as any).setKeeper === "function") {
         await (await (escrow as any).setKeeper(deployer.address)).wait();
@@ -370,7 +435,7 @@ async function main() {
 
   // Fund a demo account on local chains only.
   // On Moonbase/mainnet the deployer address itself is the demo account — no faucet needed.
-  const isLocal = chainId === 1337 || chainId === 31337;
+  const isLocal = isLocalChainId(chainId);
   const demoAddress = isLocal
     ? "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
     : deployer.address;
@@ -399,22 +464,22 @@ async function main() {
     //            4=LargeCap 5=PrivateCreditFund 6=RealWorldAsset 7=ExternalProtocol
     // AssetRole: 0=Core 1=Liquidity 2=Satellite 3=Defensive 4=Speculative
     //            5=YieldFund 6=External
-    // addAsset(symbol, name, token, oracle, riskClass, role)
+    // addAsset(symbol, name, token, oracle, riskClass, role, minimumInvestmentUsd6)
     const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
-    const seedAssets: Array<[string, string, string, string, number, number]> = [
-      // [symbol,  name,                        token,           oracle,          riskClass, role]
-      ["SPC",   "Sagitta SPC",                ZERO_ADDR,       ZERO_ADDR,       0, 0],  // WealthManagement / Core — external company, no token
-      ["USDC",  "US Dollar Coin",             addr(usdc),      addr(oracleUsdc),1, 1],  // Stablecoin / Liquidity
-      ["SKY",   "SKY",                        addr(mockSKY),   ZERO_ADDR,       2, 2],  // DefiBluechip / Satellite
-      ["GFI",   "Goldfinch",                  addr(mockGFI),   ZERO_ADDR,       5, 5],  // PrivateCreditFund / YieldFund
-      ["DOT",   "Polkadot",                   addr(mockDOT),   ZERO_ADDR,       4, 4],  // LargeCap / Speculative
-      ["SYRUP", "Maple Finance",              addr(mockSYRUP), ZERO_ADDR,       5, 5],  // PrivateCreditFund / YieldFund
-      ["OUSG",  "Ondo US Government Bond",    addr(mockOUSG),  ZERO_ADDR,       6, 3],  // RealWorldAsset / Defensive
-      ["WBTC",  "Wrapped Bitcoin",            addr(mockWBTC),  ZERO_ADDR,       7, 6],  // ExternalProtocol / External
+    const seedAssets: Array<[string, string, string, string, number, number, bigint]> = [
+      // [symbol,  name,                        token,           oracle,          riskClass, role, minimumInvestmentUsd6]
+      ["SPC",   "Sagitta SPC",                ZERO_ADDR,       ZERO_ADDR,       0, 0, 0n],  // WealthManagement / Core — external company, no token
+      ["USDC",  "US Dollar Coin",             addr(usdc),      addr(oracleUsdc),1, 1, 0n],  // Stablecoin / Liquidity
+      ["SKY",   "SKY",                        addr(mockSKY),   ZERO_ADDR,       2, 2, 0n],  // DefiBluechip / Satellite
+      ["GFI",   "Goldfinch",                  addr(mockGFI),   ZERO_ADDR,       5, 5, 0n],  // PrivateCreditFund / YieldFund
+      ["DOT",   "Polkadot",                   addr(mockDOT),   ZERO_ADDR,       4, 4, 0n],  // LargeCap / Speculative
+      ["SYRUP", "Maple Finance",              addr(mockSYRUP), ZERO_ADDR,       5, 5, 0n],  // PrivateCreditFund / YieldFund
+      ["OUSG",  "Ondo US Government Bond",    addr(mockOUSG),  ZERO_ADDR,       6, 3, 0n],  // RealWorldAsset / Defensive
+      ["WBTC",  "Wrapped Bitcoin",            addr(mockWBTC),  ZERO_ADDR,       7, 6, 0n],  // ExternalProtocol / External
     ];
 
-    for (const [symbol, name, token, oracle, riskClass, role] of seedAssets) {
-      await (await (portfolioRegistry as any).addAsset(symbol, name, token, oracle, riskClass, role)).wait();
+    for (const [symbol, name, token, oracle, riskClass, role, minimumInvestmentUsd6] of seedAssets) {
+      await (await (portfolioRegistry as any).addAsset(symbol, name, token, oracle, riskClass, role, minimumInvestmentUsd6)).wait();
       console.log(`  Seeded ${symbol}${token === ZERO_ADDR ? ' (external, no token)' : ''}`);
     }
   } catch (e) {
@@ -423,21 +488,30 @@ async function main() {
 
   // ── Register all protocol addresses in ProtocolDAO ────────────────────────
   console.log("\n=== Registering addresses in ProtocolDAO ===");
-  const daoKeys = [
-    "Vault", "Treasury", "ReserveController", "InvestmentEscrow",
-    "GoldOracle", "UsdcOracle", "ReceiptNFT", "AmmUSDCGOLD",
-    "PortfolioRegistry", "MockUSDC", "MockGOLD",
+  const daoEntries: Array<[string, string]> = [
+    ["ProtocolDAO", addr(protocolDao)],
+    ["Vault", addr(vault)],
+    ["Treasury", addr(treasury)],
+    ["ReserveController", addr(reserve)],
+    ["InvestmentEscrow", addr(escrow)],
+    ["ExecutionRouteRegistry", addr(executionRouteRegistry)],
+    ["GoldOracle", addr(oracleGold)],
+    ["UsdcOracle", addr(oracleUsdc)],
+    ["ReceiptNFT", addr(receiptNft)],
+    ["AmmUSDCGOLD", addr(ammUSDCGOLD)],
+    ["PortfolioRegistry", addr(portfolioRegistry)],
+    ["MockUSDC", addr(usdc)],
+    ["MockGOLD", addr(gold)],
   ];
-  const daoAddrs = [
-    addr(vault), addr(treasury), addr(reserve), addr(escrow),
-    addr(oracleGold), addr(oracleUsdc), addr(receiptNft), addr(ammUSDCGOLD),
-    addr(portfolioRegistry), addr(usdc), addr(gold),
-  ];
+  const daoKeys = daoEntries.map(([key]) => key);
+  const daoAddrs = daoEntries.map(([, address]) => address);
   await (await (protocolDao as any).setAddresses(daoKeys, daoAddrs)).wait();
+  await verifyProtocolDaoRegistry(protocolDao, daoEntries);
   console.log("ProtocolDAO registry populated with", daoKeys.length, "addresses");
 
+  const deploymentNetworkName = normalizeDeploymentNetworkName(chainId, network.name);
   const deployments: Record<string, string | number | null> = {
-    network: String(network.name),
+    network: deploymentNetworkName,
     chainId,
     ProtocolDAO: addr(protocolDao),
     MockUSDC: addr(usdc),
@@ -446,6 +520,7 @@ async function main() {
     Treasury: addr(treasury),
     ReserveController: addr(reserve),
     InvestmentEscrow: addr(escrow),
+    ExecutionRouteRegistry: addr(executionRouteRegistry),
     GoldOracle: addr(oracleGold),
     UsdcOracle: addr(oracleUsdc),
     ReceiptNFT: addr(receiptNft),
@@ -466,11 +541,12 @@ async function main() {
     }
   }
 
+  writeDeploymentsSnapshot(deployments);
   writeAddresses(deployments);
 
   // Transfer ownership to designated owner if set
   const newOwner = OWNER_ADDRESS.trim();
-  if (newOwner && newOwner !== deployer.address) {
+  if (newOwner && newOwner !== deployer.address && (!isLocal || LOCAL_TRANSFER_OWNERSHIP)) {
     console.log("\n=== Transferring ownership to", newOwner, "===");
     const ownableAbi = ["function transferOwnership(address newOwner) external"];
     const ownables: [string, string][] = [
@@ -478,6 +554,7 @@ async function main() {
       ["Treasury",          addr(treasury)],
       ["ReserveController", addr(reserve)],
       ["InvestmentEscrow",  addr(escrow)],
+      ["ExecutionRouteRegistry", addr(executionRouteRegistry)],
       ["ReceiptNFT",        addr(receiptNft)],
       ["PortfolioRegistry", addr(portfolioRegistry)],
       ["ProtocolDAO",       addr(protocolDao)],
@@ -491,6 +568,9 @@ async function main() {
         console.warn(`  ${name} transfer failed (non-fatal): ${e?.message ?? e}`);
       }
     }
+  } else if (newOwner && newOwner !== deployer.address && isLocal) {
+    console.log("\n=== Skipping ownership transfer on local chain ===");
+    console.log(`OWNER_ADDRESS=${newOwner} ignored for chain ${chainId}. Set LOCAL_TRANSFER_OWNERSHIP=true to enable local ownership transfer.`);
   }
 
   console.log("\nDeployment complete");

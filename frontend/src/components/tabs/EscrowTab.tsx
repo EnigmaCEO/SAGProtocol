@@ -5,17 +5,82 @@ import { ClockIcon as Clock } from '../icons/SagittaIcons';
 // AAA + PortfolioRegistry types
 type AAAAssetWeight = { symbol: string; weight: number; expectedReturn?: number; volatility?: number; };
 type AAAAllocation = { source: 'aaa' | 'fallback'; timestamp: string; assets: AAAAssetWeight[]; };
-type PortfolioRegistryAsset = { symbol: string; name: string; token: string; riskClass: number; role: number; };
+type PortfolioRegistryAsset = {
+  symbol: string;
+  name: string;
+  token: string;
+  riskClass: number;
+  role: number;
+  minimumInvestmentUsd6: bigint;
+};
+type ExecutionRouteView = {
+  routeId: number;
+  assetSymbol: string;
+  routeType: number;
+  documentsComplete: boolean;
+  sagittaFundApproved: boolean;
+  ndaSigned: boolean;
+  pnlEndpoint: string;
+  manualMarksRequired: boolean;
+  active: boolean;
+};
+type AllocationExclusion = {
+  symbol: string;
+  name: string;
+  reasons: string[];
+};
+type EscrowMandateView = {
+  expectedCloseTime: bigint;
+  settlementUnit: string;
+  principalAuthorizedUsd6: bigint;
+  configured: boolean;
+  routeIds: bigint[];
+  maxAllocationUsd6: bigint[];
+};
+type EscrowAccountingView = {
+  principalAuthorizedUsd6: bigint;
+  principalFundedUsd6: bigint;
+  principalCommittedUsd6: bigint;
+  principalReturnedUsd6: bigint;
+  feesUsd6: bigint;
+  realizedPnlUsd6: bigint;
+  unrealizedPnlUsd6: bigint;
+  lastMarkedAt: bigint;
+  frozen: boolean;
+};
+type EscrowSettlementView = {
+  finalValueUsd6: bigint;
+  protocolFeeUsd6: bigint;
+  userProfitUsd6: bigint;
+  finalNavPerShare: bigint;
+  settlementReportHash: string;
+  complianceDigestHash: string;
+  finalizedAt: bigint;
+  finalized: boolean;
+};
+type EscrowPositionView = {
+  id: bigint;
+  routeId: bigint;
+  assetSymbol: string;
+  commitmentUsd6: bigint;
+  carryingValueUsd6: bigint;
+  proceedsUsd6: bigint;
+  feeUsd6: bigint;
+  status: number;
+};
 
 const RISK_CLASS_LABELS = ['Wealth Management','Stablecoin','DeFi Bluechip','Fund of Funds','Large Cap','Private Credit Fund','Real World Asset','External Protocol'];
 const ASSET_ROLE_LABELS = ['Core','Liquidity','Satellite','Defensive','Speculative','Yield Fund','External'];
 const PORTFOLIO_REGISTRY_ABI = [
-  'function getAllAssets() external view returns (tuple(string symbol, string name, address token, address oracle, uint8 riskClass, uint8 role, uint256 addedAt)[])',
+  'function getAllAssets() external view returns (tuple(string symbol, string name, address token, address oracle, uint8 riskClass, uint8 role, uint256 minimumInvestmentUsd6, uint256 addedAt)[])',
+];
+const EXECUTION_ROUTE_REGISTRY_ABI = [
+  'function getAllRoutes() external view returns (tuple(uint256 routeId, string assetSymbol, uint8 routeType, bytes32 counterpartyRefHash, bytes32 jurisdictionRefHash, bytes32 custodyRefHash, bool documentsComplete, bool sagittaFundApproved, bool ndaSigned, string pnlEndpoint, bool manualMarksRequired, bool active)[])',
 ];
 const AAA_ENDPOINT = 'https://aaa.sagitta.systems/api/v1/allocation';
 
 // NEW imports for on-chain interactions
-import { JsonRpcProvider, Contract, Wallet, Interface } from 'ethers';
+import { JsonRpcProvider, Contract, Wallet, Interface, ethers } from 'ethers';
 import INVESTMENT_ESCROW_ABI from '../../lib/abis/InvestmentEscrow.json';
 import TREASURY_ABI from '../../lib/abis/Treasury.json';
 import { getRuntimeAddress, isValidAddress, setRuntimeAddress } from '../../lib/runtime-addresses';
@@ -82,6 +147,28 @@ export default function EscrowTab() {
   const [aaaLoading, setAaaLoading] = useState(false);
   const [aaaError, setAaaError] = useState<string | null>(null);
   const [portfolioAssets, setPortfolioAssets] = useState<PortfolioRegistryAsset[]>([]);
+  const [executionRoutes, setExecutionRoutes] = useState<ExecutionRouteView[]>([]);
+  const [ledgerBatchId, setLedgerBatchId] = useState<string>('1');
+  const [ledgerMandate, setLedgerMandate] = useState<EscrowMandateView | null>(null);
+  const [ledgerAccounting, setLedgerAccounting] = useState<EscrowAccountingView | null>(null);
+  const [ledgerSettlement, setLedgerSettlement] = useState<EscrowSettlementView | null>(null);
+  const [ledgerPositions, setLedgerPositions] = useState<EscrowPositionView[]>([]);
+  const [routeIdInput, setRouteIdInput] = useState('1');
+  const [assetSymbolInput, setAssetSymbolInput] = useState('SPC');
+  const [commitmentInput, setCommitmentInput] = useState('10');
+  const [quantityInput, setQuantityInput] = useState('1');
+  const [positionFeeInput, setPositionFeeInput] = useState('0');
+  const [externalRefInput, setExternalRefInput] = useState('');
+  const [attestationHashInput, setAttestationHashInput] = useState('');
+  const [attestationExpiryHours, setAttestationExpiryHours] = useState('24');
+  const [positionIdInput, setPositionIdInput] = useState('');
+  const [carryingValueInput, setCarryingValueInput] = useState('0');
+  const [markHashInput, setMarkHashInput] = useState('');
+  const [proceedsInput, setProceedsInput] = useState('0');
+  const [closeFeeInput, setCloseFeeInput] = useState('0');
+  const [closeRefInput, setCloseRefInput] = useState('');
+  const [settlementHashInput, setSettlementHashInput] = useState('');
+  const [complianceHashInput, setComplianceHashInput] = useState('');
 
   // Keep address states in sync whenever loadGeneratedRuntimeAddresses() or setRuntimeAddress() fires.
   useEffect(() => {
@@ -137,6 +224,7 @@ export default function EscrowTab() {
   useEffect(() => {
     if (!escrow) return;
     refreshEscrowLinks();
+    refreshLedgerSnapshot();
   }, [escrow]);
 
   async function refreshEscrowLinks() {
@@ -165,7 +253,7 @@ export default function EscrowTab() {
   }
 
   async function postWriteRefresh(reason: string) {
-    await Promise.allSettled([refresh(), refreshBatchSummary(), refreshEscrowLinks()]);
+    await Promise.allSettled([refresh(), refreshBatchSummary(), refreshEscrowLinks(), refreshLedgerSnapshot(), fetchPortfolioAssets(), fetchExecutionRoutes()]);
     emitUiRefresh(`escrow:${reason}`);
   }
 
@@ -480,6 +568,89 @@ export default function EscrowTab() {
     }
   }
 
+  function parseUsd6Input(value: string): bigint {
+    const trimmed = value.trim();
+    if (!trimmed) return 0n;
+    return ethers.parseUnits(trimmed, 6);
+  }
+
+  function parseE18Input(value: string): bigint {
+    const trimmed = value.trim();
+    if (!trimmed) return 0n;
+    return ethers.parseEther(trimmed);
+  }
+
+  function toBytes32Ref(value: string): string {
+    const trimmed = value.trim();
+    if (!trimmed) return ethers.ZeroHash;
+    if (/^0x[a-fA-F0-9]{64}$/.test(trimmed)) return trimmed;
+    return ethers.id(trimmed);
+  }
+
+  async function refreshLedgerSnapshot(batchIdRaw?: string) {
+    if (!escrow) return;
+    const batchId = Number(batchIdRaw ?? ledgerBatchId);
+    if (!Number.isFinite(batchId) || batchId <= 0) return;
+    try {
+      const [mandateRaw, accountingRaw, settlementRaw, positionIdsRaw] = await Promise.all([
+        (escrow as any).getBatchMandate(batchId),
+        (escrow as any).getBatchAccounting(batchId),
+        (escrow as any).getBatchSettlement(batchId),
+        (escrow as any).getBatchPositionIds(batchId),
+      ]);
+
+      setLedgerMandate({
+        expectedCloseTime: BigInt(mandateRaw?.expectedCloseTime ?? mandateRaw?.[0] ?? 0),
+        settlementUnit: String(mandateRaw?.settlementUnit ?? mandateRaw?.[1] ?? ''),
+        principalAuthorizedUsd6: BigInt(mandateRaw?.principalAuthorizedUsd6 ?? mandateRaw?.[2] ?? 0),
+        configured: Boolean(mandateRaw?.configured ?? mandateRaw?.[3] ?? false),
+        routeIds: Array.from(mandateRaw?.routeIds ?? mandateRaw?.[4] ?? []).map((v: any) => BigInt(v ?? 0)),
+        maxAllocationUsd6: Array.from(mandateRaw?.maxAllocationUsd6 ?? mandateRaw?.[5] ?? []).map((v: any) => BigInt(v ?? 0)),
+      });
+
+      setLedgerAccounting({
+        principalAuthorizedUsd6: BigInt(accountingRaw?.principalAuthorizedUsd6 ?? accountingRaw?.[0] ?? 0),
+        principalFundedUsd6: BigInt(accountingRaw?.principalFundedUsd6 ?? accountingRaw?.[1] ?? 0),
+        principalCommittedUsd6: BigInt(accountingRaw?.principalCommittedUsd6 ?? accountingRaw?.[2] ?? 0),
+        principalReturnedUsd6: BigInt(accountingRaw?.principalReturnedUsd6 ?? accountingRaw?.[3] ?? 0),
+        feesUsd6: BigInt(accountingRaw?.feesUsd6 ?? accountingRaw?.[4] ?? 0),
+        realizedPnlUsd6: BigInt(accountingRaw?.realizedPnlUsd6 ?? accountingRaw?.[5] ?? 0),
+        unrealizedPnlUsd6: BigInt(accountingRaw?.unrealizedPnlUsd6 ?? accountingRaw?.[6] ?? 0),
+        lastMarkedAt: BigInt(accountingRaw?.lastMarkedAt ?? accountingRaw?.[7] ?? 0),
+        frozen: Boolean(accountingRaw?.frozen ?? accountingRaw?.[8] ?? false),
+      });
+
+      setLedgerSettlement({
+        finalValueUsd6: BigInt(settlementRaw?.finalValueUsd6 ?? settlementRaw?.[0] ?? 0),
+        protocolFeeUsd6: BigInt(settlementRaw?.protocolFeeUsd6 ?? settlementRaw?.[1] ?? 0),
+        userProfitUsd6: BigInt(settlementRaw?.userProfitUsd6 ?? settlementRaw?.[2] ?? 0),
+        finalNavPerShare: BigInt(settlementRaw?.finalNavPerShare ?? settlementRaw?.[3] ?? 0),
+        settlementReportHash: String(settlementRaw?.settlementReportHash ?? settlementRaw?.[4] ?? ethers.ZeroHash),
+        complianceDigestHash: String(settlementRaw?.complianceDigestHash ?? settlementRaw?.[5] ?? ethers.ZeroHash),
+        finalizedAt: BigInt(settlementRaw?.finalizedAt ?? settlementRaw?.[6] ?? 0),
+        finalized: Boolean(settlementRaw?.finalized ?? settlementRaw?.[7] ?? false),
+      });
+
+      const positionsRaw = await Promise.all(
+        Array.from(positionIdsRaw ?? []).map((id: any) => (escrow as any).getPosition(id))
+      );
+      setLedgerPositions(
+        positionsRaw.map((p: any) => ({
+          id: BigInt(p?.id ?? p?.[0] ?? 0),
+          routeId: BigInt(p?.routeId ?? p?.[2] ?? 0),
+          assetSymbol: String(p?.assetSymbol ?? p?.[3] ?? ''),
+          commitmentUsd6: BigInt(p?.commitmentUsd6 ?? p?.[4] ?? 0),
+          carryingValueUsd6: BigInt(p?.carryingValueUsd6 ?? p?.[6] ?? 0),
+          proceedsUsd6: BigInt(p?.proceedsUsd6 ?? p?.[7] ?? 0),
+          feeUsd6: BigInt(p?.feeUsd6 ?? p?.[8] ?? 0),
+          status: Number(p?.status ?? p?.[15] ?? 0),
+        }))
+      );
+    } catch (e: any) {
+      setLog(l => [`[ledger] ${String(e?.message || e)}`, ...l]);
+    }
+  }
+
   useEffect(() => {
     // initial load (no periodic timer)
     refreshBatchSummary();
@@ -776,34 +947,133 @@ export default function EscrowTab() {
         token: a.token,
         riskClass: Number(a.riskClass),
         role: Number(a.role),
+        minimumInvestmentUsd6: BigInt(a.minimumInvestmentUsd6 ?? 0),
       })));
     } catch (e) {
       console.warn('Failed to fetch portfolio assets:', e);
     }
   }
 
+  async function fetchExecutionRoutes() {
+    const registryAddr = getRuntimeAddress('ExecutionRouteRegistry');
+    if (!registryAddr || !provider || !isValidAddress(registryAddr)) {
+      setExecutionRoutes([]);
+      return;
+    }
+    try {
+      const registry = new Contract(registryAddr, EXECUTION_ROUTE_REGISTRY_ABI, provider);
+      const raw = await registry.getAllRoutes();
+      setExecutionRoutes(raw.map((route: any) => ({
+        routeId: Number(route.routeId ?? route[0] ?? 0),
+        assetSymbol: String(route.assetSymbol ?? route[1] ?? ''),
+        routeType: Number(route.routeType ?? route[2] ?? 0),
+        documentsComplete: Boolean(route.documentsComplete ?? route[6] ?? false),
+        sagittaFundApproved: Boolean(route.sagittaFundApproved ?? route[7] ?? false),
+        ndaSigned: Boolean(route.ndaSigned ?? route[8] ?? false),
+        pnlEndpoint: String(route.pnlEndpoint ?? route[9] ?? ''),
+        manualMarksRequired: Boolean(route.manualMarksRequired ?? route[10] ?? false),
+        active: Boolean(route.active ?? route[11] ?? false),
+      })));
+    } catch (e) {
+      console.warn('Failed to fetch execution routes:', e);
+      setExecutionRoutes([]);
+    }
+  }
+
+  function isExternalPortfolioAsset(asset: PortfolioRegistryAsset): boolean {
+    return asset.role === 6 || !isValidAddress(asset.token) || asset.token === ethers.ZeroAddress;
+  }
+
+  function getEligibleAllocationUniverse(
+    assets: PortfolioRegistryAsset[],
+    batchPrincipalUsd6: bigint
+  ): { eligible: PortfolioRegistryAsset[]; excluded: AllocationExclusion[] } {
+    const eligible: PortfolioRegistryAsset[] = [];
+    const excluded: AllocationExclusion[] = [];
+
+    for (const asset of assets) {
+      const reasons: string[] = [];
+
+      if (asset.minimumInvestmentUsd6 > batchPrincipalUsd6) {
+        reasons.push(`min ${fmtUsd6(asset.minimumInvestmentUsd6)} exceeds batch ${fmtUsd6(batchPrincipalUsd6)}`);
+      }
+
+      if (isExternalPortfolioAsset(asset)) {
+        const matchingRoutes = executionRoutes.filter(
+          (route) => route.routeType === 3 && route.assetSymbol.toLowerCase() === asset.symbol.toLowerCase()
+        );
+        const hasEligibleRoute = matchingRoutes.some((route) =>
+          route.active &&
+          route.documentsComplete &&
+          route.sagittaFundApproved &&
+          route.ndaSigned &&
+          route.pnlEndpoint.trim().length > 0
+        );
+        if (!hasEligibleRoute) {
+          reasons.push(matchingRoutes.length > 0 ? 'blocked by compliance' : 'no compliant execution route');
+        }
+      }
+
+      if (reasons.length > 0) {
+        excluded.push({ symbol: asset.symbol, name: asset.name, reasons });
+      } else {
+        eligible.push(asset);
+      }
+    }
+
+    return { eligible, excluded };
+  }
+
+  function normalizeAllocationWeights(weights: AAAAssetWeight[]): AAAAssetWeight[] {
+    const positive = weights.filter((item) => Number.isFinite(item.weight) && item.weight > 0);
+    const total = positive.reduce((sum, item) => sum + item.weight, 0);
+    if (total <= 0) return [];
+    return positive.map((item) => ({ ...item, weight: item.weight / total }));
+  }
+
   async function fetchAAAAllocation(assets: PortfolioRegistryAsset[]) {
     setAaaLoading(true);
     setAaaError(null);
+    const batchPrincipalUsd6 = toBigIntSafe(activeBatches[0]?.totalCollateralUsd ?? 0);
+    const universe = getEligibleAllocationUniverse(assets, batchPrincipalUsd6);
+    const excludedSummary = universe.excluded.length > 0
+      ? ` Excluded: ${universe.excluded.map((asset) => `${asset.symbol} (${asset.reasons.join(', ')})`).join('; ')}.`
+      : '';
+
+    if (universe.eligible.length === 0) {
+      setAaaAllocation({ source: 'fallback', timestamp: new Date().toISOString(), assets: [] });
+      setAaaError(`No eligible assets for this batch.${excludedSummary}`);
+      setAaaLoading(false);
+      return;
+    }
     try {
       const resp = await fetch(AAA_ENDPOINT, { signal: AbortSignal.timeout(8000) });
       if (resp.ok) {
         const data = await resp.json();
         const fetched: AAAAssetWeight[] = data.assets ?? data.allocations ?? [];
         if (fetched.length > 0) {
-          setAaaAllocation({ source: 'aaa', timestamp: new Date().toISOString(), assets: fetched });
-          setAaaLoading(false);
-          return;
+          const eligibleSymbols = new Set(universe.eligible.map((asset) => asset.symbol.toLowerCase()));
+          const normalized = normalizeAllocationWeights(
+            fetched.filter((asset) => eligibleSymbols.has(String(asset.symbol ?? '').toLowerCase()))
+          );
+          if (normalized.length > 0) {
+            setAaaAllocation({ source: 'aaa', timestamp: new Date().toISOString(), assets: normalized });
+            if (excludedSummary) {
+              setAaaError(`AAA weights filtered by batch rules.${excludedSummary}`);
+            }
+            setAaaLoading(false);
+            return;
+          }
         }
       }
     } catch (_) {}
     // Fallback: equal weights across all active portfolio assets
-    if (assets.length > 0) {
-      const w = 1 / assets.length;
+    if (universe.eligible.length > 0) {
+      const w = 1 / universe.eligible.length;
       setAaaAllocation({
         source: 'fallback',
         timestamp: new Date().toISOString(),
-        assets: assets.map(a => ({ symbol: a.symbol, weight: w })),
+        assets: universe.eligible.map((asset) => ({ symbol: asset.symbol, weight: w })),
       });
       setAaaError('AAA service not reachable — showing equal-weight fallback');
     } else {
@@ -814,6 +1084,10 @@ export default function EscrowTab() {
 
   useEffect(() => {
     if (provider) fetchPortfolioAssets();
+  }, [provider]);
+
+  useEffect(() => {
+    if (provider) fetchExecutionRoutes();
   }, [provider]);
 
   async function depositReturnForBatch() {
@@ -1114,6 +1388,116 @@ export default function EscrowTab() {
     }
   }
 
+  async function postComplianceAttestation() {
+    if (!signer || !escrowAddr || !isOperator) return;
+    try {
+      setLoading(true);
+      const escrowWrite = new Contract(escrowAddr, INVESTMENT_ESCROW_ABI, signer);
+      const batchId = Number(ledgerBatchId || batchIdInput);
+      const routeId = Number(routeIdInput);
+      const hours = Number(attestationExpiryHours || '24');
+      const latest = await provider?.getBlock('latest');
+      const expiresAt = BigInt((latest?.timestamp ?? Math.floor(Date.now() / 1000)) + Math.max(1, Math.floor(hours)) * 3600);
+      const tx = await (escrowWrite as any).postComplianceAttestation(batchId, routeId, toBytes32Ref(attestationHashInput), expiresAt);
+      await tx.wait();
+      setLog(l => [`[escrow] compliance attestation posted for batch=${batchId} route=${routeId} tx=${tx.hash}`, ...l]);
+      await refreshLedgerSnapshot(String(batchId));
+    } catch (e: any) {
+      setLog(l => [`[escrow] attestation failed: ${String(e?.message || e)}`, ...l]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function openEscrowPosition() {
+    if (!signer || !escrowAddr || !isOperator) return;
+    try {
+      setLoading(true);
+      const escrowWrite = new Contract(escrowAddr, INVESTMENT_ESCROW_ABI, signer);
+      const batchId = Number(ledgerBatchId || batchIdInput);
+      const tx = await (escrowWrite as any).openPosition(
+        batchId,
+        Number(routeIdInput),
+        assetSymbolInput.trim(),
+        parseUsd6Input(commitmentInput),
+        parseE18Input(quantityInput),
+        toBytes32Ref(externalRefInput),
+        parseUsd6Input(positionFeeInput)
+      );
+      await tx.wait();
+      setLog(l => [`[escrow] position opened for batch=${batchId} tx=${tx.hash}`, ...l]);
+      await refreshLedgerSnapshot(String(batchId));
+    } catch (e: any) {
+      setLog(l => [`[escrow] open position failed: ${String(e?.message || e)}`, ...l]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function markEscrowPosition() {
+    if (!signer || !escrowAddr || !isOperator) return;
+    try {
+      setLoading(true);
+      const escrowWrite = new Contract(escrowAddr, INVESTMENT_ESCROW_ABI, signer);
+      const tx = await (escrowWrite as any).markPosition(
+        Number(positionIdInput),
+        parseUsd6Input(carryingValueInput),
+        toBytes32Ref(markHashInput),
+        Math.floor(Date.now() / 1000)
+      );
+      await tx.wait();
+      setLog(l => [`[escrow] position marked tx=${tx.hash}`, ...l]);
+      await refreshLedgerSnapshot();
+    } catch (e: any) {
+      setLog(l => [`[escrow] mark position failed: ${String(e?.message || e)}`, ...l]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function closeEscrowPosition() {
+    if (!signer || !escrowAddr || !isOperator) return;
+    try {
+      setLoading(true);
+      const escrowWrite = new Contract(escrowAddr, INVESTMENT_ESCROW_ABI, signer);
+      const tx = await (escrowWrite as any).closePosition(
+        Number(positionIdInput),
+        parseUsd6Input(proceedsInput),
+        toBytes32Ref(closeRefInput),
+        parseUsd6Input(closeFeeInput)
+      );
+      await tx.wait();
+      setLog(l => [`[escrow] position closed tx=${tx.hash}`, ...l]);
+      await refreshLedgerSnapshot();
+    } catch (e: any) {
+      setLog(l => [`[escrow] close position failed: ${String(e?.message || e)}`, ...l]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function finalizeEscrowSettlement() {
+    if (!signer || !escrowAddr || !isOperator) return;
+    try {
+      setLoading(true);
+      const escrowWrite = new Contract(escrowAddr, INVESTMENT_ESCROW_ABI, signer);
+      const batchId = Number(ledgerBatchId || batchIdInput);
+      const tx = await (escrowWrite as any).finalizeBatchSettlement(
+        batchId,
+        toBytes32Ref(settlementHashInput),
+        toBytes32Ref(complianceHashInput)
+      );
+      await tx.wait();
+      setLog(l => [`[escrow] batch settlement finalized for batch=${batchId} tx=${tx.hash}`, ...l]);
+      await refreshLedgerSnapshot(String(batchId));
+      await postWriteRefresh('finalize-batch-settlement');
+    } catch (e: any) {
+      setLog(l => [`[escrow] finalize settlement failed: ${String(e?.message || e)}`, ...l]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   // Helper: sanitize, dedupe and normalize batch arrays
   function normalizeBatches(raw: any[] | undefined) {
     if (!Array.isArray(raw)) return [];
@@ -1190,6 +1574,20 @@ export default function EscrowTab() {
   const runningCount = activeBatches.filter((b: any) => Number(b?.id) > 0).length;
   const investedCount = investedBatches.filter((b: any) => Number(b?.id) > 0).length;
   const closedCount = closedBatches.filter((b: any) => Number((b as any)?.batch?.id) > 0).length;
+  const externalPortfolioAssets = portfolioAssets.filter(
+    (asset) => asset.role === 6 || !isValidAddress(asset.token) || asset.token === ethers.ZeroAddress
+  );
+  const routeIsBatchEligible = (route?: ExecutionRouteView | null): boolean => {
+    if (!route?.active) return false;
+    if (route.routeType !== 3) return true;
+    return route.documentsComplete
+      && route.sagittaFundApproved
+      && route.ndaSigned
+      && route.pnlEndpoint.trim().length > 0;
+  };
+  const activeAllocationBatch = activeBatches[0] ?? null;
+  const activeAllocationPrincipalUsd6 = toBigIntSafe(activeAllocationBatch?.totalCollateralUsd ?? 0);
+  const allocationEligibility = getEligibleAllocationUniverse(portfolioAssets, activeAllocationPrincipalUsd6);
 
   return (
     <div className="tab-screen">
@@ -1335,6 +1733,198 @@ export default function EscrowTab() {
         </div>
       </section>
 
+      <section className="grid grid-cols-12 gap-5">
+        <div className="sagitta-cell col-span-12">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="section-title !mb-0">External Asset Compliance</h3>
+              <p className="text-xs text-slate-500 mt-1">Track external portfolio assets and the compliance checks that gate future batch authorization.</p>
+            </div>
+            <button
+              className="action-button action-button--ghost"
+              onClick={() => Promise.allSettled([fetchPortfolioAssets(), fetchExecutionRoutes()])}
+              disabled={loading}
+            >
+              Refresh Compliance
+            </button>
+          </div>
+
+          {externalPortfolioAssets.length === 0 ? (
+            <div className="panel-note">
+              No external assets were found in the portfolio registry.
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-700/50">
+              <table className="w-full text-xs text-slate-300">
+                <thead>
+                  <tr className="border-b border-slate-700/50 bg-slate-900/50">
+                    <th className="text-left px-3 py-2">Asset</th>
+                    <th className="text-left px-3 py-2">Route</th>
+                    <th className="text-left px-3 py-2">Documents</th>
+                    <th className="text-left px-3 py-2">Fund</th>
+                    <th className="text-left px-3 py-2">NDA</th>
+                    <th className="text-left px-3 py-2">P&amp;L</th>
+                    <th className="text-left px-3 py-2">Active</th>
+                    <th className="text-left px-3 py-2">Eligible</th>
+                    <th className="text-left px-3 py-2">Endpoint</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {externalPortfolioAssets.map((asset) => {
+                    const matchingRoutes = executionRoutes.filter(
+                      (route) => route.routeType === 3 && route.assetSymbol.toLowerCase() === asset.symbol.toLowerCase()
+                    );
+                    const route = matchingRoutes[0] ?? null;
+                    const eligible = routeIsBatchEligible(route);
+                    const badge = (ok: boolean, okLabel: string, offLabel: string) => (
+                      <span className={`rounded-full px-2 py-0.5 ${ok ? 'bg-emerald-700/40 text-emerald-200' : 'bg-rose-700/40 text-rose-200'}`}>
+                        {ok ? okLabel : offLabel}
+                      </span>
+                    );
+
+                    return (
+                      <tr key={asset.symbol} className="border-b border-slate-700/30">
+                        <td className="px-3 py-2">
+                          <div className="font-semibold text-slate-100">{asset.symbol}</div>
+                          <div className="text-[11px] text-slate-400">{asset.name}</div>
+                        </td>
+                        <td className="px-3 py-2 font-mono text-slate-300">
+                          {route ? `#${route.routeId}${matchingRoutes.length > 1 ? ` (+${matchingRoutes.length - 1})` : ''}` : 'Missing'}
+                        </td>
+                        <td className="px-3 py-2">{badge(!!route?.documentsComplete, 'Ready', 'Missing')}</td>
+                        <td className="px-3 py-2">{badge(!!route?.sagittaFundApproved, 'Ready', 'Missing')}</td>
+                        <td className="px-3 py-2">{badge(!!route?.ndaSigned, 'Ready', 'Missing')}</td>
+                        <td className="px-3 py-2">{badge(!!route?.pnlEndpoint?.trim(), 'Ready', 'Missing')}</td>
+                        <td className="px-3 py-2">{badge(!!route?.active, 'Active', 'Inactive')}</td>
+                        <td className="px-3 py-2">{badge(eligible, 'Allowed', 'Blocked')}</td>
+                        <td className="px-3 py-2 font-mono text-slate-400 break-all">{route?.pnlEndpoint?.trim() || 'none'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="grid grid-cols-12 gap-5">
+        <div className="sagitta-cell col-span-12">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="section-title !mb-0">Execution Ledger</h3>
+              <p className="text-xs text-slate-500 mt-1">Inspect batch mandates, accounting, positions, and settlement hashes.</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <input
+                className="w-32 px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
+                value={ledgerBatchId}
+                onChange={e => setLedgerBatchId(e.target.value)}
+                placeholder="Batch ID"
+                disabled={loading}
+              />
+              <button className="action-button action-button--ghost" onClick={() => refreshLedgerSnapshot()} disabled={loading}>
+                Refresh Ledger
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <MetricCard title="Authorized" value={fmtUsd6(ledgerAccounting?.principalAuthorizedUsd6 ?? 0n)} tone="neutral" />
+            <MetricCard title="Committed" value={fmtUsd6(ledgerAccounting?.principalCommittedUsd6 ?? 0n)} tone="neutral" />
+            <MetricCard title="Returned" value={fmtUsd6(ledgerAccounting?.principalReturnedUsd6 ?? 0n)} tone="neutral" />
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mt-5">
+            <div className="panel-stack">
+              <div className="panel-row"><span className="panel-row__label">Mandate configured</span><span className="panel-row__value">{ledgerMandate?.configured ? 'Yes' : 'No'}</span></div>
+              <div className="panel-row"><span className="panel-row__label">Settlement unit</span><span className="panel-row__value font-mono">{ledgerMandate?.settlementUnit || '0x0'}</span></div>
+              <div className="panel-row"><span className="panel-row__label">Expected close</span><span className="panel-row__value">{ledgerMandate?.expectedCloseTime ? new Date(Number(ledgerMandate.expectedCloseTime) * 1000).toLocaleString() : 'n/a'}</span></div>
+              <div className="panel-row"><span className="panel-row__label">Realized / Unrealized</span><span className="panel-row__value">{fmtUsd6(ledgerAccounting?.realizedPnlUsd6 ?? 0n)} / {fmtUsd6(ledgerAccounting?.unrealizedPnlUsd6 ?? 0n)}</span></div>
+              <div className="panel-row"><span className="panel-row__label">Fees / Frozen</span><span className="panel-row__value">{fmtUsd6(ledgerAccounting?.feesUsd6 ?? 0n)} / {ledgerAccounting?.frozen ? 'Yes' : 'No'}</span></div>
+              <div className="panel-row"><span className="panel-row__label">Settlement Hashes</span><span className="panel-row__value font-mono text-[11px]">{ledgerSettlement?.settlementReportHash && ledgerSettlement.settlementReportHash !== ethers.ZeroHash ? `${ledgerSettlement.settlementReportHash.slice(0, 10)}...${ledgerSettlement.settlementReportHash.slice(-6)}` : 'none'}</span></div>
+            </div>
+
+            {isOperator ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <div className="text-xs uppercase tracking-[0.16em] text-slate-400">Route Compliance</div>
+                  <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-4 text-sm text-slate-300">
+                    External routes are gated by the route registry checklist. Documents, fund approval, NDA, a live P&amp;L endpoint, and active status must all be in place before Treasury can send that route into the next batch.
+                  </div>
+                  <div className="panel-note">Manage investor-facing compliance checkmarks in DAO &gt; Execution Route Registry.</div>
+                </div>
+                <div className="space-y-2">
+                  <div className="text-xs uppercase tracking-[0.16em] text-slate-400">Open Position</div>
+                  <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={routeIdInput} onChange={e => setRouteIdInput(e.target.value)} placeholder="Route ID" disabled={loading} />
+                  <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={assetSymbolInput} onChange={e => setAssetSymbolInput(e.target.value)} placeholder="Asset symbol" disabled={loading} />
+                  <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={commitmentInput} onChange={e => setCommitmentInput(e.target.value)} placeholder="Commitment USD" disabled={loading} />
+                  <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={quantityInput} onChange={e => setQuantityInput(e.target.value)} placeholder="Quantity" disabled={loading} />
+                  <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={positionFeeInput} onChange={e => setPositionFeeInput(e.target.value)} placeholder="Fee USD" disabled={loading} />
+                  <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs" value={externalRefInput} onChange={e => setExternalRefInput(e.target.value)} placeholder="External ref or 0x hash" disabled={loading} />
+                  <button className="action-button action-button--primary w-full" onClick={openEscrowPosition} disabled={isPaused || loading}>Open Position</button>
+                </div>
+              </div>
+            ) : (
+              <div className="panel-note">Viewer wallets can inspect ledger state but cannot manage route selection or positions.</div>
+            )}
+          </div>
+
+          {isOperator && (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mt-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={positionIdInput} onChange={e => setPositionIdInput(e.target.value)} placeholder="Position ID" disabled={loading} />
+                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={carryingValueInput} onChange={e => setCarryingValueInput(e.target.value)} placeholder="Carrying value USD" disabled={loading} />
+                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs" value={markHashInput} onChange={e => setMarkHashInput(e.target.value)} placeholder="Mark ref or 0x hash" disabled={loading} />
+                <button className="action-button action-button--secondary w-full" onClick={markEscrowPosition} disabled={isPaused || loading}>Mark Position</button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={proceedsInput} onChange={e => setProceedsInput(e.target.value)} placeholder="Proceeds USD" disabled={loading} />
+                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={closeFeeInput} onChange={e => setCloseFeeInput(e.target.value)} placeholder="Close fee USD" disabled={loading} />
+                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs" value={closeRefInput} onChange={e => setCloseRefInput(e.target.value)} placeholder="Close ref or 0x hash" disabled={loading} />
+                <button className="action-button action-button--success w-full" onClick={closeEscrowPosition} disabled={isPaused || loading}>Close Position</button>
+                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs md:col-span-2" value={settlementHashInput} onChange={e => setSettlementHashInput(e.target.value)} placeholder="Settlement report ref or 0x hash" disabled={loading} />
+                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs md:col-span-2" value={complianceHashInput} onChange={e => setComplianceHashInput(e.target.value)} placeholder="Compliance digest ref or 0x hash" disabled={loading} />
+                <button className="action-button action-button--primary md:col-span-2" onClick={finalizeEscrowSettlement} disabled={isPaused || loading}>Finalize Settlement</button>
+              </div>
+            </div>
+          )}
+
+          {ledgerPositions.length > 0 && (
+            <div className="mt-5 overflow-x-auto rounded-xl border border-slate-700/50">
+              <table className="w-full text-xs text-slate-300">
+                <thead>
+                  <tr className="border-b border-slate-700/50 bg-slate-900/50">
+                    <th className="text-left px-3 py-2">ID</th>
+                    <th className="text-left px-3 py-2">Route</th>
+                    <th className="text-left px-3 py-2">Asset</th>
+                    <th className="text-left px-3 py-2">Commitment</th>
+                    <th className="text-left px-3 py-2">Carrying</th>
+                    <th className="text-left px-3 py-2">Proceeds</th>
+                    <th className="text-left px-3 py-2">Fees</th>
+                    <th className="text-left px-3 py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledgerPositions.map((position) => (
+                    <tr key={position.id.toString()} className="border-b border-slate-700/30">
+                      <td className="px-3 py-2 font-mono">#{position.id.toString()}</td>
+                      <td className="px-3 py-2">{position.routeId.toString()}</td>
+                      <td className="px-3 py-2">{position.assetSymbol}</td>
+                      <td className="px-3 py-2">{fmtUsd6(position.commitmentUsd6)}</td>
+                      <td className="px-3 py-2">{fmtUsd6(position.carryingValueUsd6)}</td>
+                      <td className="px-3 py-2">{fmtUsd6(position.proceedsUsd6)}</td>
+                      <td className="px-3 py-2">{fmtUsd6(position.feeUsd6)}</td>
+                      <td className="px-3 py-2">{position.status === 1 ? 'Open' : position.status === 2 ? 'Closed' : position.status === 3 ? 'Written down' : 'Unknown'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
+
       {activeBatches.length > 0 && (
         <section className="grid grid-cols-12 gap-5">
           <div className="sagitta-cell col-span-12">
@@ -1343,7 +1933,7 @@ export default function EscrowTab() {
                 <h3 className="section-title !mb-0">AAA Allocation</h3>
                 <p className="text-xs text-slate-500 mt-1">
                   Recommended weights from <span className="font-mono">aaa.sagitta.systems</span> for the active batch.
-                  Review before confirming investment.
+                  Blocked assets and assets above their minimum batch amount are excluded before allocation is shown.
                 </p>
               </div>
               <div className="flex items-center gap-3">
@@ -1367,18 +1957,33 @@ export default function EscrowTab() {
             )}
 
             {aaaAllocation && (() => {
-              const batch = activeBatches[0];
+              const batch = activeAllocationBatch;
               const principal = Number(batch?.totalCollateralUsd ?? 0);
               return (
                 <div>
                   <div className="text-xs text-slate-400 mb-3">
                     Batch #{batch?.id} &middot; {fmtUsd6(principal)} total
+                    <span className="ml-2">
+                      {allocationEligibility.eligible.length} eligible / {allocationEligibility.excluded.length} excluded
+                    </span>
                     {aaaAllocation.source === 'fallback' && (
                       <span className="ml-2 text-amber-400">
                         (equal weights — deploy AAA endpoint to get live weights)
                       </span>
                     )}
                   </div>
+                  {allocationEligibility.excluded.length > 0 && (
+                    <div className="mb-4 rounded-xl border border-slate-700/50 bg-slate-900/35 p-3 text-xs text-slate-300">
+                      <div className="uppercase tracking-[0.16em] text-slate-400 mb-2">Excluded From Allocation</div>
+                      <div className="flex flex-wrap gap-2">
+                        {allocationEligibility.excluded.map((asset) => (
+                          <span key={asset.symbol} className="rounded-full px-2 py-1 bg-rose-700/20 text-rose-200 border border-rose-700/30">
+                            {asset.symbol}: {asset.reasons.join(', ')}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>

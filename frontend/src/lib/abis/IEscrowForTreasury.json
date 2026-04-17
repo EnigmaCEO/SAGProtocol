@@ -18,6 +18,46 @@
         "internalType": "uint256",
         "name": "batchId",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "expectedCloseTime",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "settlementUnit",
+        "type": "bytes32"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "routeId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxAllocationUsd6",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IEscrowForTreasury.RouteAllocation[]",
+        "name": "routeAllocations",
+        "type": "tuple[]"
+      }
+    ],
+    "name": "authorizeBatchExecution",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
       }
     ],
     "name": "batches",
@@ -77,6 +117,24 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "frozen",
+        "type": "bool"
+      }
+    ],
+    "name": "freezeBatch",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {

@@ -60,31 +60,6 @@
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "burnedUsd",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "address",
-        "name": "executor",
-        "type": "address"
-      }
-    ],
-    "name": "AdminBatchBurned",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "batchId",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
         "name": "principalUsd",
         "type": "uint256"
       },
@@ -140,12 +115,12 @@
       },
       {
         "indexed": false,
-        "internalType": "uint256",
-        "name": "totalDistributedUsd",
-        "type": "uint256"
+        "internalType": "bool",
+        "name": "frozen",
+        "type": "bool"
       }
     ],
-    "name": "BatchDistributed",
+    "name": "BatchFrozen",
     "type": "event"
   },
   {
@@ -160,11 +135,42 @@
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "burnedUsd",
+        "name": "committedUsd",
         "type": "uint256"
       }
     ],
     "name": "BatchInvested",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "expectedCloseTime",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "settlementUnit",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "principalAuthorizedUsd6",
+        "type": "uint256"
+      }
+    ],
+    "name": "BatchMandateAuthorized",
     "type": "event"
   },
   {
@@ -211,6 +217,86 @@
       {
         "indexed": true,
         "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "finalValueUsd6",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "userProfitUsd6",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "protocolFeeUsd6",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "settlementReportHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "complianceDigestHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "BatchSettlementFinalized",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "attestationHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "expiresAt",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "approvedBy",
+        "type": "address"
+      }
+    ],
+    "name": "ComplianceAttestationPosted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
         "name": "tokenId",
         "type": "uint256"
       },
@@ -242,6 +328,19 @@
       {
         "indexed": true,
         "internalType": "address",
+        "name": "keeper",
+        "type": "address"
+      }
+    ],
+    "name": "KeeperSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
         "name": "previousOwner",
         "type": "address"
       },
@@ -261,29 +360,147 @@
       {
         "indexed": true,
         "internalType": "uint256",
+        "name": "positionId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "proceedsUsd6",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "feeUsd6",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "closeRefHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum InvestmentEscrow.PositionStatus",
+        "name": "status",
+        "type": "uint8"
+      }
+    ],
+    "name": "PositionClosed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "positionId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "carryingValueUsd6",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "markHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "markedAt",
+        "type": "uint256"
+      }
+    ],
+    "name": "PositionMarked",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "positionId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
         "name": "batchId",
         "type": "uint256"
       },
       {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "assetSymbol",
+        "type": "string"
+      },
+      {
         "indexed": false,
         "internalType": "uint256",
-        "name": "principalUsd",
+        "name": "commitmentUsd6",
         "type": "uint256"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "escrowUsdcBalance",
+        "name": "quantityE18",
         "type": "uint256"
       },
       {
         "indexed": false,
+        "internalType": "bytes32",
+        "name": "externalRefHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "feeUsd6",
+        "type": "uint256"
+      }
+    ],
+    "name": "PositionOpened",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
         "internalType": "address",
-        "name": "usdcToken",
+        "name": "routeRegistry",
         "type": "address"
       }
     ],
-    "name": "PreInvestDiagnostics",
+    "name": "RouteRegistrySet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "vault",
+        "type": "address"
+      }
+    ],
+    "name": "VaultSet",
     "type": "event"
   },
   {
@@ -334,6 +551,46 @@
       }
     ],
     "name": "adminBurnBatch",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "expectedCloseTime",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "settlementUnit",
+        "type": "bytes32"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "routeId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxAllocationUsd6",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct InvestmentEscrow.RouteAllocation[]",
+        "name": "routeAllocations",
+        "type": "tuple[]"
+      }
+    ],
+    "name": "authorizeBatchExecution",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -393,6 +650,34 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "positionId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "proceedsUsd6",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "closeRefHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "feeUsd6",
+        "type": "uint256"
+      }
+    ],
+    "name": "closePosition",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "createPendingBatch",
     "outputs": [
@@ -440,18 +725,18 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "batchId",
+        "name": "",
         "type": "uint256"
       },
       {
         "internalType": "uint256[]",
-        "name": "tokenIds",
+        "name": "",
         "type": "uint256[]"
       }
     ],
     "name": "distributeBatch",
     "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "pure",
     "type": "function"
   },
   {
@@ -473,9 +758,50 @@
         "internalType": "uint256",
         "name": "batchId",
         "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "settlementReportHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "complianceDigestHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "finalizeBatchSettlement",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
       }
     ],
     "name": "forceSetBatchInvested",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "frozen",
+        "type": "bool"
+      }
+    ],
+    "name": "freezeBatch",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -549,6 +875,374 @@
         "type": "uint256"
       }
     ],
+    "name": "getBatchAccounting",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "principalAuthorizedUsd6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "principalFundedUsd6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "principalCommittedUsd6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "principalReturnedUsd6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "feesUsd6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "int256",
+            "name": "realizedPnlUsd6",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "unrealizedPnlUsd6",
+            "type": "int256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastMarkedAt",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "frozen",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct InvestmentEscrow.BatchAccounting",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getBatchMandate",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "expectedCloseTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "settlementUnit",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint256",
+            "name": "principalAuthorizedUsd6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "configured",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256[]",
+            "name": "routeIds",
+            "type": "uint256[]"
+          },
+          {
+            "internalType": "uint256[]",
+            "name": "maxAllocationUsd6",
+            "type": "uint256[]"
+          }
+        ],
+        "internalType": "struct InvestmentEscrow.BatchMandateView",
+        "name": "view_",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getBatchPositionIds",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getBatchRouteCommittedUsd6",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getBatchSettlement",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "finalValueUsd6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "protocolFeeUsd6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "userProfitUsd6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "finalNavPerShare",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "settlementReportHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "complianceDigestHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint256",
+            "name": "finalizedAt",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "finalized",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct InvestmentEscrow.BatchSettlement",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getComplianceAttestation",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "attestationHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "address",
+            "name": "approvedBy",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "approvedAt",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "expiresAt",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct InvestmentEscrow.ComplianceAttestation",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "positionId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getPosition",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "batchId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "routeId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "assetSymbol",
+            "type": "string"
+          },
+          {
+            "internalType": "uint256",
+            "name": "commitmentUsd6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "quantityE18",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "carryingValueUsd6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "proceedsUsd6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "feeUsd6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "externalRefHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "lastMarkHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "closeRefHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint256",
+            "name": "openedAt",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "markedAt",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "closedAt",
+            "type": "uint256"
+          },
+          {
+            "internalType": "enum InvestmentEscrow.PositionStatus",
+            "name": "status",
+            "type": "uint8"
+          }
+        ],
+        "internalType": "struct InvestmentEscrow.Position",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      }
+    ],
     "name": "investBatch",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -594,6 +1288,34 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "positionId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "carryingValueUsd6",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "markHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "markedAt",
+        "type": "uint256"
+      }
+    ],
+    "name": "markPosition",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "nextBatchCounter",
     "outputs": [
@@ -608,6 +1330,68 @@
   },
   {
     "inputs": [],
+    "name": "nextPositionId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "string",
+        "name": "assetSymbol",
+        "type": "string"
+      },
+      {
+        "internalType": "uint256",
+        "name": "commitmentUsd6",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "quantityE18",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "externalRefHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "feeUsd6",
+        "type": "uint256"
+      }
+    ],
+    "name": "openPosition",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "positionId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "owner",
     "outputs": [
       {
@@ -617,6 +1401,34 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "attestationHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "expiresAt",
+        "type": "uint256"
+      }
+    ],
+    "name": "postComplianceAttestation",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -717,6 +1529,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "routeRegistry",
+    "outputs": [
+      {
+        "internalType": "contract IExecutionRouteRegistry",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint256",
@@ -759,6 +1584,19 @@
     "inputs": [
       {
         "internalType": "address",
+        "name": "_routeRegistry",
+        "type": "address"
+      }
+    ],
+    "name": "setRouteRegistry",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
         "name": "_vault",
         "type": "address"
       }
@@ -786,7 +1624,7 @@
     "name": "treasury",
     "outputs": [
       {
-        "internalType": "contract ITreasury",
+        "internalType": "contract ITreasuryForEscrow",
         "name": "",
         "type": "address"
       }
@@ -818,6 +1656,29 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "positionId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "closeRefHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "feeUsd6",
+        "type": "uint256"
+      }
+    ],
+    "name": "writeDownPosition",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   }
 ]

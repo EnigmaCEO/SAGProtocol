@@ -1,0 +1,563 @@
+[
+  {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableInvalidOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableUnauthorizedAccount",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferred",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "assetSymbol",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum ExecutionRouteRegistry.RouteType",
+        "name": "routeType",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "active",
+        "type": "bool"
+      }
+    ],
+    "name": "RouteAdded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      }
+    ],
+    "name": "RouteRemoved",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "assetSymbol",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum ExecutionRouteRegistry.RouteType",
+        "name": "routeType",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "active",
+        "type": "bool"
+      }
+    ],
+    "name": "RouteUpdated",
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "assetSymbol",
+        "type": "string"
+      },
+      {
+        "internalType": "enum ExecutionRouteRegistry.RouteType",
+        "name": "routeType",
+        "type": "uint8"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "counterpartyRefHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "jurisdictionRefHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "custodyRefHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bool",
+        "name": "documentsComplete",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "sagittaFundApproved",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "ndaSigned",
+        "type": "bool"
+      },
+      {
+        "internalType": "string",
+        "name": "pnlEndpoint",
+        "type": "string"
+      },
+      {
+        "internalType": "bool",
+        "name": "manualMarksRequired",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "active",
+        "type": "bool"
+      }
+    ],
+    "name": "addRoute",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getAllRoutes",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "routeId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "assetSymbol",
+            "type": "string"
+          },
+          {
+            "internalType": "enum ExecutionRouteRegistry.RouteType",
+            "name": "routeType",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "counterpartyRefHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "jurisdictionRefHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "custodyRefHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bool",
+            "name": "documentsComplete",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "sagittaFundApproved",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "ndaSigned",
+            "type": "bool"
+          },
+          {
+            "internalType": "string",
+            "name": "pnlEndpoint",
+            "type": "string"
+          },
+          {
+            "internalType": "bool",
+            "name": "manualMarksRequired",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "active",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct ExecutionRouteRegistry.Route[]",
+        "name": "result",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getComplianceStatus",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "documentsComplete",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "sagittaFundApproved",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "ndaSigned",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "hasPnlEndpoint",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "batchEligible",
+        "type": "bool"
+      },
+      {
+        "internalType": "string",
+        "name": "pnlEndpoint",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getRoute",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "id",
+        "type": "uint256"
+      },
+      {
+        "internalType": "string",
+        "name": "assetSymbol",
+        "type": "string"
+      },
+      {
+        "internalType": "enum ExecutionRouteRegistry.RouteType",
+        "name": "routeType",
+        "type": "uint8"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "counterpartyRefHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "jurisdictionRefHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "custodyRefHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bool",
+        "name": "documentsComplete",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "sagittaFundApproved",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "ndaSigned",
+        "type": "bool"
+      },
+      {
+        "internalType": "string",
+        "name": "pnlEndpoint",
+        "type": "string"
+      },
+      {
+        "internalType": "bool",
+        "name": "manualMarksRequired",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "active",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getRouteIds",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      }
+    ],
+    "name": "isRouteBatchEligible",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "nextRouteId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "owner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      }
+    ],
+    "name": "removeRoute",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "renounceOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      }
+    ],
+    "name": "routeExists",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "transferOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "routeId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "string",
+        "name": "assetSymbol",
+        "type": "string"
+      },
+      {
+        "internalType": "enum ExecutionRouteRegistry.RouteType",
+        "name": "routeType",
+        "type": "uint8"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "counterpartyRefHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "jurisdictionRefHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "custodyRefHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bool",
+        "name": "documentsComplete",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "sagittaFundApproved",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "ndaSigned",
+        "type": "bool"
+      },
+      {
+        "internalType": "string",
+        "name": "pnlEndpoint",
+        "type": "string"
+      },
+      {
+        "internalType": "bool",
+        "name": "manualMarksRequired",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "active",
+        "type": "bool"
+      }
+    ],
+    "name": "updateRoute",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]

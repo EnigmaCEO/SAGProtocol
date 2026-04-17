@@ -30,6 +30,12 @@
         "internalType": "enum PortfolioRegistry.AssetRole",
         "name": "role",
         "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "minimumInvestmentUsd6",
+        "type": "uint256"
       }
     ],
     "name": "AssetAdded",
@@ -59,6 +65,12 @@
       },
       {
         "indexed": false,
+        "internalType": "string",
+        "name": "name",
+        "type": "string"
+      },
+      {
+        "indexed": false,
         "internalType": "address",
         "name": "token",
         "type": "address"
@@ -80,6 +92,12 @@
         "internalType": "enum PortfolioRegistry.AssetRole",
         "name": "role",
         "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "minimumInvestmentUsd6",
+        "type": "uint256"
       }
     ],
     "name": "AssetUpdated",
@@ -135,6 +153,11 @@
         "internalType": "enum PortfolioRegistry.AssetRole",
         "name": "assetRole",
         "type": "uint8"
+      },
+      {
+        "internalType": "uint256",
+        "name": "minimumInvestmentUsd6",
+        "type": "uint256"
       }
     ],
     "name": "addAsset",
@@ -206,6 +229,11 @@
           },
           {
             "internalType": "uint256",
+            "name": "minimumInvestmentUsd6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
             "name": "addedAt",
             "type": "uint256"
           }
@@ -259,6 +287,11 @@
             "internalType": "enum PortfolioRegistry.AssetRole",
             "name": "role",
             "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minimumInvestmentUsd6",
+            "type": "uint256"
           },
           {
             "internalType": "uint256",
@@ -340,6 +373,11 @@
         "type": "string"
       },
       {
+        "internalType": "string",
+        "name": "name",
+        "type": "string"
+      },
+      {
         "internalType": "address",
         "name": "token",
         "type": "address"
@@ -358,6 +396,11 @@
         "internalType": "enum PortfolioRegistry.AssetRole",
         "name": "assetRole",
         "type": "uint8"
+      },
+      {
+        "internalType": "uint256",
+        "name": "minimumInvestmentUsd6",
+        "type": "uint256"
       }
     ],
     "name": "updateAsset",

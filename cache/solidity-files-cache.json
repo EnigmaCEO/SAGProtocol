@@ -152,8 +152,8 @@
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\InvestmentEscrow.sol": {
-      "lastModificationDate": 1776105116998,
-      "contentHash": "899a5cbfc0b76eb5002c9438e4f8611b",
+      "lastModificationDate": 1776435109966,
+      "contentHash": "398c123eda02035c3204f46e5428e7b4",
       "sourceName": "contracts/InvestmentEscrow.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -181,16 +181,16 @@
         }
       },
       "imports": [
-        "@openzeppelin/contracts/token/ERC20/IERC20.sol",
         "@openzeppelin/contracts/access/Ownable.sol",
+        "@openzeppelin/contracts/token/ERC20/IERC20.sol",
         "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
       ],
       "versionPragmas": [
         "^0.8.24"
       ],
       "artifacts": [
-        "ITreasury",
-        "IVault",
+        "IExecutionRouteRegistry",
+        "ITreasuryForEscrow",
         "InvestmentEscrow"
       ]
     },
@@ -1296,8 +1296,8 @@
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\Treasury.sol": {
-      "lastModificationDate": 1776105222123,
-      "contentHash": "02ae9a19a2364962bd316a698ba583d0",
+      "lastModificationDate": 1776406715915,
+      "contentHash": "26dc21019fbcd9822aa49fe8d9cfa869",
       "sourceName": "contracts/Treasury.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -1625,8 +1625,8 @@
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\PortfolioRegistry.sol": {
-      "lastModificationDate": 1776180310740,
-      "contentHash": "c671b17e48b51084b9a8262f89625f21",
+      "lastModificationDate": 1776374704251,
+      "contentHash": "92d912aefa05e4f1e27b30f1595081b2",
       "sourceName": "contracts/PortfolioRegistry.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -1698,6 +1698,45 @@
       ],
       "artifacts": [
         "ProtocolDAO"
+      ]
+    },
+    "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\ExecutionRouteRegistry.sol": {
+      "lastModificationDate": 1776429527692,
+      "contentHash": "3b0b14aac604d28cf972c7b90cce6709",
+      "sourceName": "contracts/ExecutionRouteRegistry.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/access/Ownable.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "ExecutionRouteRegistry"
       ]
     }
   }

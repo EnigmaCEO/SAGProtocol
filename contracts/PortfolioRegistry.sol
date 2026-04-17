@@ -33,13 +33,14 @@ contract PortfolioRegistry {
     // ── Structs ────────────────────────────────────────────────────────────
 
     struct PortfolioAsset {
-        string    symbol;    // unique ticker, e.g. "SPC"
-        string    name;      // display name, e.g. "Sagitta SPC"
-        address   token;     // ERC-20 address; address(0) for external/off-chain assets
-        address   oracle;    // price oracle; address(0) if not yet wired
+        string    symbol;                // unique ticker, e.g. "SPC"
+        string    name;                  // display name, e.g. "Sagitta SPC"
+        address   token;                 // ERC-20 address; address(0) for external/off-chain assets
+        address   oracle;                // price oracle; address(0) if not yet wired
         RiskClass riskClass;
         AssetRole role;
-        uint256   addedAt;   // block.timestamp when added
+        uint256   minimumInvestmentUsd6; // minimum investment in USD, scaled to 6 decimals
+        uint256   addedAt;               // block.timestamp when added
     }
 
     // ── State ──────────────────────────────────────────────────────────────
@@ -54,9 +55,23 @@ contract PortfolioRegistry {
     // ── Events ────────────────────────────────────────────────────────────
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-    event AssetAdded(string symbol, address token, RiskClass riskClass, AssetRole role);
+    event AssetAdded(
+        string symbol,
+        address token,
+        RiskClass riskClass,
+        AssetRole role,
+        uint256 minimumInvestmentUsd6
+    );
     event AssetRemoved(string symbol);
-    event AssetUpdated(string symbol, address token, address oracle, RiskClass riskClass, AssetRole role);
+    event AssetUpdated(
+        string symbol,
+        string name,
+        address token,
+        address oracle,
+        RiskClass riskClass,
+        AssetRole role,
+        uint256 minimumInvestmentUsd6
+    );
 
     // ── Modifier ──────────────────────────────────────────────────────────
 
@@ -95,13 +110,15 @@ contract PortfolioRegistry {
     /// @param oracle     Price oracle address. Pass address(0) if not yet available.
     /// @param riskClass  Risk classification enum value.
     /// @param assetRole  Portfolio role enum value.
+    /// @param minimumInvestmentUsd6 Minimum investment in USD, scaled to 6 decimals.
     function addAsset(
         string   calldata symbol,
         string   calldata name,
         address           token,
         address           oracle,
         RiskClass         riskClass,
-        AssetRole         assetRole
+        AssetRole         assetRole,
+        uint256           minimumInvestmentUsd6
     ) external onlyOwner {
         require(bytes(symbol).length > 0, "PortfolioRegistry: empty symbol");
         bytes32 k = _key(symbol);
@@ -114,12 +131,13 @@ contract PortfolioRegistry {
             oracle:    oracle,
             riskClass: riskClass,
             role:      assetRole,
+            minimumInvestmentUsd6: minimumInvestmentUsd6,
             addedAt:   block.timestamp
         });
         _active[k] = true;
         _symbolList.push(symbol);
 
-        emit AssetAdded(symbol, token, riskClass, assetRole);
+        emit AssetAdded(symbol, token, riskClass, assetRole, minimumInvestmentUsd6);
     }
 
     /// @notice Remove an asset from the portfolio by its symbol.
@@ -145,19 +163,23 @@ contract PortfolioRegistry {
     /// @notice Update the token address, oracle, or classification of an existing asset.
     function updateAsset(
         string    calldata symbol,
+        string    calldata name,
         address            token,
         address            oracle,
         RiskClass          riskClass,
-        AssetRole          assetRole
+        AssetRole          assetRole,
+        uint256            minimumInvestmentUsd6
     ) external onlyOwner {
         bytes32 k = _key(symbol);
         require(_active[k], "PortfolioRegistry: symbol not in portfolio");
         PortfolioAsset storage a = _assets[k];
-        a.token     = token;
-        a.oracle    = oracle;
+        a.name = name;
+        a.token = token;
+        a.oracle = oracle;
         a.riskClass = riskClass;
-        a.role      = assetRole;
-        emit AssetUpdated(symbol, token, oracle, riskClass, assetRole);
+        a.role = assetRole;
+        a.minimumInvestmentUsd6 = minimumInvestmentUsd6;
+        emit AssetUpdated(symbol, name, token, oracle, riskClass, assetRole, minimumInvestmentUsd6);
     }
 
     // ── Views ─────────────────────────────────────────────────────────────

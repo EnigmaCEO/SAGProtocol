@@ -103,6 +103,20 @@ function parseUsdInputToUsd6(value: string): bigint | null {
   return (BigInt(wholePart) * BigInt(1_000_000)) + BigInt(paddedFraction);
 }
 
+function formatUsd6Input(value: bigint): string {
+  if (value <= 0) return '';
+  const whole = value / BigInt(1_000_000);
+  const fraction = (value % BigInt(1_000_000)).toString().padStart(6, '0').replace(/0+$/, '');
+  return fraction ? `${whole.toString()}.${fraction}` : whole.toString();
+}
+
+function toBytes32Ref(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return ethers.ZeroHash;
+  if (/^0x[a-fA-F0-9]{64}$/.test(trimmed)) return trimmed;
+  return ethers.id(trimmed);
+}
+
 function formatError(error: any): string {
   const reason =
     error?.reason ||
@@ -155,6 +169,7 @@ type ProposalAction =
   | 'REBALANCE_TREASURY'
   | 'PAY_RECEIPT_PROFIT'
   | 'ADD_PORTFOLIO_ASSET'
+  | 'UPDATE_PORTFOLIO_ASSET'
   | 'REMOVE_PORTFOLIO_ASSET';
 
 type PortfolioAsset = {
@@ -164,7 +179,23 @@ type PortfolioAsset = {
   oracle: string;
   riskClass: number;
   role: number;
+  minimumInvestmentUsd6: bigint;
   addedAt: number;
+};
+
+type ExecutionRoute = {
+  routeId: number;
+  assetSymbol: string;
+  routeType: number;
+  counterpartyRefHash: string;
+  jurisdictionRefHash: string;
+  custodyRefHash: string;
+  documentsComplete: boolean;
+  sagittaFundApproved: boolean;
+  ndaSigned: boolean;
+  pnlEndpoint: string;
+  manualMarksRequired: boolean;
+  active: boolean;
 };
 
 const RISK_CLASS_LABELS = [
@@ -188,14 +219,23 @@ const ASSET_ROLE_LABELS = [
 ];
 
 const PORTFOLIO_REGISTRY_ABI = [
-  'function addAsset(string symbol, string name, address token, address oracle, uint8 riskClass, uint8 role) external',
+  'function addAsset(string symbol, string name, address token, address oracle, uint8 riskClass, uint8 role, uint256 minimumInvestmentUsd6) external',
   'function removeAsset(string symbol) external',
-  'function updateAsset(string symbol, address token, address oracle, uint8 riskClass, uint8 role) external',
-  'function getAllAssets() external view returns (tuple(string symbol, string name, address token, address oracle, uint8 riskClass, uint8 role, uint256 addedAt)[])',
+  'function updateAsset(string symbol, string name, address token, address oracle, uint8 riskClass, uint8 role, uint256 minimumInvestmentUsd6) external',
+  'function getAllAssets() external view returns (tuple(string symbol, string name, address token, address oracle, uint8 riskClass, uint8 role, uint256 minimumInvestmentUsd6, uint256 addedAt)[])',
   'function isInPortfolio(string symbol) external view returns (bool)',
   'function assetCount() external view returns (uint256)',
   'function owner() external view returns (address)',
 ];
+
+const EXECUTION_ROUTE_REGISTRY_ABI = [
+  'function addRoute(string assetSymbol, uint8 routeType, bytes32 counterpartyRefHash, bytes32 jurisdictionRefHash, bytes32 custodyRefHash, bool documentsComplete, bool sagittaFundApproved, bool ndaSigned, string pnlEndpoint, bool manualMarksRequired, bool active) external returns (uint256)',
+  'function updateRoute(uint256 routeId, string assetSymbol, uint8 routeType, bytes32 counterpartyRefHash, bytes32 jurisdictionRefHash, bytes32 custodyRefHash, bool documentsComplete, bool sagittaFundApproved, bool ndaSigned, string pnlEndpoint, bool manualMarksRequired, bool active) external',
+  'function removeRoute(uint256 routeId) external',
+  'function getAllRoutes() external view returns (tuple(uint256 routeId, string assetSymbol, uint8 routeType, bytes32 counterpartyRefHash, bytes32 jurisdictionRefHash, bytes32 custodyRefHash, bool documentsComplete, bool sagittaFundApproved, bool ndaSigned, string pnlEndpoint, bool manualMarksRequired, bool active)[])',
+  'function isRouteBatchEligible(uint256 routeId) external view returns (bool)',
+];
+const EXECUTION_ROUTE_TYPE_LABELS = ['Onchain', 'Custodian', 'Managed Portfolio', 'External'];
 
 type DaoProposal = {
   id: string;
@@ -312,6 +352,25 @@ export default function DAOTab() {
   const [newAssetOracle, setNewAssetOracle] = useState('');
   const [newAssetRiskClass, setNewAssetRiskClass] = useState(0);
   const [newAssetRole, setNewAssetRole] = useState(0);
+  const [newAssetMinimumAmount, setNewAssetMinimumAmount] = useState('');
+  const [editingPortfolioAssetSymbol, setEditingPortfolioAssetSymbol] = useState<string | null>(null);
+
+  const [routeRegistryAddress, setRouteRegistryAddress] = useState<string>(() => getRuntimeAddress('ExecutionRouteRegistry'));
+  const [executionRoutes, setExecutionRoutes] = useState<ExecutionRoute[]>([]);
+  const [routeRegistryLoading, setRouteRegistryLoading] = useState(false);
+  const [routeRegistryStatus, setRouteRegistryStatus] = useState<string | null>(null);
+  const [editingRouteId, setEditingRouteId] = useState<number | null>(null);
+  const [routeAssetSymbolInput, setRouteAssetSymbolInput] = useState('');
+  const [routeTypeInput, setRouteTypeInput] = useState(0);
+  const [routeCounterpartyInput, setRouteCounterpartyInput] = useState('');
+  const [routeJurisdictionInput, setRouteJurisdictionInput] = useState('');
+  const [routeCustodyInput, setRouteCustodyInput] = useState('');
+  const [routeDocumentsCompleteInput, setRouteDocumentsCompleteInput] = useState(false);
+  const [routeSagittaFundApprovedInput, setRouteSagittaFundApprovedInput] = useState(false);
+  const [routeNdaSignedInput, setRouteNdaSignedInput] = useState(false);
+  const [routePnlEndpointInput, setRoutePnlEndpointInput] = useState('');
+  const [routeManualMarksInput, setRouteManualMarksInput] = useState(true);
+  const [routeActiveInput, setRouteActiveInput] = useState(true);
 
   // Keep address states in sync whenever loadGeneratedRuntimeAddresses() or setRuntimeAddress() fires.
   useEffect(() => {
@@ -319,6 +378,7 @@ export default function DAOTab() {
       setTreasuryAddress(getRuntimeAddress('Treasury'));
       setVaultAddress(getRuntimeAddress('Vault'));
       setEscrowAddress(getRuntimeAddress('InvestmentEscrow'));
+      setRouteRegistryAddress(getRuntimeAddress('ExecutionRouteRegistry'));
       setReserveAddress(getRuntimeAddress('ReserveController'));
       setGoldOracleAddress(getRuntimeAddress('GoldOracle'));
       setPortfolioRegistryAddress(getRuntimeAddress('PortfolioRegistry'));
@@ -340,13 +400,16 @@ export default function DAOTab() {
     )
   );
 
-  // A signer can approve a proposal if they are the on-chain contract owner OR a DAO council member.
+  const signerIsCouncilMember =
+    isValidAddress(address) && daoCouncil.some(a => a.toLowerCase() === address.toLowerCase());
+
+  // Approval authority switches to the DAO council as soon as any member exists.
+  // Before that, the contract owner is the single-sig fallback approver.
   const canApproveAsActualSigner =
-    isActualOwner ||
-    (isValidAddress(address) && daoCouncil.some(a => a.toLowerCase() === address.toLowerCase()));
+    daoCouncil.length === 0 ? isActualOwner : signerIsCouncilMember;
 
   // Proposals require approval from all DAO council members. If no council is configured,
-  // the contract owner alone is sufficient (single-sig fallback).
+  // the contract owner alone is sufficient.
   const requiredProposalApprovals = Math.max(1, daoCouncil.length);
   const pendingProposalCount = governanceProposals.filter(p => p.status === 'pending').length;
   const isResumeProposal = (proposal?: Pick<DaoProposal, 'action' | 'payload'> | null): boolean =>
@@ -451,6 +514,12 @@ export default function DAOTab() {
     refreshPortfolioState();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, portfolioRegistryAddress]);
+
+  useEffect(() => {
+    if (!provider) return;
+    refreshRouteRegistryState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider, routeRegistryAddress]);
 
   async function refreshChainClock(rpcProvider: ethers.JsonRpcProvider) {
     try {
@@ -817,7 +886,7 @@ export default function DAOTab() {
 
   function handleApproveProposal(proposalId: string) {
     if (!canApproveAsActualSigner || !isValidAddress(address)) {
-      setConfigStatus('Only owner addresses can approve proposals');
+      setConfigStatus(daoCouncil.length === 0 ? 'Only the contract owner can approve proposals' : 'Only DAO council members can approve proposals');
       return;
     }
     const proposal = governanceProposals.find(item => item.id === proposalId);
@@ -842,33 +911,45 @@ export default function DAOTab() {
       return;
     }
     if ((proposal.approvals || []).length < requiredProposalApprovals) {
-      setConfigStatus(`Proposal requires ${requiredProposalApprovals} owner approval(s)`);
+      setConfigStatus(
+        daoCouncil.length === 0
+          ? `Proposal requires ${requiredProposalApprovals} owner approval(s)`
+          : `Proposal requires ${requiredProposalApprovals} council approval(s)`
+      );
       return;
     }
 
     setProposalExecId(proposal.id);
     try {
       let ok = false;
-      if (proposal.action === 'APPLY_ALL_LINKS') {
-        ok = await handleApplyAllLinks(true, proposal.payload);
-      } else if (proposal.action === 'SET_VAULT_LOCK_DURATION') {
-        ok = await handleSetVaultLockDuration(true, proposal.payload);
-      } else if (proposal.action === 'SAVE_BATCH_CADENCE') {
-        ok = handleSaveBatchCadence(true, proposal.payload);
-      } else if (proposal.action === 'TOGGLE_VAULT_PAUSE') {
-        ok = await handlePauseToggle(true, proposal.payload);
-      } else if (proposal.action === 'TRANSFER_OWNERSHIP') {
-        ok = await handleTransferOwnership(true, proposal.payload);
-      } else if (proposal.action === 'SET_GOLD_PRICE') {
-        ok = await handleSetGoldPrice(true, proposal.payload);
-      } else if (proposal.action === 'REBALANCE_TREASURY') {
-        ok = await handleTreasuryRebalance(true);
-      } else if (proposal.action === 'PAY_RECEIPT_PROFIT') {
-        ok = await handlePayReceiptProfit(true, proposal.payload);
-      } else if (proposal.action === 'ADD_PORTFOLIO_ASSET') {
-        ok = await handleAddPortfolioAsset(true, proposal.payload);
-      } else if (proposal.action === 'REMOVE_PORTFOLIO_ASSET') {
-        ok = await handleRemovePortfolioAsset(true, proposal.payload);
+      let failureReason = 'Execution failed. Check DAO status logs for details.';
+      try {
+        if (proposal.action === 'APPLY_ALL_LINKS') {
+          ok = await handleApplyAllLinks(true, proposal.payload);
+        } else if (proposal.action === 'SET_VAULT_LOCK_DURATION') {
+          ok = await handleSetVaultLockDuration(true, proposal.payload);
+        } else if (proposal.action === 'SAVE_BATCH_CADENCE') {
+          ok = handleSaveBatchCadence(true, proposal.payload);
+        } else if (proposal.action === 'TOGGLE_VAULT_PAUSE') {
+          ok = await handlePauseToggle(true, proposal.payload);
+        } else if (proposal.action === 'TRANSFER_OWNERSHIP') {
+          ok = await handleTransferOwnership(true, proposal.payload);
+        } else if (proposal.action === 'SET_GOLD_PRICE') {
+          ok = await handleSetGoldPrice(true, proposal.payload);
+        } else if (proposal.action === 'REBALANCE_TREASURY') {
+          ok = await handleTreasuryRebalance(true);
+        } else if (proposal.action === 'PAY_RECEIPT_PROFIT') {
+          ok = await handlePayReceiptProfit(true, proposal.payload);
+        } else if (proposal.action === 'ADD_PORTFOLIO_ASSET') {
+          ok = await handleAddPortfolioAsset(true, proposal.payload);
+        } else if (proposal.action === 'UPDATE_PORTFOLIO_ASSET') {
+          ok = await handleUpdatePortfolioAsset(true, proposal.payload);
+        } else if (proposal.action === 'REMOVE_PORTFOLIO_ASSET') {
+          ok = await handleRemovePortfolioAsset(true, proposal.payload);
+        }
+      } catch (error: any) {
+        failureReason = formatError(error);
+        ok = false;
       }
 
       setGovernanceProposals(prev =>
@@ -878,12 +959,12 @@ export default function DAOTab() {
                 ...p,
                 status: ok ? 'executed' : 'failed',
                 executedAt: Date.now(),
-                error: ok ? undefined : 'Execution failed. Check DAO status logs for details.',
+                error: ok ? undefined : failureReason,
               }
             : p
         )
       );
-      setConfigStatus(ok ? `Executed proposal ${proposal.id}` : `Proposal ${proposal.id} failed`);
+      setConfigStatus(ok ? `Executed proposal ${proposal.id}` : `Proposal ${proposal.id} failed: ${failureReason}`);
     } finally {
       setProposalExecId(null);
     }
@@ -1727,7 +1808,8 @@ export default function DAOTab() {
           oracle:    String(a.oracle ?? a[3] ?? ''),
           riskClass: Number(a.riskClass ?? a[4] ?? 0),
           role:      Number(a.role      ?? a[5] ?? 0),
-          addedAt:   Number(a.addedAt   ?? a[6] ?? 0),
+          minimumInvestmentUsd6: BigInt(a.minimumInvestmentUsd6 ?? a[6] ?? 0),
+          addedAt:   Number(a.addedAt   ?? a[7] ?? 0),
         }))
       );
     } catch {
@@ -1746,6 +1828,7 @@ export default function DAOTab() {
       oracle?: string;
       riskClass?: number;
       role?: number;
+      minimumInvestmentUsd6?: string | number;
     }
   ): Promise<boolean> => {
     const symbol    = (payload?.symbol ?? newAssetSymbol).trim();
@@ -1754,6 +1837,10 @@ export default function DAOTab() {
     const oracle    = (payload?.oracle ?? newAssetOracle).trim();
     const riskClass = payload?.riskClass ?? newAssetRiskClass;
     const role      = payload?.role      ?? newAssetRole;
+    const minimumInvestmentUsd6 =
+      payload?.minimumInvestmentUsd6 !== undefined
+        ? BigInt(String(payload.minimumInvestmentUsd6))
+        : (parseUsdInputToUsd6(newAssetMinimumAmount) ?? BigInt(0));
 
     if (!symbol) {
       setPortfolioStatus('Symbol is required');
@@ -1768,6 +1855,10 @@ export default function DAOTab() {
       setPortfolioStatus('PortfolioRegistry address not set');
       return false;
     }
+    if (payload?.minimumInvestmentUsd6 === undefined && newAssetMinimumAmount.trim() && parseUsdInputToUsd6(newAssetMinimumAmount) === null) {
+      setPortfolioStatus('Minimum amount must be a valid USD amount');
+      return false;
+    }
 
     const tokenAddr = isValidAddress(token) ? token : ethers.ZeroAddress;
     const oracleAddr = isValidAddress(oracle) ? oracle : ethers.ZeroAddress;
@@ -1780,8 +1871,16 @@ export default function DAOTab() {
       const proposal = queueProposal(
         'ADD_PORTFOLIO_ASSET',
         `Add ${symbol} to Portfolio`,
-        `Add asset ${symbol} (${name || 'unnamed'}) to the accepted allocation portfolio as ${ASSET_ROLE_LABELS[role]} / ${RISK_CLASS_LABELS[riskClass]}.`,
-        { symbol, name, token: tokenAddr, oracle: oracleAddr, riskClass, role }
+        `Add asset ${symbol} (${name || 'unnamed'}) to the accepted allocation portfolio as ${ASSET_ROLE_LABELS[role]} / ${RISK_CLASS_LABELS[riskClass]} with a minimum amount of ${minimumInvestmentUsd6 > 0 ? formatUsd(minimumInvestmentUsd6) : 'none'}.`,
+        {
+          symbol,
+          name,
+          token: tokenAddr,
+          oracle: oracleAddr,
+          riskClass,
+          role,
+          minimumInvestmentUsd6: minimumInvestmentUsd6.toString(),
+        }
       );
       setPortfolioStatus(`Proposal queued (${proposal.id})`);
       return true;
@@ -1796,19 +1895,131 @@ export default function DAOTab() {
     try {
       const signer = getWriteSigner();
       const registry = new ethers.Contract(portfolioRegistryAddress, PORTFOLIO_REGISTRY_ABI, signer);
-      const tx = await registry.addAsset(symbol, name, tokenAddr, oracleAddr, riskClass, role);
+      const tx = await registry.addAsset(symbol, name, tokenAddr, oracleAddr, riskClass, role, minimumInvestmentUsd6);
       await tx.wait();
-      setNewAssetToken('');
-      setNewAssetSymbol('');
-      setNewAssetName('');
-      setNewAssetOracle('');
-      setNewAssetRiskClass(0);
-      setNewAssetRole(0);
+      resetPortfolioAssetForm();
       setPortfolioStatus(`Asset ${symbol} added to portfolio (tx=${tx.hash})`);
       await refreshPortfolioState();
       return true;
     } catch (error: any) {
       setPortfolioStatus(`Add asset failed: ${formatError(error)}`);
+      return false;
+    } finally {
+      setConfigBusy(false);
+    }
+  };
+
+  function resetPortfolioAssetForm(): void {
+    setNewAssetToken('');
+    setNewAssetSymbol('');
+    setNewAssetName('');
+    setNewAssetOracle('');
+    setNewAssetRiskClass(0);
+    setNewAssetRole(0);
+    setNewAssetMinimumAmount('');
+    setEditingPortfolioAssetSymbol(null);
+  }
+
+  function beginPortfolioAssetEdit(asset: PortfolioAsset): void {
+    setEditingPortfolioAssetSymbol(asset.symbol);
+    setNewAssetSymbol(asset.symbol);
+    setNewAssetName(asset.name);
+    setNewAssetToken(isValidAddress(asset.token) && asset.token !== ethers.ZeroAddress ? asset.token : '');
+    setNewAssetOracle(isValidAddress(asset.oracle) && asset.oracle !== ethers.ZeroAddress ? asset.oracle : '');
+    setNewAssetRiskClass(asset.riskClass);
+    setNewAssetRole(asset.role);
+    setNewAssetMinimumAmount(formatUsd6Input(asset.minimumInvestmentUsd6));
+    setPortfolioStatus(`Editing asset ${asset.symbol}.`);
+  }
+
+  const handleUpdatePortfolioAsset = async (
+    bypassProposal = false,
+    payload?: {
+      symbol?: string;
+      name?: string;
+      token?: string;
+      oracle?: string;
+      riskClass?: number;
+      role?: number;
+      minimumInvestmentUsd6?: string | number;
+    }
+  ): Promise<boolean> => {
+    const symbol = (payload?.symbol ?? editingPortfolioAssetSymbol ?? newAssetSymbol).trim();
+    const name = (payload?.name ?? newAssetName).trim();
+    const token = (payload?.token ?? newAssetToken).trim();
+    const oracle = (payload?.oracle ?? newAssetOracle).trim();
+    const riskClass = payload?.riskClass ?? newAssetRiskClass;
+    const role = payload?.role ?? newAssetRole;
+    const minimumInvestmentUsd6 =
+      payload?.minimumInvestmentUsd6 !== undefined
+        ? BigInt(String(payload.minimumInvestmentUsd6))
+        : (parseUsdInputToUsd6(newAssetMinimumAmount) ?? BigInt(0));
+    const fail = (message: string): false => {
+      setPortfolioStatus(message);
+      if (bypassProposal) throw new Error(message);
+      return false;
+    };
+
+    if (!symbol) {
+      return fail('Select an asset to edit');
+    }
+    if (token && !isValidAddress(token)) {
+      return fail('Token address must be a valid 0x address or left blank');
+    }
+    if (oracle && !isValidAddress(oracle)) {
+      return fail('Oracle address must be a valid 0x address or left blank');
+    }
+    if (!isValidAddress(portfolioRegistryAddress)) {
+      return fail('PortfolioRegistry address not set');
+    }
+    if (payload?.minimumInvestmentUsd6 === undefined && newAssetMinimumAmount.trim() && parseUsdInputToUsd6(newAssetMinimumAmount) === null) {
+      return fail('Minimum amount must be a valid USD amount');
+    }
+
+    const tokenAddr = isValidAddress(token) ? token : ethers.ZeroAddress;
+    const oracleAddr = isValidAddress(oracle) ? oracle : ethers.ZeroAddress;
+
+    if (!bypassProposal) {
+      if (!isOp) {
+        setPortfolioStatus('Only operators can propose portfolio changes');
+        return false;
+      }
+      const proposal = queueProposal(
+        'UPDATE_PORTFOLIO_ASSET',
+        `Update ${symbol} in Portfolio`,
+        `Update asset ${symbol} to ${ASSET_ROLE_LABELS[role]} / ${RISK_CLASS_LABELS[riskClass]} with a minimum amount of ${minimumInvestmentUsd6 > 0 ? formatUsd(minimumInvestmentUsd6) : 'none'}.`,
+        {
+          symbol,
+          name,
+          token: tokenAddr,
+          oracle: oracleAddr,
+          riskClass,
+          role,
+          minimumInvestmentUsd6: minimumInvestmentUsd6.toString(),
+        }
+      );
+      setPortfolioStatus(`Edit proposal queued (${proposal.id})`);
+      return true;
+    }
+
+    if (!provider) {
+      return fail('Local RPC provider not ready');
+    }
+
+    setConfigBusy(true);
+    try {
+      const signer = getWriteSigner();
+      const registry = new ethers.Contract(portfolioRegistryAddress, PORTFOLIO_REGISTRY_ABI, signer);
+      const tx = await registry.updateAsset(symbol, name, tokenAddr, oracleAddr, riskClass, role, minimumInvestmentUsd6);
+      await tx.wait();
+      resetPortfolioAssetForm();
+      setPortfolioStatus(`Asset ${symbol} updated in portfolio (tx=${tx.hash})`);
+      await refreshPortfolioState();
+      return true;
+    } catch (error: any) {
+      const message = `Update asset failed: ${formatError(error)}`;
+      setPortfolioStatus(message);
+      if (bypassProposal) throw new Error(message);
       return false;
     } finally {
       setConfigBusy(false);
@@ -1861,6 +2072,162 @@ export default function DAOTab() {
       return true;
     } catch (error: any) {
       setPortfolioStatus(`Remove asset failed: ${formatError(error)}`);
+      return false;
+    } finally {
+      setConfigBusy(false);
+    }
+  };
+
+  const resetRouteRegistryForm = (): void => {
+    setEditingRouteId(null);
+    setRouteAssetSymbolInput('');
+    setRouteTypeInput(0);
+    setRouteCounterpartyInput('');
+    setRouteJurisdictionInput('');
+    setRouteCustodyInput('');
+    setRouteDocumentsCompleteInput(false);
+    setRouteSagittaFundApprovedInput(false);
+    setRouteNdaSignedInput(false);
+    setRoutePnlEndpointInput('');
+    setRouteManualMarksInput(true);
+    setRouteActiveInput(true);
+  };
+
+  const beginRouteEdit = (route: ExecutionRoute): void => {
+    setEditingRouteId(route.routeId);
+    setRouteAssetSymbolInput(route.assetSymbol);
+    setRouteTypeInput(route.routeType);
+    setRouteCounterpartyInput(route.counterpartyRefHash === ethers.ZeroHash ? '' : route.counterpartyRefHash);
+    setRouteJurisdictionInput(route.jurisdictionRefHash === ethers.ZeroHash ? '' : route.jurisdictionRefHash);
+    setRouteCustodyInput(route.custodyRefHash === ethers.ZeroHash ? '' : route.custodyRefHash);
+    setRouteDocumentsCompleteInput(route.documentsComplete);
+    setRouteSagittaFundApprovedInput(route.sagittaFundApproved);
+    setRouteNdaSignedInput(route.ndaSigned);
+    setRoutePnlEndpointInput(route.pnlEndpoint);
+    setRouteManualMarksInput(route.manualMarksRequired);
+    setRouteActiveInput(route.active);
+    setRouteRegistryStatus(`Editing route #${route.routeId}.`);
+  };
+
+  const beginExternalComplianceDraft = (asset: PortfolioAsset): void => {
+    resetRouteRegistryForm();
+    setRouteAssetSymbolInput(asset.symbol);
+    setRouteTypeInput(3);
+    setRouteRegistryStatus(`Drafting external compliance route for ${asset.symbol}.`);
+  };
+
+  const refreshRouteRegistryState = async (): Promise<void> => {
+    if (!provider || !isValidAddress(routeRegistryAddress)) {
+      setExecutionRoutes([]);
+      return;
+    }
+    setRouteRegistryLoading(true);
+    try {
+      const registry = new ethers.Contract(routeRegistryAddress, EXECUTION_ROUTE_REGISTRY_ABI, provider);
+      const raw = await registry.getAllRoutes();
+      setExecutionRoutes(
+        raw.map((route: any) => ({
+          routeId: Number(route.routeId ?? route[0] ?? 0),
+          assetSymbol: String(route.assetSymbol ?? route[1] ?? ''),
+          routeType: Number(route.routeType ?? route[2] ?? 0),
+          counterpartyRefHash: String(route.counterpartyRefHash ?? route[3] ?? ethers.ZeroHash),
+          jurisdictionRefHash: String(route.jurisdictionRefHash ?? route[4] ?? ethers.ZeroHash),
+          custodyRefHash: String(route.custodyRefHash ?? route[5] ?? ethers.ZeroHash),
+          documentsComplete: Boolean(route.documentsComplete ?? route[6] ?? false),
+          sagittaFundApproved: Boolean(route.sagittaFundApproved ?? route[7] ?? false),
+          ndaSigned: Boolean(route.ndaSigned ?? route[8] ?? false),
+          pnlEndpoint: String(route.pnlEndpoint ?? route[9] ?? ''),
+          manualMarksRequired: Boolean(route.manualMarksRequired ?? route[10] ?? false),
+          active: Boolean(route.active ?? route[11] ?? false),
+        }))
+      );
+    } catch (error: any) {
+      setExecutionRoutes([]);
+      setRouteRegistryStatus(`Failed to load execution routes: ${formatError(error)}`);
+    } finally {
+      setRouteRegistryLoading(false);
+    }
+  };
+
+  const handleSaveExecutionRoute = async (): Promise<boolean> => {
+    if (!isOp) {
+      setRouteRegistryStatus('Only operators can edit execution routes');
+      return false;
+    }
+    if (!provider) {
+      setRouteRegistryStatus('Local RPC provider not ready');
+      return false;
+    }
+    if (!isValidAddress(routeRegistryAddress)) {
+      setRouteRegistryStatus('ExecutionRouteRegistry address not set');
+      return false;
+    }
+    if (!routeAssetSymbolInput.trim()) {
+      setRouteRegistryStatus('Asset symbol is required');
+      return false;
+    }
+
+    setConfigBusy(true);
+    try {
+      const signer = getWriteSigner();
+      const registry = new ethers.Contract(routeRegistryAddress, EXECUTION_ROUTE_REGISTRY_ABI, signer);
+      const args = [
+        routeAssetSymbolInput.trim(),
+        routeTypeInput,
+        toBytes32Ref(routeCounterpartyInput),
+        toBytes32Ref(routeJurisdictionInput),
+        toBytes32Ref(routeCustodyInput),
+        routeDocumentsCompleteInput,
+        routeSagittaFundApprovedInput,
+        routeNdaSignedInput,
+        routePnlEndpointInput.trim(),
+        routeManualMarksInput,
+        routeActiveInput,
+      ] as const;
+
+      const tx = editingRouteId
+        ? await registry.updateRoute(editingRouteId, ...args)
+        : await registry.addRoute(...args);
+      await tx.wait();
+
+      setRouteRegistryStatus(`${editingRouteId ? 'Updated' : 'Added'} execution route${editingRouteId ? ` #${editingRouteId}` : ''} (tx=${tx.hash})`);
+      resetRouteRegistryForm();
+      await refreshRouteRegistryState();
+      return true;
+    } catch (error: any) {
+      setRouteRegistryStatus(`Route write failed: ${formatError(error)}`);
+      return false;
+    } finally {
+      setConfigBusy(false);
+    }
+  };
+
+  const handleRemoveExecutionRoute = async (routeId: number): Promise<boolean> => {
+    if (!isOp) {
+      setRouteRegistryStatus('Only operators can remove execution routes');
+      return false;
+    }
+    if (!provider) {
+      setRouteRegistryStatus('Local RPC provider not ready');
+      return false;
+    }
+    if (!isValidAddress(routeRegistryAddress)) {
+      setRouteRegistryStatus('ExecutionRouteRegistry address not set');
+      return false;
+    }
+
+    setConfigBusy(true);
+    try {
+      const signer = getWriteSigner();
+      const registry = new ethers.Contract(routeRegistryAddress, EXECUTION_ROUTE_REGISTRY_ABI, signer);
+      const tx = await registry.removeRoute(routeId);
+      await tx.wait();
+      if (editingRouteId === routeId) resetRouteRegistryForm();
+      setRouteRegistryStatus(`Removed execution route #${routeId} (tx=${tx.hash})`);
+      await refreshRouteRegistryState();
+      return true;
+    } catch (error: any) {
+      setRouteRegistryStatus(`Route removal failed: ${formatError(error)}`);
       return false;
     } finally {
       setConfigBusy(false);
@@ -1973,12 +2340,24 @@ export default function DAOTab() {
   const ownerShort = formatAddressShort(ownerAddress || null);
   const signerShort = formatAddressShort(address || null);
   const recentProposals = governanceProposals.slice(0, 12);
+  const externalPortfolioAssets = portfolioAssets.filter(
+    (asset) => asset.role === 6 || !isValidAddress(asset.token) || asset.token === ethers.ZeroAddress
+  );
+  const complianceEditorActive = routeTypeInput === 3 && !!routeAssetSymbolInput.trim();
+  const routeIsBatchEligible = (route?: ExecutionRoute | null): boolean => {
+    if (!route?.active) return false;
+    if (route.routeType !== 3) return true;
+    return route.documentsComplete
+      && route.sagittaFundApproved
+      && route.ndaSigned
+      && route.pnlEndpoint.trim().length > 0;
+  };
 
   return (
     <div className="tab-screen">
       <PageHeader
         title="DAO Administration"
-        description="Coordinate protocol governance, owner approvals, and unified local configuration from a single control surface."
+        description="Coordinate protocol governance, council approvals, and unified local configuration from a single control surface."
         meta={
           <>
             <span className="data-chip"><Clock size={12} /> Updated: {new Date().toLocaleTimeString()}</span>
@@ -1992,6 +2371,54 @@ export default function DAOTab() {
           </>
         }
       />
+
+      {/* ── Governance Snapshot ──────────────────────────────────────────── */}
+      <section className="grid grid-cols-12 gap-5">
+        <div className="sagitta-cell col-span-12 lg:col-span-8">
+          <h3 className="flex items-center gap-2"><UserCog size={20} /> Governance Snapshot</h3>
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-4">
+              <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Contract Owner</div>
+              <div className="mt-2 kpi-value text-xl text-slate-100">{ownerShort}</div>
+              <div className="mt-2 text-xs font-mono text-slate-400 break-all">{isValidAddress(ownerAddress) ? ownerAddress : 'Owner not resolved'}</div>
+            </div>
+            <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-4">
+              <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">DAO Council</div>
+              <div className="mt-2 kpi-value text-xl text-slate-100">{daoCouncil.length}</div>
+              <div className="mt-2 text-xs text-slate-400">{daoCouncil.length === 0 ? 'No council — contract owner approves' : `Council approvals required: ${requiredProposalApprovals}`}</div>
+            </div>
+            <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-4">
+              <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Open Proposals</div>
+              <div className="mt-2 kpi-value text-xl text-amber-300">{pendingProposalCount}</div>
+              <div className="mt-2 text-xs text-slate-400">All DAO config/control actions are proposal-gated.</div>
+            </div>
+          </div>
+        </div>
+        {isOp ? (
+          <div className="sagitta-cell col-span-12 lg:col-span-4">
+            <h3 className="flex items-center gap-2"><ShieldAlert size={20} /> Emergency Controls</h3>
+            <div className="mt-3 rounded-xl border border-slate-700/50 bg-slate-900/35 p-4 space-y-3">
+              <div className="text-sm text-slate-300">
+                {vaultPaused ? 'Vault is paused. Resume operations through an approved proposal.' : 'Pause vault operations through an approved proposal if emergency action is needed.'}
+              </div>
+              <button
+                onClick={() => handlePauseToggle()}
+                disabled={!isOp || loading || configBusy}
+                className={`w-full rounded-md px-4 py-2.5 text-sm font-semibold transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${
+                  vaultPaused
+                    ? 'bg-emerald-600 text-white hover:bg-emerald-500'
+                    : 'bg-rose-600 text-white hover:bg-rose-500'
+                }`}
+              >
+                {vaultPaused ? 'Propose Resume' : 'Propose Pause'}
+              </button>
+              <div className="text-xs text-slate-400">
+                {vaultPaused ? 'Resume is the only DAO action available while the protocol is paused.' : `This action now creates a proposal and requires ${daoCouncil.length === 0 ? 'owner' : 'council'} approvals before execution.`}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </section>
 
       {isOp ? (
         <section className="grid grid-cols-12 gap-5">
@@ -2135,9 +2562,11 @@ export default function DAOTab() {
             <h3 className="section-title">
               <Settings size={18} /> Treasury Control Proposals
             </h3>
-            <p className="section-subtitle">Treasury write actions live here now. Queue the action, collect owner approvals below, then execute it from Governance Proposals.</p>
+            <p className="section-subtitle">
+              Treasury write actions live here now. Queue the action, collect {daoCouncil.length === 0 ? 'owner' : 'council'} approvals below, then execute it from Governance Proposals.
+            </p>
 
-            <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-6 mt-4">
+            <div className="grid sm:grid-cols-2 gap-6 mt-4">
               <div className="flex flex-col gap-4 p-2">
                 <div className="space-y-2">
                   <label className="text-slate-300 font-medium">Gold Price (USD)</label>
@@ -2200,32 +2629,21 @@ export default function DAOTab() {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-3 p-2">
-                <label className="text-slate-300 font-medium">Operator Notes</label>
-                <ul className="note-list">
-                  <li>These controls were moved out of the Treasury tab so all write actions pass through DAO proposals.</li>
-                  <li>Treasury: {formatAddressShort(treasuryAddress)}. Gold oracle: {formatAddressShort(goldOracleAddress)}.</li>
-                  <li>{vaultPaused ? 'Protocol is paused. Treasury control actions are disabled until resume.' : 'Receipt profit payout is for closed escrow batches where profit is already booked in Treasury.'}</li>
-                </ul>
-                {treasuryControlStatus && (
-                  <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-3 text-xs text-slate-300">
-                    {treasuryControlStatus}
-                  </div>
-                )}
-              </div>
             </div>
+            {treasuryControlStatus && (
+              <div className="mt-3 rounded-xl border border-slate-700/50 bg-slate-900/35 p-3 text-xs text-slate-300">{treasuryControlStatus}</div>
+            )}
           </div>
         </section>
       ) : null}
 
-      {isOp ? (
-        <section className="grid grid-cols-12 gap-5">
-          <div className="sagitta-cell col-span-12">
-            <h3 className="section-title flex items-center gap-2">
-              <ArrowRightLeft size={18} /> Portfolio Registry
-            </h3>
+      <section className="grid grid-cols-12 gap-5">
+        <div className="sagitta-cell col-span-12">
+          <h3 className="section-title flex items-center gap-2">
+            <ArrowRightLeft size={18} /> Portfolio Registry
+          </h3>
             <p className="section-subtitle">
-              Define the accepted allocation portfolio. Owners propose adding or removing assets; allocation weights are applied per-batch by the AAA (Autonomous Allocation Agent).
+              Define the accepted allocation portfolio. Owners propose adding, editing, or removing assets; allocation weights are applied per-batch by the AAA (Autonomous Allocation Agent).
             </p>
 
             {/* Registry address */}
@@ -2236,10 +2654,12 @@ export default function DAOTab() {
                   className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs"
                   value={portfolioRegistryAddress}
                   onChange={e => {
+                    if (!isOp) return;
                     setPortfolioRegistryAddress(e.target.value);
                     setRuntimeAddress('PortfolioRegistry', e.target.value);
                   }}
                   placeholder="0x..."
+                  readOnly={!isOp}
                   disabled={configBusy}
                 />
               </div>
@@ -2252,10 +2672,13 @@ export default function DAOTab() {
               </button>
             </div>
 
-            <div className="mt-6 grid sm:grid-cols-2 xl:grid-cols-3 gap-6">
-              {/* Add asset form */}
-              <div className="flex flex-col gap-3 p-2 col-span-1 xl:col-span-2">
-                <label className="text-slate-300 font-medium">Propose Add Asset</label>
+            {isOp ? (
+              <div className="mt-6 grid sm:grid-cols-2 gap-6">
+                {/* Add asset form */}
+                <div className="flex flex-col gap-3 p-2 sm:col-span-2">
+                <label className="text-slate-300 font-medium">
+                  {editingPortfolioAssetSymbol ? `Propose Edit Asset: ${editingPortfolioAssetSymbol}` : 'Propose Add Asset'}
+                </label>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-xs uppercase tracking-[0.12em] text-slate-400">Symbol <span className="text-rose-400">*</span></label>
@@ -2264,6 +2687,7 @@ export default function DAOTab() {
                       value={newAssetSymbol}
                       onChange={e => setNewAssetSymbol(e.target.value)}
                       placeholder="e.g. SPC"
+                      readOnly={!!editingPortfolioAssetSymbol}
                       disabled={vaultPaused || !isOp || configBusy || !!proposalExecId}
                     />
                   </div>
@@ -2302,6 +2726,18 @@ export default function DAOTab() {
                     />
                   </div>
                   <div className="space-y-1">
+                    <label className="text-xs uppercase tracking-[0.12em] text-slate-400">
+                      Min. Amount <span className="normal-case text-slate-500">(USD, optional)</span>
+                    </label>
+                    <input
+                      className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
+                      value={newAssetMinimumAmount}
+                      onChange={e => setNewAssetMinimumAmount(e.target.value)}
+                      placeholder="e.g. 25000"
+                      disabled={vaultPaused || !isOp || configBusy || !!proposalExecId}
+                    />
+                  </div>
+                  <div className="space-y-1">
                     <label className="text-xs uppercase tracking-[0.12em] text-slate-400">Risk Class</label>
                     <select
                       className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
@@ -2328,30 +2764,34 @@ export default function DAOTab() {
                     </select>
                   </div>
                 </div>
-                <button
-                  className="action-button action-button--primary mt-1"
-                  onClick={() => handleAddPortfolioAsset()}
-                  disabled={vaultPaused || !isOp || !newAssetSymbol.trim() || configBusy || !!proposalExecId}
-                >
-                  Propose Add Asset
-                </button>
+                <div className="mt-1 flex flex-wrap gap-3">
+                  <button
+                    className="action-button action-button--primary"
+                    onClick={() => editingPortfolioAssetSymbol ? handleUpdatePortfolioAsset() : handleAddPortfolioAsset()}
+                    disabled={vaultPaused || !isOp || !newAssetSymbol.trim() || configBusy || !!proposalExecId}
+                  >
+                    {editingPortfolioAssetSymbol ? 'Propose Edit Asset' : 'Propose Add Asset'}
+                  </button>
+                  {editingPortfolioAssetSymbol && (
+                    <button
+                      className="action-button action-button--ghost"
+                      onClick={() => resetPortfolioAssetForm()}
+                      disabled={configBusy || !!proposalExecId}
+                    >
+                      Cancel Edit
+                    </button>
+                  )}
+                </div>
+                </div>
+              {portfolioStatus && (
+                <div className="mt-3 rounded-xl border border-slate-700/50 bg-slate-900/35 p-3 text-xs text-slate-300">{portfolioStatus}</div>
+              )}
               </div>
-
-              {/* Notes */}
-              <div className="flex flex-col gap-3 p-2">
-                <label className="text-slate-300 font-medium">Operator Notes</label>
-                <ul className="note-list">
-                  <li>Each asset addition/removal goes through the DAO proposal queue and requires owner approval.</li>
-                  <li>Oracle address is optional at registration; wire it via an update proposal before the asset is live in batch allocation.</li>
-                  <li>Allocation weights (Current Weight, Expected Return, Volatility) come from the AAA at <span className="font-mono text-slate-300">aaa.sagitta.systems</span> and are not stored on-chain.</li>
-                </ul>
-                {portfolioStatus && (
-                  <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-3 text-xs text-slate-300">
-                    {portfolioStatus}
-                  </div>
-                )}
+            ) : (
+              <div className="mt-6 rounded-xl border border-slate-700/50 bg-slate-900/35 p-4 text-sm text-slate-400">
+                Viewer access is read-only here. Operators and owners can edit the registry and queue portfolio proposals.
               </div>
-            </div>
+            )}
 
             {/* Asset table */}
             <div className="mt-6">
@@ -2371,9 +2811,10 @@ export default function DAOTab() {
                         <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Name</th>
                         <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Risk Class</th>
                         <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Role</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Min. Amount</th>
                         <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Token</th>
                         <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Oracle</th>
-                        <th className="px-3 py-2" />
+                        {isOp && <th className="px-3 py-2">Actions</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -2397,19 +2838,31 @@ export default function DAOTab() {
                               {ASSET_ROLE_LABELS[asset.role] ?? asset.role}
                             </span>
                           </td>
+                          <td className="px-3 py-2">
+                            {asset.minimumInvestmentUsd6 > 0 ? formatUsd(asset.minimumInvestmentUsd6) : <span className="text-slate-500">none</span>}
+                          </td>
                           <td className="px-3 py-2 font-mono">{formatAddressShort(asset.token)}</td>
                           <td className="px-3 py-2 font-mono">{isValidAddress(asset.oracle) && asset.oracle !== ethers.ZeroAddress ? formatAddressShort(asset.oracle) : <span className="text-slate-500">none</span>}</td>
-                          <td className="px-3 py-2">
-                            {isOp && (
-                              <button
-                                className="px-2 py-1 rounded bg-rose-900/50 hover:bg-rose-800/70 text-rose-200 text-[10px] font-semibold border border-rose-700/40 disabled:opacity-40"
-                                onClick={() => handleRemovePortfolioAsset(false, { symbol: asset.symbol })}
-                                disabled={vaultPaused || configBusy || !!proposalExecId}
-                              >
-                                Propose Remove
-                              </button>
-                            )}
-                          </td>
+                          {isOp && (
+                            <td className="px-3 py-2">
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  className="px-2 py-1 rounded bg-sky-900/50 hover:bg-sky-800/70 text-sky-200 text-[10px] font-semibold border border-sky-700/40 disabled:opacity-40"
+                                  onClick={() => beginPortfolioAssetEdit(asset)}
+                                  disabled={vaultPaused || configBusy || !!proposalExecId}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  className="px-2 py-1 rounded bg-rose-900/50 hover:bg-rose-800/70 text-rose-200 text-[10px] font-semibold border border-rose-700/40 disabled:opacity-40"
+                                  onClick={() => handleRemovePortfolioAsset(false, { symbol: asset.symbol })}
+                                  disabled={vaultPaused || configBusy || !!proposalExecId}
+                                >
+                                  Propose Remove
+                                </button>
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -2419,70 +2872,315 @@ export default function DAOTab() {
             </div>
           </div>
         </section>
-      ) : null}
 
+      {/* ── Transfer / Council / Roles ──────────────────────────────────── */}
       <section className="grid grid-cols-12 gap-5">
-        <div className="sagitta-cell col-span-12 lg:col-span-8">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h3 className="flex items-center gap-2"><UserCog size={20} /> Governance Snapshot</h3>
-            <div className="flex flex-wrap gap-2">
-              <span className="data-chip" data-tone={vaultPaused ? 'danger' : 'success'}>
-                {vaultPaused ? 'Protocol Paused' : 'Protocol Active'}
-              </span>
-              <span className="data-chip" data-tone={signerRole === 'owner' ? 'success' : signerRole === 'operator' ? 'warning' : 'neutral'}>
-                Signer: {signerShort} ({signerRole})
-              </span>
-            </div>
-          </div>
+        <div className="sagitta-cell col-span-12">
+          <h3 className="section-title flex items-center gap-2">
+            <ShieldAlert size={18} /> External Asset Compliance
+          </h3>
+          <p className="section-subtitle">
+            Review external assets already admitted to the portfolio and manage the compliance checks that determine whether they can receive the next batch.
+          </p>
 
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-4">
-              <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Contract Owner</div>
-              <div className="mt-2 kpi-value text-xl text-slate-100">{ownerShort}</div>
-              <div className="mt-2 text-xs font-mono text-slate-400 break-all">{isValidAddress(ownerAddress) ? ownerAddress : 'Owner not resolved'}</div>
+          {complianceEditorActive && isOp && (
+            <div className="mt-5 rounded-xl border border-slate-700/50 bg-slate-900/35 p-4">
+              <div className="flex flex-col gap-4">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.16em] text-slate-400">Compliance Editor</div>
+                  <div className="mt-1 text-sm text-slate-200">
+                    {editingRouteId ? `Route #${editingRouteId}` : 'New external route'} for {routeAssetSymbolInput}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs uppercase tracking-[0.12em] text-slate-400">Asset Symbol</label>
+                    <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={routeAssetSymbolInput} readOnly />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs uppercase tracking-[0.12em] text-slate-400">P&amp;L Endpoint</label>
+                    <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs" value={routePnlEndpointInput} onChange={e => setRoutePnlEndpointInput(e.target.value)} placeholder="https://api.counterparty.com/pnl" disabled={vaultPaused || configBusy} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+                  <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <input type="checkbox" checked={routeDocumentsCompleteInput} onChange={e => setRouteDocumentsCompleteInput(e.target.checked)} disabled={vaultPaused || configBusy} />
+                    Documents complete
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <input type="checkbox" checked={routeSagittaFundApprovedInput} onChange={e => setRouteSagittaFundApprovedInput(e.target.checked)} disabled={vaultPaused || configBusy} />
+                    Sagitta fund approved
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <input type="checkbox" checked={routeNdaSignedInput} onChange={e => setRouteNdaSignedInput(e.target.checked)} disabled={vaultPaused || configBusy} />
+                    NDA signed
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <input type="checkbox" checked={routeActiveInput} onChange={e => setRouteActiveInput(e.target.checked)} disabled={vaultPaused || configBusy} />
+                    Route active
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <input type="checkbox" checked={routeManualMarksInput} onChange={e => setRouteManualMarksInput(e.target.checked)} disabled={vaultPaused || configBusy} />
+                    Manual marks
+                  </label>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <button className="action-button action-button--primary" onClick={handleSaveExecutionRoute} disabled={vaultPaused || configBusy || !routeAssetSymbolInput.trim()}>
+                    {editingRouteId ? `Save Compliance for Route #${editingRouteId}` : `Create Route for ${routeAssetSymbolInput}`}
+                  </button>
+                  <button className="action-button action-button--ghost" onClick={resetRouteRegistryForm} disabled={configBusy}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-4">
-              <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">DAO Council</div>
-              <div className="mt-2 kpi-value text-xl text-slate-100">{daoCouncil.length}</div>
-              <div className="mt-2 text-xs text-slate-400">{daoCouncil.length === 0 ? 'No council — contract owner approves' : `Approvals required: ${requiredProposalApprovals}`}</div>
+          )}
+
+          {routeRegistryStatus && (
+            <div className="mt-3 rounded-xl border border-slate-700/50 bg-slate-900/35 p-3 text-xs text-slate-300">{routeRegistryStatus}</div>
+          )}
+
+          <div className="mt-6">
+            <div className="text-xs uppercase tracking-[0.16em] text-slate-400 mb-3">
+              External Portfolio Assets ({externalPortfolioAssets.length})
             </div>
-            <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-4">
-              <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Open Proposals</div>
-              <div className="mt-2 kpi-value text-xl text-amber-300">{pendingProposalCount}</div>
-              <div className="mt-2 text-xs text-slate-400">All DAO config/control actions are proposal-gated.</div>
-            </div>
+            {externalPortfolioAssets.length === 0 ? (
+              <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-4 text-sm text-slate-400">
+                Add external assets to the portfolio registry to manage compliance here.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-slate-700/50">
+                <table className="w-full text-xs text-slate-300">
+                  <thead>
+                    <tr className="border-b border-slate-700/50 bg-slate-900/50">
+                      <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Asset</th>
+                      <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Route</th>
+                      <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Documents</th>
+                      <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Fund</th>
+                      <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">NDA</th>
+                      <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">P&amp;L</th>
+                      <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Active</th>
+                      <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Eligible</th>
+                      <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Endpoint</th>
+                      {isOp && <th className="px-3 py-2">Actions</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {externalPortfolioAssets.map((asset) => {
+                      const matchingRoutes = executionRoutes.filter(
+                        (route) => route.routeType === 3 && route.assetSymbol.toLowerCase() === asset.symbol.toLowerCase()
+                      );
+                      const route = matchingRoutes[0] ?? null;
+                      const eligible = routeIsBatchEligible(route);
+                      const routeLabel = route ? `#${route.routeId}${matchingRoutes.length > 1 ? ` (+${matchingRoutes.length - 1})` : ''}` : 'Missing';
+                      const renderBadge = (ok: boolean, okLabel: string, badLabel: string) => (
+                        <span className={`rounded-full px-2 py-0.5 ${ok ? 'bg-emerald-700/40 text-emerald-200' : 'bg-rose-700/40 text-rose-200'}`}>
+                          {ok ? okLabel : badLabel}
+                        </span>
+                      );
+
+                      return (
+                        <tr key={asset.symbol} className="border-b border-slate-700/30 hover:bg-slate-800/30">
+                          <td className="px-3 py-2">
+                            <div className="font-semibold text-slate-100">{asset.symbol}</div>
+                            <div className="text-[11px] text-slate-400">{asset.name}</div>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-slate-300">{routeLabel}</td>
+                          <td className="px-3 py-2">{renderBadge(!!route?.documentsComplete, 'Ready', 'Missing')}</td>
+                          <td className="px-3 py-2">{renderBadge(!!route?.sagittaFundApproved, 'Ready', 'Missing')}</td>
+                          <td className="px-3 py-2">{renderBadge(!!route?.ndaSigned, 'Ready', 'Missing')}</td>
+                          <td className="px-3 py-2">{renderBadge(!!route?.pnlEndpoint?.trim(), 'Ready', 'Missing')}</td>
+                          <td className="px-3 py-2">{renderBadge(!!route?.active, 'Active', 'Inactive')}</td>
+                          <td className="px-3 py-2">{renderBadge(eligible, 'Allowed', 'Blocked')}</td>
+                          <td className="px-3 py-2 font-mono text-slate-400 break-all">{route?.pnlEndpoint?.trim() || 'none'}</td>
+                          {isOp && (
+                            <td className="px-3 py-2">
+                              <div className="flex flex-wrap gap-2">
+                                {route ? (
+                                  <button
+                                    className="px-2 py-1 rounded bg-sky-900/50 hover:bg-sky-800/70 text-sky-200 text-[10px] font-semibold border border-sky-700/40 disabled:opacity-40"
+                                    onClick={() => beginRouteEdit(route)}
+                                    disabled={vaultPaused || configBusy}
+                                  >
+                                    Edit Compliance
+                                  </button>
+                                ) : (
+                                  <button
+                                    className="px-2 py-1 rounded bg-amber-900/50 hover:bg-amber-800/70 text-amber-200 text-[10px] font-semibold border border-amber-700/40 disabled:opacity-40"
+                                    onClick={() => beginExternalComplianceDraft(asset)}
+                                    disabled={vaultPaused || configBusy}
+                                  >
+                                    Create Route
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
+      </section>
 
-        {isOp ? (
-          <div className="sagitta-cell col-span-12 lg:col-span-4">
-            <h3 className="flex items-center gap-2"><ShieldAlert size={20} /> Emergency Controls</h3>
-            <div className="mt-3 rounded-xl border border-slate-700/50 bg-slate-900/35 p-4 space-y-3">
-              <div className="text-sm text-slate-300">
-                {vaultPaused ? 'Vault is paused. Resume operations through an approved proposal.' : 'Pause vault operations through an approved proposal if emergency action is needed.'}
+      <section className="grid grid-cols-12 gap-5">
+        <div className="sagitta-cell col-span-12">
+          <h3 className="section-title flex items-center gap-2">
+            <ShieldAlert size={18} /> Execution Route Registry
+          </h3>
+          <p className="section-subtitle">
+            Manage execution venues, custody references, and route metadata used by Escrow mandates.
+          </p>
+
+          <div className="mt-4 flex flex-col sm:flex-row gap-3 items-end">
+            <div className="flex-1 space-y-1">
+              <label className="text-xs uppercase tracking-[0.16em] text-slate-400">Execution Route Registry Address</label>
+              <input
+                className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs"
+                value={routeRegistryAddress}
+                onChange={e => {
+                  if (!isOp) return;
+                  setRouteRegistryAddress(e.target.value);
+                  setRuntimeAddress('ExecutionRouteRegistry', e.target.value);
+                }}
+                placeholder="0x..."
+                readOnly={!isOp}
+                disabled={configBusy}
+              />
+            </div>
+            <button className="action-button action-button--ghost" onClick={refreshRouteRegistryState} disabled={routeRegistryLoading || configBusy}>
+              {routeRegistryLoading ? 'Loading...' : 'Refresh'}
+            </button>
+          </div>
+
+          {isOp ? (
+            <div className="mt-6 grid md:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs uppercase tracking-[0.12em] text-slate-400">Asset Symbol</label>
+                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={routeAssetSymbolInput} onChange={e => setRouteAssetSymbolInput(e.target.value)} placeholder="e.g. SPC" disabled={vaultPaused || configBusy} />
               </div>
-              <button
-                onClick={() => handlePauseToggle()}
-                disabled={!isOp || loading || configBusy}
-                className={`w-full rounded-md px-4 py-2.5 text-sm font-semibold transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${
-                  vaultPaused
-                    ? 'bg-emerald-600 text-white hover:bg-emerald-500'
-                    : 'bg-rose-600 text-white hover:bg-rose-500'
-                }`}
-              >
-                {vaultPaused ? 'Propose Resume' : 'Propose Pause'}
-              </button>
-              <div className="text-xs text-slate-400">
-                {vaultPaused ? 'Resume is the only DAO action available while the protocol is paused.' : 'This action now creates a proposal and requires owner approvals before execution.'}
+              <div className="space-y-1">
+                <label className="text-xs uppercase tracking-[0.12em] text-slate-400">Route Type</label>
+                <select className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={routeTypeInput} onChange={e => setRouteTypeInput(Number(e.target.value))} disabled={vaultPaused || configBusy}>
+                  {EXECUTION_ROUTE_TYPE_LABELS.map((label, i) => (
+                    <option key={label} value={i}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs uppercase tracking-[0.12em] text-slate-400">Counterparty Ref</label>
+                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs" value={routeCounterpartyInput} onChange={e => setRouteCounterpartyInput(e.target.value)} placeholder="free text or 0x... hash" disabled={vaultPaused || configBusy} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs uppercase tracking-[0.12em] text-slate-400">Jurisdiction Ref</label>
+                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs" value={routeJurisdictionInput} onChange={e => setRouteJurisdictionInput(e.target.value)} placeholder="free text or 0x... hash" disabled={vaultPaused || configBusy} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs uppercase tracking-[0.12em] text-slate-400">Custody Ref</label>
+                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs" value={routeCustodyInput} onChange={e => setRouteCustodyInput(e.target.value)} placeholder="free text or 0x... hash" disabled={vaultPaused || configBusy} />
+              </div>
+              <div className="md:col-span-2 flex flex-wrap gap-3">
+                <label className="flex items-center gap-2 text-sm text-slate-300">
+                  <input type="checkbox" checked={routeManualMarksInput} onChange={e => setRouteManualMarksInput(e.target.checked)} disabled={vaultPaused || configBusy} />
+                  Manual marks required
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-300">
+                  <input type="checkbox" checked={routeActiveInput} onChange={e => setRouteActiveInput(e.target.checked)} disabled={vaultPaused || configBusy} />
+                  Active
+                </label>
+              </div>
+              <div className="md:col-span-2 flex flex-wrap gap-3">
+                <button className="action-button action-button--primary" onClick={handleSaveExecutionRoute} disabled={vaultPaused || configBusy || !routeAssetSymbolInput.trim()}>
+                  {editingRouteId ? `Save Route #${editingRouteId}` : 'Add Route'}
+                </button>
+                {editingRouteId !== null && (
+                  <button className="action-button action-button--ghost" onClick={resetRouteRegistryForm} disabled={configBusy}>
+                    Cancel Edit
+                  </button>
+                )}
               </div>
             </div>
-          </div>
-        ) : null}
+          ) : (
+            <div className="mt-6 rounded-xl border border-slate-700/50 bg-slate-900/35 p-4 text-sm text-slate-400">
+              Viewer access is read-only here. Operators and owners can edit execution routes.
+            </div>
+          )}
 
+          {routeRegistryStatus && (
+            <div className="mt-3 rounded-xl border border-slate-700/50 bg-slate-900/35 p-3 text-xs text-slate-300">{routeRegistryStatus}</div>
+          )}
+
+          <div className="mt-6">
+            <div className="text-xs uppercase tracking-[0.16em] text-slate-400 mb-3">
+              Execution Routes ({executionRoutes.length})
+            </div>
+            {executionRoutes.length === 0 ? (
+              <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-4 text-sm text-slate-400">
+                {routeRegistryLoading ? 'Loading execution routes...' : isValidAddress(routeRegistryAddress) ? 'No routes registered yet.' : 'Set ExecutionRouteRegistry address above to view routes.'}
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-slate-700/50">
+                <table className="w-full text-xs text-slate-300">
+                  <thead>
+                    <tr className="border-b border-slate-700/50 bg-slate-900/50">
+                      <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">ID</th>
+                      <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Asset</th>
+                      <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Type</th>
+                      <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Counterparty</th>
+                      <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Jurisdiction</th>
+                      <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Custody</th>
+                      <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Flags</th>
+                      {isOp && <th className="px-3 py-2">Actions</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {executionRoutes.map((route) => (
+                      <tr key={route.routeId} className="border-b border-slate-700/30 hover:bg-slate-800/30">
+                        <td className="px-3 py-2 font-mono text-slate-100">#{route.routeId}</td>
+                        <td className="px-3 py-2 font-semibold text-slate-100">{route.assetSymbol}</td>
+                        <td className="px-3 py-2">{EXECUTION_ROUTE_TYPE_LABELS[route.routeType] ?? route.routeType}</td>
+                        <td className="px-3 py-2 font-mono text-slate-400">{route.counterpartyRefHash === ethers.ZeroHash ? 'none' : `${route.counterpartyRefHash.slice(0, 10)}...${route.counterpartyRefHash.slice(-6)}`}</td>
+                        <td className="px-3 py-2 font-mono text-slate-400">{route.jurisdictionRefHash === ethers.ZeroHash ? 'none' : `${route.jurisdictionRefHash.slice(0, 10)}...${route.jurisdictionRefHash.slice(-6)}`}</td>
+                        <td className="px-3 py-2 font-mono text-slate-400">{route.custodyRefHash === ethers.ZeroHash ? 'none' : `${route.custodyRefHash.slice(0, 10)}...${route.custodyRefHash.slice(-6)}`}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap gap-2">
+                            <span className="rounded-full px-2 py-0.5 bg-slate-700/60 text-slate-200">{route.manualMarksRequired ? 'Manual marks' : 'Route-managed marks'}</span>
+                            <span className={`rounded-full px-2 py-0.5 ${route.active ? 'bg-emerald-700/40 text-emerald-200' : 'bg-rose-700/40 text-rose-200'}`}>{route.active ? 'Active' : 'Inactive'}</span>
+                          </div>
+                        </td>
+                        {isOp && (
+                          <td className="px-3 py-2">
+                            <div className="flex flex-wrap gap-2">
+                              <button className="px-2 py-1 rounded bg-sky-900/50 hover:bg-sky-800/70 text-sky-200 text-[10px] font-semibold border border-sky-700/40 disabled:opacity-40" onClick={() => beginRouteEdit(route)} disabled={vaultPaused || configBusy}>
+                                Edit
+                              </button>
+                              <button className="px-2 py-1 rounded bg-rose-900/50 hover:bg-rose-800/70 text-rose-200 text-[10px] font-semibold border border-rose-700/40 disabled:opacity-40" onClick={() => handleRemoveExecutionRoute(route.routeId)} disabled={vaultPaused || configBusy}>
+                                Remove
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-12 gap-5">
         {signerIsOwner ? (
           <div className="sagitta-cell col-span-12 lg:col-span-8">
             <h3 className="flex items-center gap-2"><Zap size={20} /> Transfer Ownership</h3>
-            <p className="text-sm text-slate-400 mt-2">Ownership transfer is queued as a proposal and executes only after owner approvals.</p>
+            <p className="text-sm text-slate-400 mt-2">
+              Ownership transfer is queued as a proposal and executes only after {daoCouncil.length === 0 ? 'owner' : 'council'} approvals.
+            </p>
             <div className="mt-4 flex flex-col sm:flex-row gap-3">
               <input
                 type="text"
@@ -2648,7 +3346,7 @@ export default function DAOTab() {
             <span className="data-chip">Required approvals: {requiredProposalApprovals}</span>
           </div>
         </div>
-        <div className="mt-2 text-xs text-slate-400">DAO controls and config changes are queued first, then executed only after owner approval threshold is met.</div>
+        <div className="mt-2 text-xs text-slate-400">DAO controls and config changes are queued first, then executed only after the active approval threshold is met.</div>
 
         <div className="mt-4 space-y-3">
           {recentProposals.length === 0 ? (

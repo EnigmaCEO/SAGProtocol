@@ -5,7 +5,7 @@ export default function Document() {
     <Html lang="en">
       <Head>
         {/* Favicon — browsers prefer .ico; PNG fallback for modern browsers */}
-        <link rel="icon" href="/favicon.png" type="image/png" sizes="268x268" />
+        <link rel="icon" href="/favicon.png" type="image/png" sizes="1024x1024" />
         <link rel="shortcut icon" href="/favicon.png" />
         <link rel="apple-touch-icon" href="/favicon.png" />
 
