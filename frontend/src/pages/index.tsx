@@ -5,20 +5,28 @@ import { useRouter } from 'next/router';
 import AppShell from '../components/layout/AppShell';
 import TopBar from '../components/layout/TopBar';
 import SidebarTabs from '../components/navigation/SidebarTabs';
+import type { Tab } from '../components/navigation/SidebarTabs';
 import { getSigner, getContract } from '../lib/ethers';
 import useProtocolPause from '../hooks/useProtocolPause';
 
 // Dynamic imports for tab components
 const UserTab = dynamic(() => import('../components/tabs/UserTab'), { ssr: false });
+const BankingTab = dynamic(() => import('../components/tabs/BankingTab'), { ssr: false });
 const VaultTab = dynamic(() => import('../components/tabs/VaultTab'), { ssr: false });
 const TreasuryTab = dynamic(() => import('../components/tabs/TreasuryTab'), { ssr: false });
 const EscrowTab = dynamic(() => import('../components/tabs/EscrowTab'), { ssr: false });
 const ReserveTab = dynamic(() => import('../components/tabs/ReserveTab'), { ssr: false });
 const DAOTab = dynamic(() => import('../components/tabs/DAOTab'), { ssr: false });
 
+const INTERNAL_TABS: Tab[] = ['user', 'banking', 'vault', 'treasury', 'escrow', 'reserve', 'dao'];
+
+function isTab(value: string): value is Tab {
+  return INTERNAL_TABS.includes(value as Tab);
+}
+
 export default function Home() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'user' | 'vault' | 'treasury' | 'escrow' | 'reserve' | 'dao'>('user');
+  const [activeTab, setActiveTab] = useState<Tab>('user');
   const [address, setAddress] = useState<string>('');
   const [ownerAddress, setOwnerAddress] = useState<string>('');
   const [network, setNetwork] = useState<string>('');
@@ -28,7 +36,7 @@ export default function Home() {
     loadAccountData();
     // Sync with URL on mount
     const tab = router.query.tab as string;
-    if (tab) setActiveTab(tab as any);
+    if (tab && isTab(tab)) setActiveTab(tab);
   }, [router.query.tab]);
 
   const loadAccountData = async () => {
@@ -62,6 +70,8 @@ export default function Home() {
     switch (activeTab) {
       case 'user':
         return <UserTab />;
+      case 'banking':
+        return <BankingTab />;
       case 'vault':
         return <VaultTab />;
       case 'treasury':

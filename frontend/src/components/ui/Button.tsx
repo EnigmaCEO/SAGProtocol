@@ -6,6 +6,7 @@ interface ButtonProps {
   loading?: boolean;
   variant?: 'primary' | 'ghost' | 'danger';
   disabled?: boolean;
+  className?: string;
 }
 
 const variantClasses = {
@@ -19,7 +20,8 @@ export default function Button({
   onClick,
   loading,
   variant = 'primary',
-  disabled
+  disabled,
+  className,
 }: ButtonProps) {
   return (
     <button
@@ -30,6 +32,7 @@ export default function Button({
         hover:translate-y-[-1px]
         disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none
         ${variantClasses[variant]}
+        ${className ?? ''}
       `}
     >
       {loading ? (

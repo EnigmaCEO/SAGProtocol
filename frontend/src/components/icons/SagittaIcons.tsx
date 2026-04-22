@@ -157,6 +157,22 @@ export function VaultIcon({ size = 20, strokeWidth = 1.5, ...p }: IconProps) {
   );
 }
 
+/** Sidebar: Banking tab */
+export function BankingIcon({ size = 20, strokeWidth = 1.5, ...p }: IconProps) {
+  return (
+    <svg {...base(size, strokeWidth)} {...p}>
+      <path d="M3 10l9-6 9 6" />
+      <line x1="5" y1="10" x2="5" y2="19" />
+      <line x1="9.5" y1="10" x2="9.5" y2="19" />
+      <line x1="14.5" y1="10" x2="14.5" y2="19" />
+      <line x1="19" y1="10" x2="19" y2="19" />
+      <path d="M3 19h18" />
+      <path d="M8 14h8" />
+      <path d="M12 12v4" />
+    </svg>
+  );
+}
+
 /** Sidebar: Treasury tab */
 export function TreasuryIcon({ size = 20, strokeWidth = 1.5, ...p }: IconProps) {
   return (

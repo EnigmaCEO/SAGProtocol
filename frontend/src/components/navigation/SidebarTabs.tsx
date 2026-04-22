@@ -2,6 +2,7 @@ import { useRouter } from 'next/router';
 import {
   PortfolioIcon,
   WalletIcon,
+  BankingIcon,
   VaultIcon,
   TreasuryIcon,
   EscrowIcon,
@@ -13,7 +14,7 @@ import {
   ProtocolActiveIcon,
 } from '../icons/SagittaIcons';
 
-export type Tab = 'user' | 'vault' | 'treasury' | 'escrow' | 'reserve' | 'dao';
+export type Tab = 'user' | 'banking' | 'vault' | 'treasury' | 'escrow' | 'reserve' | 'dao';
 
 interface SidebarTabsProps {
   active: Tab;
@@ -37,6 +38,12 @@ const navGroups: NavGroup[] = [
     entries: [
       { kind: 'internal', id: 'user',   label: 'Portfolio', Icon: PortfolioIcon },
       { kind: 'external', href: 'https://wallet.sagitta.systems/',    label: 'Wallet',    Icon: WalletIcon    },
+    ],
+  },
+  {
+    label: 'Banking',
+    entries: [
+      { kind: 'internal', id: 'banking', label: 'Banking', Icon: BankingIcon },
     ],
   },
   {
