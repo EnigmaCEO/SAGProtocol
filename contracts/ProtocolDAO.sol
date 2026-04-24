@@ -118,6 +118,34 @@ contract ProtocolDAO is Ownable {
         return _registry[keccak256(bytes(key))];
     }
 
+    /// @notice Batch-look up contract addresses by name key.
+    function getAddresses(string[] calldata keys) external view returns (address[] memory addrs) {
+        uint256 len = keys.length;
+        addrs = new address[](len);
+        for (uint256 i = 0; i < len; i++) {
+            addrs[i] = _registry[keccak256(bytes(keys[i]))];
+        }
+    }
+
+    /// @notice Convenience getter for Escrow-side dependency discovery.
+    function getEscrowLinkedAddresses()
+        external
+        view
+        returns (
+            address escrow,
+            address treasury,
+            address executionRouteRegistry,
+            address portfolioRegistry,
+            address vault
+        )
+    {
+        escrow = _registry[keccak256(bytes("InvestmentEscrow"))];
+        treasury = _registry[keccak256(bytes("Treasury"))];
+        executionRouteRegistry = _registry[keccak256(bytes("ExecutionRouteRegistry"))];
+        portfolioRegistry = _registry[keccak256(bytes("PortfolioRegistry"))];
+        vault = _registry[keccak256(bytes("Vault"))];
+    }
+
     /// @notice Returns all registered keys and their addresses.
     function getAllAddresses()
         external

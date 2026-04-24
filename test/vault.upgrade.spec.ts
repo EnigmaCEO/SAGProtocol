@@ -41,11 +41,13 @@ describe("Vault Upgrades", function () {
     // Configure vault
     await vault.setTreasury(await treasuryMock.getAddress());
     await vault.setAsset(await usdc.getAddress(), true, USDC_DECIMALS, await oracle.getAddress());
+    await vault.setUSDC(await usdc.getAddress());
 
     // Mint USDC to users - ethers v6 uses parseUnits directly on ethers object
     await usdc.mint(user.address, ethers.parseUnits("10000", USDC_DECIMALS));
     await usdc.mint(user2.address, ethers.parseUnits("10000", USDC_DECIMALS));
     await usdc.mint(await treasuryMock.getAddress(), ethers.parseUnits("100000", USDC_DECIMALS));
+    await usdc.mint(await vault.getAddress(), ethers.parseUnits("100000", USDC_DECIMALS));
 
     // Deploy SagittaVaultReceipt and set Vault as minter
     const SagittaVaultReceipt = await ethers.getContractFactory("SagittaVaultReceipt");
@@ -371,6 +373,7 @@ describe("Vault Upgrades", function () {
         oracle.getAddress()      // priceOracle
       );
       await treasury.waitForDeployment();
+      await usdc.mint(await treasury.getAddress(), ethers.parseUnits("1000", USDC_DECIMALS));
     });
 
     it("should have canAdmit function and return true for small amount", async function () {

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import useBankingData from '../../hooks/useBankingData';
 import type { BankingViewId } from '../../lib/banking/integrationContent';
-import { getContracts, to6 } from '../../lib/ethers';
 import type { BankingTheme } from '../../lib/banking/themes';
 import { BANKING_THEMES } from '../../lib/banking/themes';
 import type {
@@ -20,6 +19,7 @@ import {
 import {
   BankingApiView,
   BankingDocsView,
+  BankingInstitutionsView,
   BankingSubnav,
   BankingTermDepositsView,
 } from './BankingIntegrationViews';
@@ -55,12 +55,13 @@ const termOptions = [1, 2, 3, 4, 5];
 const bankingViewDescriptions: Record<BankingViewId, string> = {
   accounts: 'Account overview',
   'term-deposits': 'Term deposit servicing',
+  institutions: 'Institution policy',
   api: 'Partner integration API',
   docs: 'Integration docs',
 };
 
 function isBankingViewId(value: string | null): value is BankingViewId {
-  return value === 'accounts' || value === 'term-deposits' || value === 'api' || value === 'docs';
+  return value === 'accounts' || value === 'term-deposits' || value === 'institutions' || value === 'api' || value === 'docs';
 }
 
 function readBankingViewFromLocation(): BankingViewId {
@@ -89,13 +90,14 @@ function accountIcon(account: BankingAccountSummary) {
 }
 
 export default function BankingTab() {
-  const { state, loading, error, refresh, createDeposit, receiveWire } = useBankingData();
+  const { state, loading, error, refresh, createDeposit, receiveWire, simulateCheckingWire, retryCircleFunding } = useBankingData();
   const [activeView, setActiveView] = useState<BankingViewId>(() => readBankingViewFromLocation());
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [selectedTerm, setSelectedTerm] = useState(3);
   const [amount, setAmount] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isReceivingWire, setIsReceivingWire] = useState(false);
+  const [retryingTermId, setRetryingTermId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [statusTone, setStatusTone] = useState<'success' | 'warning' | 'danger'>('success');
   const amountInputRef = useRef<HTMLInputElement | null>(null);
@@ -109,12 +111,12 @@ export default function BankingTab() {
   };
 
   const activeTerms = useMemo(
-    () => (state ? state.termPositions.filter((position) => position.status === 'active') : []),
+    () => (state ? state.termPositions.filter((position) => position.status !== 'not_funded') : []),
     [state]
   );
   const activeTermCount = activeTerms.length;
-  const latestTransfer = useMemo(
-    () => state?.capitalAccount.transactions.find((transaction) => transaction.category === 'transfer') ?? null,
+  const latestIncomingWire = useMemo(
+    () => state?.capitalAccount.transactions.find((transaction) => transaction.category === 'credit') ?? null,
     [state]
   );
   const nextMaturingTerm = useMemo(
@@ -135,16 +137,25 @@ export default function BankingTab() {
 
   const getAccountDetail = (account: BankingAccountSummary): { status: string; detail?: string } => {
     if (account.kind === 'checking') {
-      if (latestTransfer) {
+      if (latestIncomingWire) {
         return {
-          status: account.currentBalanceUsd > 0 ? 'Available' : 'Funding transfer posted',
-          detail: `Last transfer ${formatUsd(Math.abs(latestTransfer.amountUsd))} - ${formatActivityDateTime(latestTransfer.postedAt)}`,
+          status: account.currentBalanceUsd > 0 ? 'Funds available' : 'Wire received',
+          detail: `Last wire ${formatUsd(Math.abs(latestIncomingWire.amountUsd))} - ${formatActivityDateTime(latestIncomingWire.postedAt)}`,
         };
       }
       return { status: account.statusText };
     }
 
     if (account.kind === 'term-deposit' && nextMaturingTerm) {
+      const awaitingTreasuryCount = activeTerms.filter((position) => !position.treasuryOriginLotId).length;
+      if (awaitingTreasuryCount === activeTermCount) {
+        const totalPrincipalUsd = activeTerms.reduce((sum, position) => sum + position.principalUsd, 0);
+        return {
+          status: 'Funded, awaiting Treasury allocation',
+          detail: `${formatUsd(totalPrincipalUsd)} funded in product account`,
+        };
+      }
+
       if (activeTermCount > 1) {
         const totalPrincipalUsd = activeTerms.reduce((sum, position) => sum + position.principalUsd, 0);
         return {
@@ -164,11 +175,54 @@ export default function BankingTab() {
   const handleReceiveWire = async () => {
     try {
       setIsReceivingWire(true);
-      receiveWire(1000);
+      const instructions = await receiveWire();
       setStatusTone('success');
-      setStatusMessage('Incoming wire received into Checking Account.');
+      const first = Array.isArray(instructions) ? instructions[0] : instructions?.data?.[0];
+      setStatusMessage(
+        first?.tracking_ref
+          ? `Checking Account wire instructions ready. Tracking ref: ${first.tracking_ref}.`
+          : 'Checking Account wire instructions loaded.'
+      );
+    } catch (err: any) {
+      setStatusTone('danger');
+      setStatusMessage(String(err?.message || err));
     } finally {
       setIsReceivingWire(false);
+    }
+  };
+
+  const handleSimulateMockWire = async () => {
+    try {
+      setIsReceivingWire(true);
+      await simulateCheckingWire(1000);
+      setStatusTone('success');
+      setStatusMessage('$1,000 wire received into Checking Account. Funds are available for a term deposit.');
+    } catch (err: any) {
+      setStatusTone('danger');
+      setStatusMessage(String(err?.message || err));
+    } finally {
+      setIsReceivingWire(false);
+    }
+  };
+
+  const handleRetryCircleFunding = async (termPositionId: string) => {
+    try {
+      setRetryingTermId(termPositionId);
+      setStatusMessage(null);
+      const nextState = await retryCircleFunding(termPositionId);
+      const position = nextState.termPositions.find((item) => item.id === termPositionId);
+      if (position?.treasuryOriginLotId) {
+        setStatusTone('success');
+        setStatusMessage(`USDC conversion completed. Treasury lot #${position.treasuryOriginLotId} is registered.`);
+      } else {
+        setStatusTone('warning');
+        setStatusMessage('USDC conversion submitted. Treasury allocation is still pending.');
+      }
+    } catch (err: any) {
+      setStatusTone('danger');
+      setStatusMessage(String(err?.message || err));
+    } finally {
+      setRetryingTermId(null);
     }
   };
 
@@ -223,40 +277,24 @@ export default function BankingTab() {
     setIsSubmitting(true);
     setStatusMessage(null);
 
-    let settlementMode: SettlementMode = 'mirrored';
-    let txHash: string | undefined;
-    let note: string | undefined;
-
-    try {
-      const { vault, usdc, A } = await getContracts();
-      const amountUsd6 = to6(amount);
-      await (await usdc.approve(A.Vault, amountUsd6)).wait();
-      const tx = await vault.deposit(A.MockUSDC, amountUsd6);
-      await tx.wait();
-      settlementMode = 'onchain';
-      txHash = tx.hash;
-    } catch (err: any) {
-      note = String(err?.reason || err?.message || err);
-    }
+    const settlementMode: SettlementMode = 'mirrored';
 
     try {
       const request: BankingDepositRequest = {
         amountUsd: parsedAmount,
         termYears: selectedTerm,
         settlementMode,
-        txHash,
-        note,
       };
 
       const result = await createDeposit(request);
       emitUiRefresh(`banking:${result.createdPosition.id}`);
       setAmount('');
       setIsComposerOpen(false);
-      setStatusTone(settlementMode === 'onchain' ? 'success' : 'warning');
+      setStatusTone('success');
       setStatusMessage(
-        settlementMode === 'onchain'
-          ? 'Term deposit created successfully.'
-          : 'Term deposit created. Settlement services are still being wired.'
+        result.createdPosition.treasuryOriginLotId
+          ? `Term deposit funded. Preparing protocol allocation #${result.createdPosition.treasuryOriginLotId}.`
+          : 'Term deposit funded from Checking. Treasury allocation has not started yet.'
       );
     } catch (err: any) {
       setStatusTone('danger');
@@ -272,7 +310,7 @@ export default function BankingTab() {
         <PageHeader
           eyebrow="Banking"
           title="Sagitta Term Deposit Account (White Label)"
-          description="Loading account overview."
+          description="Loading checking and term deposit accounts."
         />
       </div>
     );
@@ -284,7 +322,7 @@ export default function BankingTab() {
         <PageHeader
           eyebrow="Banking"
           title="Sagitta Term Deposit Account (White Label)"
-          description="The account overview could not be loaded."
+          description="The checking and term deposit account overview could not be loaded."
         />
         <div className="sagitta-hero">
           <div className="sagitta-cell status-banner status-banner--danger">
@@ -308,8 +346,8 @@ export default function BankingTab() {
             </span>
             <span className="data-chip">
               {activeTermCount > 0
-                ? `${activeTermCount} active term deposit${activeTermCount === 1 ? '' : 's'}`
-                : 'No active term deposit'}
+                ? `${activeTermCount} funded term deposit${activeTermCount === 1 ? '' : 's'}`
+                : 'No funded term deposit'}
             </span>
           </>
         }
@@ -329,7 +367,14 @@ export default function BankingTab() {
               onClick={handleReceiveWire}
               loading={isReceivingWire}
             >
-              Receive $1000 Wire
+              Wire Instructions
+            </Button>
+            <Button
+              className="banking-primary-btn"
+              onClick={handleSimulateMockWire}
+              loading={isReceivingWire}
+            >
+              Simulate $1,000 Wire
             </Button>
             <Button className="banking-primary-btn" variant="primary" onClick={openDepositDrawer}>
               Create Term Deposit
@@ -377,7 +422,7 @@ export default function BankingTab() {
                   <BankingIcon size={14} /> Accounts
                 </h3>
                 <p className="section-subtitle !mt-2 !mb-0">
-                  A simple account view with balances and term deposit access.
+                  Checking receives incoming wires. Term deposits are funded from available checking balance.
                 </p>
               </div>
 
@@ -426,7 +471,7 @@ export default function BankingTab() {
                     <ReceiptIcon size={14} /> Recent Activity
                   </h3>
                   <p className="section-subtitle !mt-2 !mb-0">
-                    Transactions appear after account actions are created.
+                    Incoming wires and term deposit funding movements post to Checking Account.
                   </p>
                 </div>
 
@@ -485,7 +530,7 @@ export default function BankingTab() {
                     <DepositIcon size={14} /> Sagitta Term Deposit Account
                   </div>
                   <p className="section-subtitle !mt-2 !mb-0">
-                    Open a new term deposit using available funds from your Checking Account.
+                    Create a term deposit using available funds from your Checking Account.
                   </p>
                 </div>
                 <Button variant="ghost" className="banking-ghost-btn" onClick={closeDepositDrawer}>
@@ -565,7 +610,7 @@ export default function BankingTab() {
                   loading={isSubmitting}
                   disabled={!canSubmit}
                 >
-                  Open Deposit
+                  Create Term Deposit
                 </Button>
                 {!canSubmit ? (
                   <div className="banking-zero-note" style={{ marginTop: 0 }}>
@@ -581,8 +626,15 @@ export default function BankingTab() {
       ) : null}
 
       {activeView === 'term-deposits' ? (
-        <BankingTermDepositsView state={state} onOpenDeposit={openDepositDrawer} />
+        <BankingTermDepositsView
+          state={state}
+          onOpenDeposit={openDepositDrawer}
+          onRetryCircleFunding={handleRetryCircleFunding}
+          retryingTermId={retryingTermId}
+        />
       ) : null}
+
+      {activeView === 'institutions' ? <BankingInstitutionsView state={state} /> : null}
 
       {activeView === 'api' ? <BankingApiView state={state} /> : null}
 

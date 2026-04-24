@@ -2,15 +2,13 @@ import { useCallback, useEffect, useState } from 'react';
 
 import type {
   BankingDashboardState,
+  BankingBatchRequest,
+  BankingBatchResponse,
   BankingDepositRequest,
   BankingDepositResponse,
 } from '../lib/banking/types';
-import {
-  applyBankingDeposit,
-  applyIncomingWire,
-  BANKING_STORAGE_KEY,
-  createSeedBankingState,
-} from '../lib/banking/demoStore';
+
+const BANKING_STORAGE_KEY = 'sagitta:banking-state';
 
 async function readJson<T>(response: Response): Promise<T> {
   const payload = await response.json();
@@ -45,19 +43,13 @@ export default function useBankingData() {
     try {
       setLoading(true);
       setError(null);
-      const storedState = readStoredState();
-      if (storedState) {
-        setState(storedState);
-        return;
-      }
       const response = await fetch('/api/banking/state');
       const payload = await readJson<BankingDashboardState>(response);
       persistState(payload);
       setState(payload);
     } catch (err: any) {
-      const fallbackState = createSeedBankingState();
-      persistState(fallbackState);
-      setState(fallbackState);
+      const cached = readStoredState();
+      if (cached) setState(cached);
       setError(String(err?.message || err));
     } finally {
       setLoading(false);
@@ -65,21 +57,64 @@ export default function useBankingData() {
   }, [persistState, readStoredState]);
 
   const createDeposit = useCallback(async (request: BankingDepositRequest) => {
-    const currentState = state ?? readStoredState() ?? createSeedBankingState();
-    const payload: BankingDepositResponse = applyBankingDeposit(currentState, request);
+    const response = await fetch('/api/banking/deposit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    const payload = await readJson<BankingDepositResponse>(response);
     persistState(payload.state);
     setState(payload.state);
     return payload;
-  }, [persistState, readStoredState, state]);
+  }, [persistState]);
 
-  const receiveWire = useCallback((amountUsd = 1000) => {
-    const currentState = state ?? readStoredState() ?? createSeedBankingState();
-    const nextState = applyIncomingWire(currentState, amountUsd);
+  const receiveWire = useCallback(async () => {
+    const response = await fetch('/api/banking/wire', {
+      method: 'GET',
+    });
+    const instructions = await readJson<any>(response);
+    setError(null);
+    return instructions;
+  }, []);
+
+  const simulateCheckingWire = useCallback(async (amountUsd = 1000) => {
+    const response = await fetch('/api/banking/wires/simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amountUsd }),
+    });
+    const payload = await readJson<{ state: BankingDashboardState }>(response);
+    const nextState = payload.state;
     persistState(nextState);
     setState(nextState);
     setError(null);
     return nextState;
-  }, [persistState, readStoredState, state]);
+  }, [persistState]);
+
+  const createTreasuryBankBatch = useCallback(async (request: BankingBatchRequest = {}) => {
+    const response = await fetch('/api/banking/treasury/batches', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    const payload = await readJson<BankingBatchResponse>(response);
+    persistState(payload.state);
+    setState(payload.state);
+    setError(null);
+    return payload;
+  }, [persistState]);
+
+  const retryCircleFunding = useCallback(async (termPositionId: string) => {
+    const response = await fetch(`/api/banking/term-positions/${termPositionId}/register-funding`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const nextState = await readJson<BankingDashboardState>(response);
+    persistState(nextState);
+    setState(nextState);
+    setError(null);
+    return nextState;
+  }, [persistState]);
 
   useEffect(() => {
     refresh();
@@ -92,5 +127,8 @@ export default function useBankingData() {
     refresh,
     createDeposit,
     receiveWire,
+    simulateCheckingWire,
+    createTreasuryBankBatch,
+    retryCircleFunding,
   };
 }

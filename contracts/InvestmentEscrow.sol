@@ -37,6 +37,10 @@ interface IExecutionRouteRegistry {
     );
 }
 
+interface IProtocolDAOForEscrow {
+    function getAddress(string calldata key) external view returns (address);
+}
+
 contract InvestmentEscrow is Ownable {
     using SafeERC20 for IERC20;
 
@@ -49,6 +53,7 @@ contract InvestmentEscrow is Ownable {
     IERC20 public immutable usdc;
     ITreasuryForEscrow public treasury;
     IExecutionRouteRegistry public routeRegistry;
+    IProtocolDAOForEscrow public protocolDAO;
 
     address public vault;
     address public keeper;
@@ -61,6 +66,7 @@ contract InvestmentEscrow is Ownable {
 
     enum BatchStatus { Pending, Running, Closed, Distributed, Invested }
     enum PositionStatus { None, Open, Closed, WrittenDown }
+    enum BatchPositionStatus { None, Active, Returned }
 
     struct Batch {
         uint256 id;
@@ -82,6 +88,8 @@ contract InvestmentEscrow is Ownable {
         uint256 expectedCloseTime;
         bytes32 settlementUnit;
         uint256 principalAuthorizedUsd6;
+        bytes32 policyContextHash;
+        bytes32 allocationPlanHash;
         bool configured;
     }
 
@@ -89,6 +97,8 @@ contract InvestmentEscrow is Ownable {
         uint256 expectedCloseTime;
         bytes32 settlementUnit;
         uint256 principalAuthorizedUsd6;
+        bytes32 policyContextHash;
+        bytes32 allocationPlanHash;
         bool configured;
         uint256[] routeIds;
         uint256[] maxAllocationUsd6;
@@ -115,6 +125,17 @@ contract InvestmentEscrow is Ownable {
         bytes32 complianceDigestHash;
         uint256 finalizedAt;
         bool finalized;
+    }
+
+    struct EscrowBatchPosition {
+        uint256 batchId;
+        uint256 deployedPrincipal;
+        uint64 expectedReturnAt;
+        uint64 settlementDeadlineAt;
+        bytes32 executionContextHash;
+        uint64 actualReturnedAt;
+        uint256 settlementAmount;
+        BatchPositionStatus status;
     }
 
     struct Position {
@@ -148,6 +169,7 @@ contract InvestmentEscrow is Ownable {
     mapping(uint256 => BatchMandate) private batchMandates;
     mapping(uint256 => BatchAccounting) private batchAccounting;
     mapping(uint256 => BatchSettlement) private batchSettlements;
+    mapping(uint256 => EscrowBatchPosition) public escrowBatchPositions;
     mapping(uint256 => uint256[]) private batchPositionIds;
     mapping(uint256 => Position) private positions;
     mapping(uint256 => uint256[]) private batchMandateRouteIds;
@@ -169,10 +191,13 @@ contract InvestmentEscrow is Ownable {
     event PositionClosed(uint256 indexed positionId, uint256 proceedsUsd6, uint256 feeUsd6, bytes32 closeRefHash, PositionStatus status);
     event BatchSettlementFinalized(uint256 indexed batchId, uint256 finalValueUsd6, uint256 userProfitUsd6, uint256 protocolFeeUsd6, bytes32 settlementReportHash, bytes32 complianceDigestHash);
     event RouteRegistrySet(address indexed routeRegistry);
+    event ProtocolDAOSet(address indexed protocolDAO);
     event KeeperSet(address indexed keeper);
     event VaultSet(address indexed vault);
     event BatchAllocationPending(uint256 indexed batchId);
     event BatchAllocationCleared(uint256 indexed batchId);
+    event TreasuryBatchReceived(uint256 indexed batchId, uint256 deployedPrincipal, uint64 expectedReturnAt, uint64 settlementDeadlineAt, bytes32 executionContextHash);
+    event TreasuryBatchReturned(uint256 indexed batchId, uint256 settlementAmount, uint64 actualReturnedAt);
 
     constructor(address _usdc, address _treasury) Ownable(msg.sender) {
         require(_usdc != address(0) && _treasury != address(0), "zero address");
@@ -233,67 +258,106 @@ contract InvestmentEscrow is Ownable {
         emit RouteRegistrySet(_routeRegistry);
     }
 
+    function setProtocolDAO(address _protocolDAO) external onlyOwner {
+        require(_protocolDAO != address(0), "zero dao");
+        protocolDAO = IProtocolDAOForEscrow(_protocolDAO);
+        emit ProtocolDAOSet(_protocolDAO);
+    }
+
+    function syncRouteRegistryFromDAO() external onlyOwner {
+        require(address(protocolDAO) != address(0), "dao not set");
+        address daoRouteRegistry = protocolDAO.getAddress("ExecutionRouteRegistry");
+        require(daoRouteRegistry != address(0), "dao route registry missing");
+        routeRegistry = IExecutionRouteRegistry(daoRouteRegistry);
+        emit RouteRegistrySet(daoRouteRegistry);
+    }
+
+    function receiveTreasuryBatch(
+        uint256 batchId,
+        uint256 deployedPrincipal,
+        uint256 expectedReturnAt,
+        uint256 settlementDeadlineAt,
+        bytes32 executionContextHash
+    ) external {
+        require(msg.sender == address(treasury), "Only treasury");
+        require(batchId != 0, "invalid batch");
+        require(deployedPrincipal > 0, "invalid principal");
+        require(escrowBatchPositions[batchId].batchId == 0, "batch received");
+        require(expectedReturnAt > block.timestamp, "expected return in past");
+        require(settlementDeadlineAt >= expectedReturnAt, "deadline before return");
+        require(usdc.balanceOf(address(this)) >= deployedPrincipal, "Escrow lacks USDC");
+
+        batches[batchId] = Batch({
+            id: batchId,
+            startTime: block.timestamp,
+            endTime: 0,
+            totalCollateralUsd: deployedPrincipal,
+            totalShares: 0,
+            finalNavPerShare: 0,
+            status: BatchStatus.Running,
+            distributed: false
+        });
+        if (batchId >= nextBatchCounter) {
+            nextBatchCounter = batchId + 1;
+        }
+
+        batchAccounting[batchId].principalFundedUsd6 = deployedPrincipal;
+        batchAccounting[batchId].principalAuthorizedUsd6 = deployedPrincipal;
+        escrowBatchPositions[batchId] = EscrowBatchPosition({
+            batchId: batchId,
+            deployedPrincipal: deployedPrincipal,
+            expectedReturnAt: uint64(expectedReturnAt),
+            settlementDeadlineAt: uint64(settlementDeadlineAt),
+            executionContextHash: executionContextHash,
+            actualReturnedAt: 0,
+            settlementAmount: 0,
+            status: BatchPositionStatus.Active
+        });
+
+        emit BatchCreated(batchId, block.timestamp);
+        emit TreasuryBatchReceived(batchId, deployedPrincipal, uint64(expectedReturnAt), uint64(settlementDeadlineAt), executionContextHash);
+        emit BatchAllocationPending(batchId);
+    }
+
     function registerDeposit(uint256 tokenId, uint256 amountUsd6, uint256 shares) external onlyVaultOrTreasury {
-        Batch storage batch_ = batches[currentBatchId];
-        require(batch_.status == BatchStatus.Pending, "Batch not pending");
-        batch_.totalCollateralUsd += amountUsd6;
-        batch_.totalShares += shares;
-        receiptBatchId[tokenId] = currentBatchId;
-        emit DepositRegistered(tokenId, currentBatchId, amountUsd6, shares);
+        tokenId;
+        amountUsd6;
+        shares;
+        revert("Treasury owns origin lots");
     }
 
     function registerDepositTo(uint256 batchId, uint256 tokenId, uint256 amountUsd6, uint256 shares) external onlyVaultOrTreasury {
-        _ensurePendingBatchExists(batchId);
-        Batch storage batch_ = batches[batchId];
-        require(batch_.status == BatchStatus.Pending, "Batch not pending");
-        batch_.totalCollateralUsd += amountUsd6;
-        batch_.totalShares += shares;
-        receiptBatchId[tokenId] = batchId;
-        emit DepositRegistered(tokenId, batchId, amountUsd6, shares);
+        batchId;
+        tokenId;
+        amountUsd6;
+        shares;
+        revert("Treasury owns origin lots");
     }
 
     function createPendingBatch() external onlyKeeperOrOwner returns (uint256) {
-        uint256 id = nextBatchCounter;
-        nextBatchCounter = id + 1;
-        _createPendingBatch(id);
-        return id;
+        revert("Treasury owns batches");
     }
 
     function setCurrentPendingBatch(uint256 batchId) external onlyKeeperOrOwner {
-        require(batches[batchId].id == batchId, "Batch not found");
-        require(batches[batchId].status == BatchStatus.Pending, "Batch not pending");
-        currentBatchId = batchId;
+        batchId;
+        revert("Treasury owns batches");
     }
 
     function rollToNewBatch() public onlyKeeperOwnerOrTreasury {
-        Batch storage current = batches[currentBatchId];
-        if (current.totalCollateralUsd == 0) {
-            lastBatchRollTime = block.timestamp;
-            return;
-        }
-
-        _activateBatch(currentBatchId, current.totalCollateralUsd);
-
-        uint256 newId = nextBatchCounter;
-        nextBatchCounter = newId + 1;
-        _createPendingBatch(newId);
-        currentBatchId = newId;
-        lastBatchRollTime = block.timestamp;
+        revert("Treasury owns batches");
     }
 
     function rollBatch(uint256 batchId) external onlyKeeperOwnerOrTreasury {
-        Batch storage batch_ = batches[batchId];
-        require(batch_.id == batchId, "Batch not found");
-        require(batch_.status == BatchStatus.Pending, "Batch not pending");
-        require(batch_.totalCollateralUsd > 0, "Empty batch");
-        _activateBatch(batchId, batch_.totalCollateralUsd);
-        lastBatchRollTime = block.timestamp;
+        batchId;
+        revert("Treasury owns batches");
     }
 
     function authorizeBatchExecution(
         uint256 batchId,
         uint256 expectedCloseTime,
         bytes32 settlementUnit,
+        bytes32 policyContextHash,
+        bytes32 allocationPlanHash,
         RouteAllocation[] calldata routeAllocations
     ) external onlyTreasuryOrOwner {
         require(address(routeRegistry) != address(0), "Route registry not set");
@@ -333,6 +397,8 @@ contract InvestmentEscrow is Ownable {
             expectedCloseTime: expectedCloseTime,
             settlementUnit: settlementUnit,
             principalAuthorizedUsd6: principalAuthorizedUsd6,
+            policyContextHash: policyContextHash,
+            allocationPlanHash: allocationPlanHash,
             configured: true
         });
 
@@ -541,6 +607,14 @@ contract InvestmentEscrow is Ownable {
         batch_.status = BatchStatus.Closed;
         batch_.endTime = block.timestamp;
 
+        EscrowBatchPosition storage batchPosition = escrowBatchPositions[batchId];
+        if (batchPosition.batchId == batchId) {
+            batchPosition.actualReturnedAt = uint64(block.timestamp);
+            batchPosition.settlementAmount = finalValueUsd6;
+            batchPosition.status = BatchPositionStatus.Returned;
+            emit TreasuryBatchReturned(batchId, finalValueUsd6, uint64(block.timestamp));
+        }
+
         usdc.safeTransfer(address(treasury), finalValueUsd6);
         treasury.reportBatchResult(batchId, accounting.principalFundedUsd6, userProfitUsd6, protocolFeeUsd6, finalNavPerShare, settlementReportHash, complianceDigestHash);
 
@@ -641,6 +715,8 @@ contract InvestmentEscrow is Ownable {
             expectedCloseTime: mandate.expectedCloseTime,
             settlementUnit: mandate.settlementUnit,
             principalAuthorizedUsd6: mandate.principalAuthorizedUsd6,
+            policyContextHash: mandate.policyContextHash,
+            allocationPlanHash: mandate.allocationPlanHash,
             configured: mandate.configured,
             routeIds: routeIds,
             maxAllocationUsd6: maxAllocationUsd6

@@ -120,12 +120,16 @@ export function BankingSubnav({
 export function BankingTermDepositsView({
   state,
   onOpenDeposit,
+  onRetryCircleFunding,
+  retryingTermId,
 }: {
   state: BankingDashboardState;
   onOpenDeposit: () => void;
+  onRetryCircleFunding?: (termPositionId: string) => void;
+  retryingTermId?: string | null;
 }) {
   const activePositions = useMemo(
-    () => state.termPositions.filter((position) => position.status === 'active'),
+    () => state.termPositions.filter((position) => position.status !== 'not_funded'),
     [state.termPositions]
   );
 
@@ -134,18 +138,22 @@ export function BankingTermDepositsView({
       <section className="sagitta-hero banking-entry">
         <div className="sagitta-cell banking-entry__surface">
           <div className="banking-entry__heading">
-            <h3 className="section-title !mb-0">
-              <ClockIcon size={14} /> Term Deposits
-            </h3>
-            <p className="section-subtitle !mt-2 !mb-0">
-              Servicing view for active positions, maturity timing, and settlement updates.
-            </p>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem' }}>
+              <div>
+                <h3 className="section-title !mb-0">
+                  <ClockIcon size={14} /> Term Deposits
+                </h3>
+                <p className="section-subtitle !mt-2 !mb-0">
+                  Servicing view for funded positions, activation timing, and settlement updates.
+                </p>
+              </div>
+            </div>
           </div>
 
           {activePositions.length === 0 ? (
             <div className="banking-empty-state">
               <div>
-                <div className="banking-empty-state__title">No active term deposits</div>
+                <div className="banking-empty-state__title">No funded term deposits</div>
                 <div className="banking-empty-state__copy">
                   Open a term deposit after funds are available in Checking Account.
                 </div>
@@ -164,12 +172,53 @@ export function BankingTermDepositsView({
                       {position.termYears} year term | Opened {formatDateTime(position.openedAt)}
                     </div>
                     <div className="banking-detail-row__meta">
-                      Status {position.status} | Matures {formatDateTime(position.maturityDate)}
+                      Product status {position.status.replaceAll('_', ' ')} | Matures {formatDateTime(position.maturityDate)}
                     </div>
+                    <div className="banking-chip-row" style={{ marginTop: '0.55rem' }}>
+                      <span className="banking-chip">
+                        {position.treasuryOriginLotId
+                          ? position.reserveStatusLabel || 'Treasury allocation ready'
+                          : 'Funded, not yet in Treasury'}
+                      </span>
+                      {position.treasuryOriginLotId ? (
+                        <span className="banking-chip">Lot #{position.treasuryOriginLotId}</span>
+                      ) : (
+                        <span className="banking-chip">Treasury lot not created</span>
+                      )}
+                      {position.treasuryBatchId ? (
+                        <span className="banking-chip">Batch #{position.treasuryBatchId}</span>
+                      ) : (
+                        <span className="banking-chip">Waiting for batch</span>
+                      )}
+                      <span className="banking-chip">{position.durationClass || `${position.termYears}Y`}</span>
+                      <span className="banking-chip">{position.policyProfileId || 'bank policy'} v{position.policyVersion || 1}</span>
+                    </div>
+                    {position.treasuryBatchExpectedReturnAt || position.treasuryBatchSettlementDeadlineAt || position.protocolSyncError ? (
+                      <div className="banking-detail-row__meta" style={{ marginTop: '0.45rem' }}>
+                        {position.treasuryBatchExpectedReturnAt
+                          ? `Expected return ${formatDateTime(position.treasuryBatchExpectedReturnAt)}`
+                          : 'Expected return not assigned'}
+                        {' | '}
+                        {position.treasuryBatchSettlementDeadlineAt
+                          ? `Settlement deadline ${formatDateTime(position.treasuryBatchSettlementDeadlineAt)}`
+                          : position.protocolSyncError
+                            ? 'Background allocation pending operator configuration'
+                            : 'Settlement status pending'}
+                      </div>
+                    ) : null}
                   </div>
                   <div className="banking-detail-row__value-group">
                     <div className="banking-detail-row__value">{formatUsd(position.principalUsd)}</div>
                     <div className="banking-detail-row__meta">{position.rateLabel}</div>
+                    {!position.treasuryOriginLotId && onRetryCircleFunding ? (
+                      <Button
+                        className="banking-primary-btn"
+                        onClick={() => onRetryCircleFunding(position.id)}
+                        loading={retryingTermId === position.id}
+                      >
+                        Complete Arc Funding
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
               ))}
@@ -185,7 +234,7 @@ export function BankingTermDepositsView({
               <DepositIcon size={14} /> Funding Setup
             </h3>
             <p className="section-subtitle !mt-2 !mb-0">
-              Partner-facing funding instructions shown in banking language.
+              Wire instructions belong to Checking Account. Term deposits are funded after checking funds are available.
             </p>
           </div>
 
@@ -249,6 +298,58 @@ export function BankingTermDepositsView({
         </div>
       </section>
     </>
+  );
+}
+
+export function BankingInstitutionsView({ state }: { state: BankingDashboardState }) {
+  const policies = state.institutionPolicies ?? [];
+
+  return (
+    <section className="sagitta-hero banking-entry">
+      <div className="sagitta-cell banking-entry__surface">
+        <div className="banking-entry__heading">
+          <h3 className="section-title !mb-0">
+            <BankingIcon size={14} /> Institution Policy
+          </h3>
+          <p className="section-subtitle !mt-2 !mb-0">
+            Governed bank policy profiles consumed by Treasury batching. Banks select approved profiles; Treasury executes against policy identity.
+          </p>
+        </div>
+
+        {policies.length === 0 ? (
+          <div className="banking-empty-state banking-empty-state--quiet">
+            <div>
+              <div className="banking-empty-state__title">No institution policy registered</div>
+              <div className="banking-empty-state__copy">
+                The backend will seed a default conservative bank profile on the next refresh.
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="banking-detail-list">
+            {policies.map((policy) => (
+              <div key={policy.institutionId} className="banking-detail-row banking-detail-row--stacked">
+                <div>
+                  <div className="banking-detail-row__title">{policy.displayName}</div>
+                  <div className="banking-detail-row__meta">
+                    Institution {policy.institutionId} | Active profile {policy.activePolicyProfileId} v{policy.policyVersion}
+                  </div>
+                  <div className="banking-chip-row" style={{ marginTop: '0.55rem' }}>
+                    <span className="banking-chip">{policy.riskPosture}</span>
+                    <span className="banking-chip">{policy.allocatorVersion}</span>
+                    <span className="banking-chip">{policy.allowedDurationClasses.join(', ')}</span>
+                  </div>
+                </div>
+                <div className="banking-detail-row__value-group">
+                  <div className="banking-detail-row__value">Policy snapshot</div>
+                  <div className="banking-detail-row__meta">{policy.policyConfigHash.slice(0, 12)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

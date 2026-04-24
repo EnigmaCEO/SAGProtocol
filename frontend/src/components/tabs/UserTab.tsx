@@ -473,7 +473,9 @@ export default function UserTab() {
           setProbedAssetDecimals(aDecimals);
 
           // compute and set max (use metrics.maxAvailableUsd6 if available, otherwise the reserve-capacity fallback)
-          const capacityUsd6 = (metrics && metrics.maxAvailableUsd6 && Number(metrics.maxAvailableUsd6) >= 0)
+          // Use metrics.maxAvailableUsd6 only when it is strictly positive; '0' falls back to the
+          // direct treasury read so a stale or initial zero in the metrics store does not wipe the display.
+          const capacityUsd6 = (metrics && metrics.maxAvailableUsd6 && Number(metrics.maxAvailableUsd6) > 0)
             ? BigInt(metrics.maxAvailableUsd6)
             : BigInt(treasuryUsd6);
           computeAndSetMax(capacityUsd6, price, aDecimals);
@@ -503,7 +505,10 @@ export default function UserTab() {
       const priceBn = probedOraclePrice;
       const aDecimals = probedAssetDecimals;
       if (!priceBn || aDecimals == null) return;
-      const capacityUsd6 = metrics?.maxAvailableUsd6 ? BigInt(metrics.maxAvailableUsd6) : null;
+      // '0' is truthy as a string but means no capacity — skip to preserve the previous display value
+      const capacityUsd6 = (metrics?.maxAvailableUsd6 && Number(metrics.maxAvailableUsd6) > 0)
+        ? BigInt(metrics.maxAvailableUsd6)
+        : null;
       if (capacityUsd6 == null) return;
       computeAndSetMax(capacityUsd6, priceBn, aDecimals);
     } catch (e) {

@@ -4,7 +4,27 @@ import { ClockIcon as Clock } from '../icons/SagittaIcons';
 
 // AAA + PortfolioRegistry types
 type AAAAssetWeight = { symbol: string; weight: number; expectedReturn?: number; volatility?: number; };
-type AAAAllocation = { source: 'aaa' | 'fallback'; timestamp: string; assets: AAAAssetWeight[]; };
+type AAAAllocation = { source: 'aaa' | 'fallback'; timestamp: string; batchId?: string; assets: AAAAssetWeight[]; };
+type StoredAAAAllocation = {
+  batchId: string;
+  source: 'aaa' | 'fallback';
+  timestamp: string;
+  principalReceivedUsd?: number;
+  eligibleAssetCount?: number;
+  excludedAssetCount?: number;
+  excludedAssets?: Array<{ symbol: string; name?: string; reasons: string[]; stage?: string }>;
+  assets: Array<{
+    symbol: string;
+    assetName?: string;
+    riskClass?: number | null;
+    role?: number | null;
+    weight: number;
+    principalAllocatedUsd: number;
+    expectedCloseAt?: string;
+    routeTypes?: string[];
+    routeIds?: string[];
+  }>;
+};
 type PortfolioRegistryAsset = {
   symbol: string;
   name: string;
@@ -29,44 +49,75 @@ type AllocationExclusion = {
   name: string;
   reasons: string[];
 };
-type EscrowMandateView = {
-  expectedCloseTime: bigint;
-  settlementUnit: string;
-  principalAuthorizedUsd6: bigint;
-  configured: boolean;
-  routeIds: bigint[];
-  maxAllocationUsd6: bigint[];
+type AAADisplayLeg = {
+  batchId: string;
+  symbol: string;
+  assetName: string;
+  riskClassLabel: string;
+  roleLabel: string;
+  weightPct: string;
+  principalUsd6: bigint;
+  expectedCloseAt: string;
+  source: 'aaa' | 'fallback';
+  routeSummary: string;
 };
-type EscrowAccountingView = {
-  principalAuthorizedUsd6: bigint;
-  principalFundedUsd6: bigint;
-  principalCommittedUsd6: bigint;
-  principalReturnedUsd6: bigint;
-  feesUsd6: bigint;
-  realizedPnlUsd6: bigint;
-  unrealizedPnlUsd6: bigint;
-  lastMarkedAt: bigint;
-  frozen: boolean;
+type BackendExecutionOrder = {
+  id: string;
+  batchId: string;
+  sourceType?: string;
+  originInstitutionId?: string;
+  principalReceivedUsd: number;
+  durationClass: string;
+  productDuration?: string;
+  executionHorizon?: string;
+  targetReturnAt: string;
+  hardCloseAt: string;
+  policyProfileId: string;
+  policyVersion?: number;
+  aaaRequestStatus?: string;
+  deploymentStatus?: string;
+  settlementStatus?: string;
+  strategyClass: string;
+  executionStatus: string;
+  routeStatus: string;
+  eligibleRouteTypes: string[];
+  createdAt?: string;
+  updatedAt?: string;
 };
-type EscrowSettlementView = {
-  finalValueUsd6: bigint;
-  protocolFeeUsd6: bigint;
-  userProfitUsd6: bigint;
-  finalNavPerShare: bigint;
-  settlementReportHash: string;
-  complianceDigestHash: string;
-  finalizedAt: bigint;
-  finalized: boolean;
+type BackendAllocationLeg = {
+  legId: string;
+  batchId: string;
+  routeType: string;
+  routeId?: string;
+  adapterId?: string;
+  portfolio?: string;
+  principalAllocatedUsd: number;
+  expectedCloseAt: string;
+  hardCloseAt: string;
+  deployedAt?: string;
+  returnedAt?: string;
+  returnedAmountUsd?: number;
+  status: string;
 };
-type EscrowPositionView = {
-  id: bigint;
-  routeId: bigint;
-  assetSymbol: string;
-  commitmentUsd6: bigint;
-  carryingValueUsd6: bigint;
-  proceedsUsd6: bigint;
-  feeUsd6: bigint;
-  status: number;
+type BackendAllocationPlan = {
+  planId: string;
+  batchId: string;
+  aaaDecisionId: string;
+  allocatorVersion: string;
+  regime: string;
+  policyProfileId?: string;
+  policyVersion?: number;
+  marketContextSnapshot?: Record<string, unknown>;
+  performanceContextSnapshot?: Record<string, unknown>;
+  universeSnapshot?: {
+    summary?: { eligibleCandidates?: number; excludedCandidates?: number };
+    excludedUniverse?: Array<{ assetSymbol: string; reasons: string[] }>;
+  };
+  decisionContext?: Record<string, unknown>;
+  planPayload?: Record<string, unknown>;
+  allocationResult?: StoredAAAAllocation;
+  validationResult?: { valid?: boolean; errors?: string[] };
+  status: string;
 };
 
 const RISK_CLASS_LABELS = ['Wealth Management','Stablecoin','DeFi Bluechip','Fund of Funds','Large Cap','Private Credit Fund','Real World Asset','External Protocol'];
@@ -83,16 +134,27 @@ const AAA_ENDPOINT = 'https://aaa.sagitta.systems/api/v1/allocation';
 import { JsonRpcProvider, Contract, Wallet, Interface, ethers } from 'ethers';
 import INVESTMENT_ESCROW_ABI from '../../lib/abis/InvestmentEscrow.json';
 import TREASURY_ABI from '../../lib/abis/Treasury.json';
-import { getRuntimeAddress, isValidAddress, setRuntimeAddress } from '../../lib/runtime-addresses';
+import { getRuntimeAddress, isValidAddress, setRuntimeAddress, useRuntimeAddress } from '../../lib/runtime-addresses';
 import { emitUiRefresh } from '../../lib/ui-refresh';
 import useRoleAccess from '../../hooks/useRoleAccess';
 import useProtocolPause from '../../hooks/useProtocolPause';
 import PageHeader from '../ui/PageHeader';
 import { RPC_URL } from '../../lib/network';
 
+async function readJsonResponse(response: Response) {
+  const raw = await response.text();
+  try {
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return { error: raw || `HTTP ${response.status}` };
+  }
+}
+
 export default function EscrowTab() {
   const { isPaused } = useProtocolPause();
   const { isOperator, role } = useRoleAccess();
+  const portfolioRegistryAddress = useRuntimeAddress('PortfolioRegistry');
+  const executionRouteRegistryAddress = useRuntimeAddress('ExecutionRouteRegistry');
   // On-chain constants
   const LOCALHOST_RPC = RPC_URL;
   const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
@@ -138,37 +200,26 @@ export default function EscrowTab() {
   const [navInput, setNavInput] = useState('1.10');
   const [batchFilter, setBatchFilter] = useState('');
   const [batchPageSize, setBatchPageSize] = useState<number>(6);
+  const [orderPage, setOrderPage] = useState<number>(1);
+  const [deploymentHistoryPage, setDeploymentHistoryPage] = useState<number>(1);
+  const [expandedDeploymentBatches, setExpandedDeploymentBatches] = useState<string[]>([]);
+  const [selectedAllocationBatchId, setSelectedAllocationBatchId] = useState<string | null>(null);
   const [activePage, setActivePage] = useState<number>(1);
   const [investedPage, setInvestedPage] = useState<number>(1);
   const [closedPage, setClosedPage] = useState<number>(1);
 
   // AAA allocation state
-  const [aaaAllocation, setAaaAllocation] = useState<AAAAllocation | null>(null);
+  const [aaaAllocation, setAaaAllocation] = useState<StoredAAAAllocation | null>(null);
   const [aaaLoading, setAaaLoading] = useState(false);
   const [aaaError, setAaaError] = useState<string | null>(null);
   const [portfolioAssets, setPortfolioAssets] = useState<PortfolioRegistryAsset[]>([]);
   const [executionRoutes, setExecutionRoutes] = useState<ExecutionRouteView[]>([]);
-  const [ledgerBatchId, setLedgerBatchId] = useState<string>('1');
-  const [ledgerMandate, setLedgerMandate] = useState<EscrowMandateView | null>(null);
-  const [ledgerAccounting, setLedgerAccounting] = useState<EscrowAccountingView | null>(null);
-  const [ledgerSettlement, setLedgerSettlement] = useState<EscrowSettlementView | null>(null);
-  const [ledgerPositions, setLedgerPositions] = useState<EscrowPositionView[]>([]);
-  const [routeIdInput, setRouteIdInput] = useState('1');
-  const [assetSymbolInput, setAssetSymbolInput] = useState('SPC');
-  const [commitmentInput, setCommitmentInput] = useState('10');
-  const [quantityInput, setQuantityInput] = useState('1');
-  const [positionFeeInput, setPositionFeeInput] = useState('0');
-  const [externalRefInput, setExternalRefInput] = useState('');
-  const [attestationHashInput, setAttestationHashInput] = useState('');
-  const [attestationExpiryHours, setAttestationExpiryHours] = useState('24');
-  const [positionIdInput, setPositionIdInput] = useState('');
-  const [carryingValueInput, setCarryingValueInput] = useState('0');
-  const [markHashInput, setMarkHashInput] = useState('');
-  const [proceedsInput, setProceedsInput] = useState('0');
-  const [closeFeeInput, setCloseFeeInput] = useState('0');
-  const [closeRefInput, setCloseRefInput] = useState('');
-  const [settlementHashInput, setSettlementHashInput] = useState('');
-  const [complianceHashInput, setComplianceHashInput] = useState('');
+  const [backendExecutionOrders, setBackendExecutionOrders] = useState<BackendExecutionOrder[]>([]);
+  const [backendAllocationLegs, setBackendAllocationLegs] = useState<BackendAllocationLeg[]>([]);
+  const [backendAllocationPlans, setBackendAllocationPlans] = useState<BackendAllocationPlan[]>([]);
+  const [backendQueueError, setBackendQueueError] = useState<string | null>(null);
+  const [automationRunning, setAutomationRunning] = useState(false);
+  const [manualStageAction, setManualStageAction] = useState<'returned' | 'settled' | null>(null);
 
   // Keep address states in sync whenever loadGeneratedRuntimeAddresses() or setRuntimeAddress() fires.
   useEffect(() => {
@@ -224,7 +275,6 @@ export default function EscrowTab() {
   useEffect(() => {
     if (!escrow) return;
     refreshEscrowLinks();
-    refreshLedgerSnapshot();
   }, [escrow]);
 
   async function refreshEscrowLinks() {
@@ -253,7 +303,7 @@ export default function EscrowTab() {
   }
 
   async function postWriteRefresh(reason: string) {
-    await Promise.allSettled([refresh(), refreshBatchSummary(), refreshEscrowLinks(), refreshLedgerSnapshot(), fetchPortfolioAssets(), fetchExecutionRoutes()]);
+    await Promise.allSettled([refresh(), refreshBatchSummary(), refreshEscrowLinks(), refreshBackendExecutionQueue(), fetchPortfolioAssets(), fetchExecutionRoutes()]);
     emitUiRefresh(`escrow:${reason}`);
   }
 
@@ -568,92 +618,71 @@ export default function EscrowTab() {
     }
   }
 
-  function parseUsd6Input(value: string): bigint {
-    const trimmed = value.trim();
-    if (!trimmed) return 0n;
-    return ethers.parseUnits(trimmed, 6);
-  }
-
-  function parseE18Input(value: string): bigint {
-    const trimmed = value.trim();
-    if (!trimmed) return 0n;
-    return ethers.parseEther(trimmed);
-  }
-
-  function toBytes32Ref(value: string): string {
-    const trimmed = value.trim();
-    if (!trimmed) return ethers.ZeroHash;
-    if (/^0x[a-fA-F0-9]{64}$/.test(trimmed)) return trimmed;
-    return ethers.id(trimmed);
-  }
-
-  async function refreshLedgerSnapshot(batchIdRaw?: string) {
-    if (!escrow) return;
-    const batchId = Number(batchIdRaw ?? ledgerBatchId);
-    if (!Number.isFinite(batchId) || batchId <= 0) return;
+  async function refreshBackendExecutionQueue() {
     try {
-      const [mandateRaw, accountingRaw, settlementRaw, positionIdsRaw] = await Promise.all([
-        (escrow as any).getBatchMandate(batchId),
-        (escrow as any).getBatchAccounting(batchId),
-        (escrow as any).getBatchSettlement(batchId),
-        (escrow as any).getBatchPositionIds(batchId),
+      const [ordersRes, legsRes, plansRes] = await Promise.all([
+        fetch('/api/banking/escrow/execution-orders'),
+        fetch('/api/banking/escrow/allocation-legs'),
+        fetch('/api/banking/escrow/allocation-plans'),
       ]);
-
-      setLedgerMandate({
-        expectedCloseTime: BigInt(mandateRaw?.expectedCloseTime ?? mandateRaw?.[0] ?? 0),
-        settlementUnit: String(mandateRaw?.settlementUnit ?? mandateRaw?.[1] ?? ''),
-        principalAuthorizedUsd6: BigInt(mandateRaw?.principalAuthorizedUsd6 ?? mandateRaw?.[2] ?? 0),
-        configured: Boolean(mandateRaw?.configured ?? mandateRaw?.[3] ?? false),
-        routeIds: Array.from(mandateRaw?.routeIds ?? mandateRaw?.[4] ?? []).map((v: any) => BigInt(v ?? 0)),
-        maxAllocationUsd6: Array.from(mandateRaw?.maxAllocationUsd6 ?? mandateRaw?.[5] ?? []).map((v: any) => BigInt(v ?? 0)),
-      });
-
-      setLedgerAccounting({
-        principalAuthorizedUsd6: BigInt(accountingRaw?.principalAuthorizedUsd6 ?? accountingRaw?.[0] ?? 0),
-        principalFundedUsd6: BigInt(accountingRaw?.principalFundedUsd6 ?? accountingRaw?.[1] ?? 0),
-        principalCommittedUsd6: BigInt(accountingRaw?.principalCommittedUsd6 ?? accountingRaw?.[2] ?? 0),
-        principalReturnedUsd6: BigInt(accountingRaw?.principalReturnedUsd6 ?? accountingRaw?.[3] ?? 0),
-        feesUsd6: BigInt(accountingRaw?.feesUsd6 ?? accountingRaw?.[4] ?? 0),
-        realizedPnlUsd6: BigInt(accountingRaw?.realizedPnlUsd6 ?? accountingRaw?.[5] ?? 0),
-        unrealizedPnlUsd6: BigInt(accountingRaw?.unrealizedPnlUsd6 ?? accountingRaw?.[6] ?? 0),
-        lastMarkedAt: BigInt(accountingRaw?.lastMarkedAt ?? accountingRaw?.[7] ?? 0),
-        frozen: Boolean(accountingRaw?.frozen ?? accountingRaw?.[8] ?? false),
-      });
-
-      setLedgerSettlement({
-        finalValueUsd6: BigInt(settlementRaw?.finalValueUsd6 ?? settlementRaw?.[0] ?? 0),
-        protocolFeeUsd6: BigInt(settlementRaw?.protocolFeeUsd6 ?? settlementRaw?.[1] ?? 0),
-        userProfitUsd6: BigInt(settlementRaw?.userProfitUsd6 ?? settlementRaw?.[2] ?? 0),
-        finalNavPerShare: BigInt(settlementRaw?.finalNavPerShare ?? settlementRaw?.[3] ?? 0),
-        settlementReportHash: String(settlementRaw?.settlementReportHash ?? settlementRaw?.[4] ?? ethers.ZeroHash),
-        complianceDigestHash: String(settlementRaw?.complianceDigestHash ?? settlementRaw?.[5] ?? ethers.ZeroHash),
-        finalizedAt: BigInt(settlementRaw?.finalizedAt ?? settlementRaw?.[6] ?? 0),
-        finalized: Boolean(settlementRaw?.finalized ?? settlementRaw?.[7] ?? false),
-      });
-
-      const positionsRaw = await Promise.all(
-        Array.from(positionIdsRaw ?? []).map((id: any) => (escrow as any).getPosition(id))
-      );
-      setLedgerPositions(
-        positionsRaw.map((p: any) => ({
-          id: BigInt(p?.id ?? p?.[0] ?? 0),
-          routeId: BigInt(p?.routeId ?? p?.[2] ?? 0),
-          assetSymbol: String(p?.assetSymbol ?? p?.[3] ?? ''),
-          commitmentUsd6: BigInt(p?.commitmentUsd6 ?? p?.[4] ?? 0),
-          carryingValueUsd6: BigInt(p?.carryingValueUsd6 ?? p?.[6] ?? 0),
-          proceedsUsd6: BigInt(p?.proceedsUsd6 ?? p?.[7] ?? 0),
-          feeUsd6: BigInt(p?.feeUsd6 ?? p?.[8] ?? 0),
-          status: Number(p?.status ?? p?.[15] ?? 0),
-        }))
-      );
+      const [ordersJson, legsJson, plansJson] = await Promise.all([
+        readJsonResponse(ordersRes),
+        readJsonResponse(legsRes),
+        readJsonResponse(plansRes),
+      ]);
+      if (!ordersRes.ok) throw new Error(ordersJson?.error || `orders HTTP ${ordersRes.status}`);
+      if (!legsRes.ok) throw new Error(legsJson?.error || `legs HTTP ${legsRes.status}`);
+      if (!plansRes.ok) throw new Error(plansJson?.error || `plans HTTP ${plansRes.status}`);
+      const nextOrders = ordersJson?.data ?? ordersJson ?? [];
+      const nextLegs = legsJson?.data ?? legsJson ?? [];
+      const nextPlans = plansJson?.data ?? plansJson ?? [];
+      setBackendExecutionOrders(nextOrders);
+      setBackendAllocationLegs(nextLegs);
+      setBackendAllocationPlans(nextPlans);
+      setBackendQueueError(null);
     } catch (e: any) {
-      setLog(l => [`[ledger] ${String(e?.message || e)}`, ...l]);
+      setBackendQueueError(String(e?.message || e));
+    }
+  }
+
+  async function runBackendAutomation() {
+    setAutomationRunning(true);
+    try {
+      const response = await fetch('/api/banking/escrow/run-automation', { method: 'POST' });
+      const payload = await readJsonResponse(response);
+      if (!response.ok) throw new Error(payload?.error || `automation HTTP ${response.status}`);
+      setLog(l => [`[escrow worker] ${JSON.stringify(payload?.data ?? payload)}`, ...l]);
+      await refreshBackendExecutionQueue();
+    } catch (e: any) {
+      setBackendQueueError(String(e?.message || e));
+    } finally {
+      setAutomationRunning(false);
+    }
+  }
+
+  async function manuallyAdvanceSelectedBatch(stage: 'returned' | 'settled') {
+    if (!selectedAllocationOrder?.batchId) return;
+    setManualStageAction(stage);
+    try {
+      const path = stage === 'returned'
+        ? `/api/banking/escrow/execution-orders/${selectedAllocationOrder.batchId}/advance-return`
+        : `/api/banking/escrow/execution-orders/${selectedAllocationOrder.batchId}/advance-settlement`;
+      const response = await fetch(path, { method: 'POST' });
+      const payload = await readJsonResponse(response);
+      if (!response.ok) throw new Error(payload?.error || `advance ${stage} HTTP ${response.status}`);
+      setLog((items) => [`[escrow ${stage}] batch ${selectedAllocationOrder.batchId}`, ...items]);
+      await Promise.allSettled([refreshBackendExecutionQueue(), refreshBatchSummary(), refresh()]);
+    } catch (e: any) {
+      setBackendQueueError(String(e?.message || e));
+    } finally {
+      setManualStageAction(null);
     }
   }
 
   useEffect(() => {
     // initial load (no periodic timer)
     refreshBatchSummary();
+    refreshBackendExecutionQueue();
     // no interval â€” avoid noisy periodic refreshes/log spam
     return;
   }, [escrow]);
@@ -936,8 +965,11 @@ export default function EscrowTab() {
   useEffect(() => { refresh(); }, [provider, escrowAddr]);
 
   async function fetchPortfolioAssets() {
-    const registryAddr = getRuntimeAddress('PortfolioRegistry');
-    if (!registryAddr || !provider) return;
+    const registryAddr = portfolioRegistryAddress;
+    if (!provider || !isValidAddress(registryAddr)) {
+      setPortfolioAssets([]);
+      return;
+    }
     try {
       const registry = new Contract(registryAddr, PORTFOLIO_REGISTRY_ABI, provider);
       const raw = await registry.getAllAssets();
@@ -955,8 +987,8 @@ export default function EscrowTab() {
   }
 
   async function fetchExecutionRoutes() {
-    const registryAddr = getRuntimeAddress('ExecutionRouteRegistry');
-    if (!registryAddr || !provider || !isValidAddress(registryAddr)) {
+    const registryAddr = executionRouteRegistryAddress;
+    if (!provider || !isValidAddress(registryAddr)) {
       setExecutionRoutes([]);
       return;
     }
@@ -1031,23 +1063,69 @@ export default function EscrowTab() {
     return positive.map((item) => ({ ...item, weight: item.weight / total }));
   }
 
-  async function fetchAAAAllocation(assets: PortfolioRegistryAsset[]) {
+  async function fetchAAAAllocation(assets: PortfolioRegistryAsset[], batchId?: string | null) {
     setAaaLoading(true);
     setAaaError(null);
-    const batchPrincipalUsd6 = toBigIntSafe(activeBatches[0]?.totalCollateralUsd ?? 0);
+    const targetBatchId = batchId
+      || selectedAllocationBatchId
+      || backendExecutionOrders.find((order) => !['settled', 'failed'].includes(order.executionStatus))?.batchId
+      || backendExecutionOrders[0]?.batchId;
+    const selectedOrder = targetBatchId
+      ? backendExecutionOrders.find((order) => order.batchId === targetBatchId)
+      : null;
+    if (!selectedOrder) {
+      setAaaAllocation(null);
+      setAaaError('No Escrow execution order is available for AAA allocation.');
+      setAaaLoading(false);
+      return;
+    }
+    const selectedPlan = backendAllocationPlans.find((plan) => plan.batchId === selectedOrder.batchId);
+    if (selectedPlan?.allocationResult) {
+      setAaaAllocation(selectedPlan.allocationResult);
+      setAaaError(null);
+      setAaaLoading(false);
+      return;
+    }
+    setAaaAllocation(null);
+    setAaaError(`No stored AAA allocation result yet for batch #${selectedOrder.batchId}.`);
+    setAaaLoading(false);
+    return;
+    const batchPrincipalUsd6 = BigInt(Math.max(0, Math.round(Number(selectedOrder.principalReceivedUsd || 0) * 1_000_000)));
     const universe = getEligibleAllocationUniverse(assets, batchPrincipalUsd6);
     const excludedSummary = universe.excluded.length > 0
       ? ` Excluded: ${universe.excluded.map((asset) => `${asset.symbol} (${asset.reasons.join(', ')})`).join('; ')}.`
       : '';
 
     if (universe.eligible.length === 0) {
-      setAaaAllocation({ source: 'fallback', timestamp: new Date().toISOString(), assets: [] });
+      setAaaAllocation(null);
       setAaaError(`No eligible assets for this batch.${excludedSummary}`);
       setAaaLoading(false);
       return;
     }
     try {
-      const resp = await fetch(AAA_ENDPOINT, { signal: AbortSignal.timeout(8000) });
+      const aaaPayload = {
+        durationClass: selectedOrder?.durationClass,
+        policyProfileId: selectedOrder?.policyProfileId,
+        strategyClass: selectedOrder?.strategyClass,
+        timing: selectedOrder ? {
+          targetReturnAt: selectedOrder.targetReturnAt,
+          hardCloseAt: selectedOrder.hardCloseAt,
+        } : undefined,
+        routeAllowlist: selectedOrder?.eligibleRouteTypes,
+        marketContext: { source: 'escrow-ui', mode: 'localhost' },
+        universe: universe.eligible.map((asset) => ({
+          symbol: asset.symbol,
+          riskClass: asset.riskClass,
+          role: asset.role,
+          minimumInvestmentUsd6: asset.minimumInvestmentUsd6.toString(),
+        })),
+      };
+      const resp = await fetch(AAA_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(aaaPayload),
+        signal: AbortSignal.timeout(8000),
+      });
       if (resp.ok) {
         const data = await resp.json();
         const fetched: AAAAssetWeight[] = data.assets ?? data.allocations ?? [];
@@ -1057,7 +1135,7 @@ export default function EscrowTab() {
             fetched.filter((asset) => eligibleSymbols.has(String(asset.symbol ?? '').toLowerCase()))
           );
           if (normalized.length > 0) {
-            setAaaAllocation({ source: 'aaa', timestamp: new Date().toISOString(), assets: normalized });
+            setAaaAllocation(null);
             if (excludedSummary) {
               setAaaError(`AAA weights filtered by batch rules.${excludedSummary}`);
             }
@@ -1070,11 +1148,7 @@ export default function EscrowTab() {
     // Fallback: equal weights across all active portfolio assets
     if (universe.eligible.length > 0) {
       const w = 1 / universe.eligible.length;
-      setAaaAllocation({
-        source: 'fallback',
-        timestamp: new Date().toISOString(),
-        assets: universe.eligible.map((asset) => ({ symbol: asset.symbol, weight: w })),
-      });
+      setAaaAllocation(null);
       setAaaError('AAA service not reachable — showing equal-weight fallback');
     } else {
       setAaaError('AAA service not reachable and no portfolio assets found in registry');
@@ -1084,11 +1158,11 @@ export default function EscrowTab() {
 
   useEffect(() => {
     if (provider) fetchPortfolioAssets();
-  }, [provider]);
+  }, [provider, portfolioRegistryAddress]);
 
   useEffect(() => {
     if (provider) fetchExecutionRoutes();
-  }, [provider]);
+  }, [provider, executionRouteRegistryAddress]);
 
   async function depositReturnForBatch() {
     if (isPaused) {
@@ -1388,116 +1462,6 @@ export default function EscrowTab() {
     }
   }
 
-  async function postComplianceAttestation() {
-    if (!signer || !escrowAddr || !isOperator) return;
-    try {
-      setLoading(true);
-      const escrowWrite = new Contract(escrowAddr, INVESTMENT_ESCROW_ABI, signer);
-      const batchId = Number(ledgerBatchId || batchIdInput);
-      const routeId = Number(routeIdInput);
-      const hours = Number(attestationExpiryHours || '24');
-      const latest = await provider?.getBlock('latest');
-      const expiresAt = BigInt((latest?.timestamp ?? Math.floor(Date.now() / 1000)) + Math.max(1, Math.floor(hours)) * 3600);
-      const tx = await (escrowWrite as any).postComplianceAttestation(batchId, routeId, toBytes32Ref(attestationHashInput), expiresAt);
-      await tx.wait();
-      setLog(l => [`[escrow] compliance attestation posted for batch=${batchId} route=${routeId} tx=${tx.hash}`, ...l]);
-      await refreshLedgerSnapshot(String(batchId));
-    } catch (e: any) {
-      setLog(l => [`[escrow] attestation failed: ${String(e?.message || e)}`, ...l]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function openEscrowPosition() {
-    if (!signer || !escrowAddr || !isOperator) return;
-    try {
-      setLoading(true);
-      const escrowWrite = new Contract(escrowAddr, INVESTMENT_ESCROW_ABI, signer);
-      const batchId = Number(ledgerBatchId || batchIdInput);
-      const tx = await (escrowWrite as any).openPosition(
-        batchId,
-        Number(routeIdInput),
-        assetSymbolInput.trim(),
-        parseUsd6Input(commitmentInput),
-        parseE18Input(quantityInput),
-        toBytes32Ref(externalRefInput),
-        parseUsd6Input(positionFeeInput)
-      );
-      await tx.wait();
-      setLog(l => [`[escrow] position opened for batch=${batchId} tx=${tx.hash}`, ...l]);
-      await refreshLedgerSnapshot(String(batchId));
-    } catch (e: any) {
-      setLog(l => [`[escrow] open position failed: ${String(e?.message || e)}`, ...l]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function markEscrowPosition() {
-    if (!signer || !escrowAddr || !isOperator) return;
-    try {
-      setLoading(true);
-      const escrowWrite = new Contract(escrowAddr, INVESTMENT_ESCROW_ABI, signer);
-      const tx = await (escrowWrite as any).markPosition(
-        Number(positionIdInput),
-        parseUsd6Input(carryingValueInput),
-        toBytes32Ref(markHashInput),
-        Math.floor(Date.now() / 1000)
-      );
-      await tx.wait();
-      setLog(l => [`[escrow] position marked tx=${tx.hash}`, ...l]);
-      await refreshLedgerSnapshot();
-    } catch (e: any) {
-      setLog(l => [`[escrow] mark position failed: ${String(e?.message || e)}`, ...l]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function closeEscrowPosition() {
-    if (!signer || !escrowAddr || !isOperator) return;
-    try {
-      setLoading(true);
-      const escrowWrite = new Contract(escrowAddr, INVESTMENT_ESCROW_ABI, signer);
-      const tx = await (escrowWrite as any).closePosition(
-        Number(positionIdInput),
-        parseUsd6Input(proceedsInput),
-        toBytes32Ref(closeRefInput),
-        parseUsd6Input(closeFeeInput)
-      );
-      await tx.wait();
-      setLog(l => [`[escrow] position closed tx=${tx.hash}`, ...l]);
-      await refreshLedgerSnapshot();
-    } catch (e: any) {
-      setLog(l => [`[escrow] close position failed: ${String(e?.message || e)}`, ...l]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function finalizeEscrowSettlement() {
-    if (!signer || !escrowAddr || !isOperator) return;
-    try {
-      setLoading(true);
-      const escrowWrite = new Contract(escrowAddr, INVESTMENT_ESCROW_ABI, signer);
-      const batchId = Number(ledgerBatchId || batchIdInput);
-      const tx = await (escrowWrite as any).finalizeBatchSettlement(
-        batchId,
-        toBytes32Ref(settlementHashInput),
-        toBytes32Ref(complianceHashInput)
-      );
-      await tx.wait();
-      setLog(l => [`[escrow] batch settlement finalized for batch=${batchId} tx=${tx.hash}`, ...l]);
-      await refreshLedgerSnapshot(String(batchId));
-      await postWriteRefresh('finalize-batch-settlement');
-    } catch (e: any) {
-      setLog(l => [`[escrow] finalize settlement failed: ${String(e?.message || e)}`, ...l]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   // Helper: sanitize, dedupe and normalize batch arrays
   function normalizeBatches(raw: any[] | undefined) {
     if (!Array.isArray(raw)) return [];
@@ -1541,6 +1505,48 @@ export default function EscrowTab() {
     return String(batchId).includes(query);
   }
 
+  function matchOrderFilter(order: BackendExecutionOrder, filter: string) {
+    const query = filter.trim().toLowerCase();
+    if (!query) return true;
+    return [
+      order.batchId,
+      order.sourceType,
+      order.executionStatus,
+      order.routeStatus,
+      order.policyProfileId,
+      order.strategyClass,
+    ].some((value) => String(value ?? '').toLowerCase().includes(query));
+  }
+
+  function orderStageIndex(order: BackendExecutionOrder) {
+    if (order.executionStatus === 'settled' || order.settlementStatus === 'settled') return 5;
+    if (order.executionStatus === 'returned' || order.settlementStatus === 'return_recorded') return 4;
+    if (order.executionStatus === 'deployed' || order.deploymentStatus === 'deployed') return 3;
+    if (order.executionStatus === 'allocation_validated' || order.aaaRequestStatus === 'completed') return 2;
+    if (order.executionStatus === 'pending_allocation' || order.aaaRequestStatus === 'requesting') return 1;
+    return 0;
+  }
+
+  function orderTone(order: BackendExecutionOrder): 'success' | 'warning' | 'danger' | 'neutral' {
+    if (order.executionStatus === 'failed') return 'danger';
+    if (order.executionStatus === 'settled' || order.settlementStatus === 'settled') return 'success';
+    if (order.executionStatus === 'deployed' || order.executionStatus === 'returned') return 'success';
+    if (order.executionStatus === 'received' || order.executionStatus === 'pending_allocation') return 'warning';
+    return 'neutral';
+  }
+
+  const orderStageLabels = ['Received', 'Allocation', 'Validated', 'Deployed', 'Returned', 'Settled'];
+  const filteredExecutionOrders = [...backendExecutionOrders]
+    .sort((a, b) => {
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : Number(b.batchId);
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : Number(a.batchId);
+      return bTime - aTime;
+    })
+    .filter((order) => matchOrderFilter(order, batchFilter));
+  const orderTotalPages = Math.max(1, Math.ceil(filteredExecutionOrders.length / batchPageSize));
+  const safeOrderPage = Math.min(orderPage, orderTotalPages);
+  const visibleExecutionOrders = filteredExecutionOrders.slice((safeOrderPage - 1) * batchPageSize, safeOrderPage * batchPageSize);
+
   const activeSortedFiltered = [...activeBatches]
     .sort((a: any, b: any) => Number(b?.id ?? 0) - Number(a?.id ?? 0))
     .filter((b: any) => matchBatchFilter(Number(b?.id ?? 0), batchFilter));
@@ -1566,6 +1572,8 @@ export default function EscrowTab() {
   const closedVisible = closedSortedFiltered.slice((safeClosedPage - 1) * batchPageSize, safeClosedPage * batchPageSize);
 
   useEffect(() => {
+    setOrderPage(1);
+    setDeploymentHistoryPage(1);
     setActivePage(1);
     setInvestedPage(1);
     setClosedPage(1);
@@ -1574,45 +1582,424 @@ export default function EscrowTab() {
   const runningCount = activeBatches.filter((b: any) => Number(b?.id) > 0).length;
   const investedCount = investedBatches.filter((b: any) => Number(b?.id) > 0).length;
   const closedCount = closedBatches.filter((b: any) => Number((b as any)?.batch?.id) > 0).length;
-  const externalPortfolioAssets = portfolioAssets.filter(
-    (asset) => asset.role === 6 || !isValidAddress(asset.token) || asset.token === ethers.ZeroAddress
+  const activeAllocationOrder = backendExecutionOrders.find((order) => !['settled', 'failed'].includes(order.executionStatus))
+    ?? backendExecutionOrders[0]
+    ?? null;
+  const selectedAllocationOrder = (selectedAllocationBatchId
+    ? backendExecutionOrders.find((order) => order.batchId === selectedAllocationBatchId)
+    : null) ?? activeAllocationOrder;
+  const selectedAllocationPlan = selectedAllocationOrder
+    ? backendAllocationPlans.find((plan) => plan.batchId === selectedAllocationOrder.batchId) ?? null
+    : null;
+  const selectedAllocationPrincipalUsd6 = BigInt(Math.max(0, Math.round(Number(selectedAllocationOrder?.principalReceivedUsd || 0) * 1_000_000)));
+  const allocationEligibility = getEligibleAllocationUniverse(portfolioAssets, selectedAllocationPrincipalUsd6);
+
+  useEffect(() => {
+    if (selectedAllocationBatchId && backendExecutionOrders.some((order) => order.batchId === selectedAllocationBatchId)) {
+      return;
+    }
+    const nextDefaultBatchId = activeAllocationOrder?.batchId ?? null;
+    if (nextDefaultBatchId !== selectedAllocationBatchId) {
+      setSelectedAllocationBatchId(nextDefaultBatchId);
+    }
+  }, [selectedAllocationBatchId, backendExecutionOrders, activeAllocationOrder?.batchId]);
+
+  useEffect(() => {
+    if (!selectedAllocationOrder) {
+      setAaaAllocation(null);
+      setAaaError('No Escrow execution order is available for AAA allocation.');
+      return;
+    }
+    if (selectedAllocationPlan?.allocationResult) {
+      setAaaAllocation(selectedAllocationPlan.allocationResult);
+      setAaaError(null);
+      return;
+    }
+    setAaaAllocation(null);
+    setAaaError(`No stored AAA allocation result yet for batch #${selectedAllocationOrder.batchId}.`);
+  }, [selectedAllocationOrder, selectedAllocationPlan]);
+
+  useEffect(() => {
+    if (!provider) return;
+    if (!selectedAllocationOrder) return;
+    if (portfolioAssets.length === 0) return;
+    void fetchAAAAllocation(portfolioAssets, selectedAllocationOrder.batchId);
+  }, [
+    provider,
+    selectedAllocationOrder?.batchId,
+    selectedAllocationOrder?.principalReceivedUsd,
+    selectedAllocationOrder?.policyProfileId,
+    selectedAllocationOrder?.strategyClass,
+    selectedAllocationOrder?.targetReturnAt,
+    selectedAllocationOrder?.hardCloseAt,
+    portfolioAssets.length,
+    executionRoutes.length,
+  ]);
+  const eligibleAssetSymbols = new Set(allocationEligibility.eligible.map((asset) => asset.symbol.toLowerCase()));
+  const aaaDeploymentLegs: AAADisplayLeg[] = selectedAllocationOrder && aaaAllocation && aaaAllocation.batchId === selectedAllocationOrder.batchId
+    ? aaaAllocation.assets
+        .filter((asset) => eligibleAssetSymbols.has(asset.symbol.toLowerCase()))
+        .map((asset) => {
+          const meta = allocationEligibility.eligible.find((item) => item.symbol.toLowerCase() === asset.symbol.toLowerCase())
+            ?? portfolioAssets.find((item) => item.symbol.toLowerCase() === asset.symbol.toLowerCase());
+          const matchingRoutes = executionRoutes.filter((route) => route.assetSymbol.toLowerCase() === asset.symbol.toLowerCase() && route.active);
+          return {
+            batchId: selectedAllocationOrder.batchId,
+            symbol: asset.symbol,
+            assetName: meta?.name || asset.symbol,
+            riskClassLabel: RISK_CLASS_LABELS[Number(meta?.riskClass ?? 0)] || `Risk ${Number(meta?.riskClass ?? 0)}`,
+            roleLabel: ASSET_ROLE_LABELS[Number(meta?.role ?? 0)] || `Role ${Number(meta?.role ?? 0)}`,
+            weightPct: `${(asset.weight * 100).toFixed(1)}%`,
+            principalUsd6: BigInt(Math.round(Number(selectedAllocationOrder.principalReceivedUsd || 0) * asset.weight * 1_000_000)),
+            expectedCloseAt: selectedAllocationOrder.targetReturnAt,
+            source: aaaAllocation.source,
+            routeSummary: matchingRoutes.length > 0
+              ? `${matchingRoutes.length} eligible route${matchingRoutes.length === 1 ? '' : 's'}`
+              : 'Portfolio asset only',
+          };
+        })
+    : [];
+  const portfolioAssetBySymbol = new Map(portfolioAssets.map((asset) => [asset.symbol.toLowerCase(), asset] as const));
+  const deploymentBatchGroups = [...backendExecutionOrders]
+    .sort((a, b) => {
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : Number(b.batchId);
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : Number(a.batchId);
+      return bTime - aTime;
+    })
+    .filter((order) => matchOrderFilter(order, batchFilter))
+    .map((order) => {
+      const plan = backendAllocationPlans.find((item) => item.batchId === order.batchId);
+      const planDecisionContext = (plan?.decisionContext ?? {}) as Record<string, any>;
+      const planSource: 'aaa' | 'fallback' = planDecisionContext?.aaaServiceUsed ? 'aaa' : 'fallback';
+      let legs: AAADisplayLeg[] = [];
+      const storedLegs = backendAllocationLegs.filter((leg) => leg.batchId === order.batchId);
+
+      if (storedLegs.length > 0) {
+        const grouped = new Map<string, { principalUsd6: bigint; expectedCloseAt: string; routeTypes: Set<string> }>();
+        for (const leg of storedLegs) {
+          const symbol = String(leg.portfolio || leg.routeId || leg.routeType || '').trim();
+          if (!symbol) continue;
+          const existing = grouped.get(symbol) ?? {
+            principalUsd6: 0n,
+            expectedCloseAt: String(leg.expectedCloseAt || order.targetReturnAt),
+            routeTypes: new Set<string>(),
+          };
+          existing.principalUsd6 += BigInt(Math.max(0, Math.round(Number(leg.principalAllocatedUsd || 0) * 1_000_000)));
+          if (leg.routeType) existing.routeTypes.add(String(leg.routeType));
+          if (!existing.expectedCloseAt && leg.expectedCloseAt) existing.expectedCloseAt = String(leg.expectedCloseAt);
+          grouped.set(symbol, existing);
+        }
+        legs = Array.from(grouped.entries()).map(([symbol, groupedLeg]) => {
+          const meta = portfolioAssetBySymbol.get(symbol.toLowerCase());
+          const principalWeight = Number(order.principalReceivedUsd || 0) > 0
+            ? Number(groupedLeg.principalUsd6) / Math.round(Number(order.principalReceivedUsd || 0) * 1_000_000)
+            : 0;
+          const routeTypes = Array.from(groupedLeg.routeTypes);
+          return {
+            batchId: order.batchId,
+            symbol,
+            assetName: meta?.name || symbol,
+            riskClassLabel: RISK_CLASS_LABELS[Number(meta?.riskClass ?? 0)] || `Risk ${Number(meta?.riskClass ?? 0)}`,
+            roleLabel: ASSET_ROLE_LABELS[Number(meta?.role ?? 0)] || `Role ${Number(meta?.role ?? 0)}`,
+            weightPct: `${(principalWeight * 100).toFixed(1)}%`,
+            principalUsd6: groupedLeg.principalUsd6,
+            expectedCloseAt: groupedLeg.expectedCloseAt || order.targetReturnAt,
+            source: planSource,
+            routeSummary: routeTypes.length > 0
+              ? `${routeTypes.length} deployed route${routeTypes.length === 1 ? '' : 's'}: ${routeTypes.join(', ')}`
+              : 'Stored deployment legs',
+          };
+        });
+      } else if (plan?.allocationResult?.assets && plan.allocationResult.assets.length > 0) {
+        legs = plan.allocationResult.assets.map((asset) => ({
+          batchId: order.batchId,
+          symbol: asset.symbol,
+          assetName: asset.assetName || portfolioAssetBySymbol.get(asset.symbol.toLowerCase())?.name || asset.symbol,
+          riskClassLabel: RISK_CLASS_LABELS[Number(asset.riskClass ?? portfolioAssetBySymbol.get(asset.symbol.toLowerCase())?.riskClass ?? 0)] || `Risk ${Number(asset.riskClass ?? 0)}`,
+          roleLabel: ASSET_ROLE_LABELS[Number(asset.role ?? portfolioAssetBySymbol.get(asset.symbol.toLowerCase())?.role ?? 0)] || `Role ${Number(asset.role ?? 0)}`,
+          weightPct: `${(Number(asset.weight || 0) * 100).toFixed(1)}%`,
+          principalUsd6: BigInt(Math.max(0, Math.round(Number(asset.principalAllocatedUsd || 0) * 1_000_000))),
+          expectedCloseAt: asset.expectedCloseAt || order.targetReturnAt,
+          source: plan.allocationResult?.source || planSource,
+          routeSummary: Array.isArray(asset.routeTypes) && asset.routeTypes.length > 0
+            ? `${asset.routeTypes.length} planned route${asset.routeTypes.length === 1 ? '' : 's'}: ${asset.routeTypes.join(', ')}`
+            : 'Stored AAA allocation result',
+        }));
+      } else {
+        const proposedLegs = Array.isArray((plan as any)?.proposedLegs) ? ((plan as any).proposedLegs as Array<Record<string, any>>) : [];
+        const grouped = new Map<string, { principalUsd6: bigint; expectedCloseAt: string; routeTypes: Set<string> }>();
+        for (const leg of proposedLegs) {
+          const symbol = String(leg?.portfolio || '').trim();
+          if (!symbol) continue;
+          const existing = grouped.get(symbol) ?? {
+            principalUsd6: 0n,
+            expectedCloseAt: String(leg?.expectedCloseAt || order.targetReturnAt),
+            routeTypes: new Set<string>(),
+          };
+          existing.principalUsd6 += BigInt(Math.max(0, Math.round(Number(leg?.principalAllocatedUsd || 0) * 1_000_000)));
+          if (leg?.routeType) existing.routeTypes.add(String(leg.routeType));
+          if (!existing.expectedCloseAt && leg?.expectedCloseAt) existing.expectedCloseAt = String(leg.expectedCloseAt);
+          grouped.set(symbol, existing);
+        }
+        legs = Array.from(grouped.entries()).map(([symbol, groupedLeg]) => {
+          const meta = portfolioAssetBySymbol.get(symbol.toLowerCase());
+          const principalWeight = Number(order.principalReceivedUsd || 0) > 0
+            ? Number(groupedLeg.principalUsd6) / Math.round(Number(order.principalReceivedUsd || 0) * 1_000_000)
+            : 0;
+          const routeTypes = Array.from(groupedLeg.routeTypes);
+          return {
+            batchId: order.batchId,
+            symbol,
+            assetName: meta?.name || symbol,
+            riskClassLabel: RISK_CLASS_LABELS[Number(meta?.riskClass ?? 0)] || `Risk ${Number(meta?.riskClass ?? 0)}`,
+            roleLabel: ASSET_ROLE_LABELS[Number(meta?.role ?? 0)] || `Role ${Number(meta?.role ?? 0)}`,
+            weightPct: `${(principalWeight * 100).toFixed(1)}%`,
+            principalUsd6: groupedLeg.principalUsd6,
+            expectedCloseAt: groupedLeg.expectedCloseAt || order.targetReturnAt,
+            source: planSource,
+            routeSummary: routeTypes.length > 0
+              ? `${routeTypes.length} planned route${routeTypes.length === 1 ? '' : 's'}: ${routeTypes.join(', ')}`
+              : 'Stored allocation plan',
+          };
+        });
+      }
+
+      return { order, plan, legs };
+    })
+    .filter((group) => group.legs.length > 0);
+  const deploymentHistoryTotalPages = Math.max(1, Math.ceil(deploymentBatchGroups.length / batchPageSize));
+  const safeDeploymentHistoryPage = Math.min(deploymentHistoryPage, deploymentHistoryTotalPages);
+  const visibleDeploymentBatchGroups = deploymentBatchGroups.slice(
+    (safeDeploymentHistoryPage - 1) * batchPageSize,
+    safeDeploymentHistoryPage * batchPageSize
   );
-  const routeIsBatchEligible = (route?: ExecutionRouteView | null): boolean => {
-    if (!route?.active) return false;
-    if (route.routeType !== 3) return true;
-    return route.documentsComplete
-      && route.sagittaFundApproved
-      && route.ndaSigned
-      && route.pnlEndpoint.trim().length > 0;
+  const vaultOrderBatchIds = new Set(
+    backendExecutionOrders
+      .filter((order) => String(order.sourceType || '').toUpperCase() === 'VAULT')
+      .map((order) => order.batchId)
+  );
+  const vaultCapitalDeployedExternallyUsd6 = backendAllocationLegs.reduce((sum, leg) => {
+    if (!vaultOrderBatchIds.has(leg.batchId)) return sum;
+    if (leg.status !== 'deployed') return sum;
+    return sum + BigInt(Math.max(0, Math.round(Number(leg.principalAllocatedUsd || 0) * 1_000_000)));
+  }, 0n);
+  // In simulated mode the on-chain escrow balance stays at the original funded principal — it
+  // never receives profit from route adapters. Add the net gain/loss from returned legs so the
+  // displayed available balance reflects the actual returned value (including yield or drawdown).
+  const returnedLegsNetUsd6 = backendAllocationLegs.reduce((sum, leg) => {
+    if (!vaultOrderBatchIds.has(leg.batchId)) return sum;
+    if (!['returned', 'settled'].includes(leg.status)) return sum;
+    const principal = Number(leg.principalAllocatedUsd || 0) * 1_000_000;
+    const returned = Number(leg.returnedAmountUsd || leg.principalAllocatedUsd || 0) * 1_000_000;
+    return sum + (returned - principal);
+  }, 0);
+  const escrowWalletUsdcUsd6 = BigInt(Math.max(0, Math.round(Number(escrowUsdc || 0))));
+  const availableEscrowUsdcUsd6 = BigInt(Math.max(
+    0,
+    Math.round(Number(escrowWalletUsdcUsd6) + returnedLegsNetUsd6 - Number(vaultCapitalDeployedExternallyUsd6))
+  ));
+  const ordersByStatus = {
+    queued: backendExecutionOrders.filter(o => ['received', 'pending_allocation', 'allocation_validated'].includes(o.executionStatus)).length,
+    deployed: backendExecutionOrders.filter(o => o.deploymentStatus === 'deployed' || o.executionStatus === 'deployed').length,
+    closing: backendExecutionOrders.filter(o => ['closing', 'returned'].includes(o.executionStatus)).length,
+    settled: backendExecutionOrders.filter(o => o.settlementStatus === 'settled' || o.executionStatus === 'settled').length,
   };
-  const activeAllocationBatch = activeBatches[0] ?? null;
-  const activeAllocationPrincipalUsd6 = toBigIntSafe(activeAllocationBatch?.totalCollateralUsd ?? 0);
-  const allocationEligibility = getEligibleAllocationUniverse(portfolioAssets, activeAllocationPrincipalUsd6);
+  const canAdvanceSelectedToReturned = Boolean(
+    selectedAllocationOrder &&
+    ['deployed', 'closing'].includes(selectedAllocationOrder.executionStatus) &&
+    selectedAllocationOrder.settlementStatus !== 'settled'
+  );
+  const canAdvanceSelectedToSettled = Boolean(
+    selectedAllocationOrder &&
+    (selectedAllocationOrder.executionStatus === 'returned' || selectedAllocationOrder.settlementStatus === 'return_recorded') &&
+    selectedAllocationOrder.settlementStatus !== 'settled'
+  );
 
   return (
     <div className="tab-screen">
       <PageHeader
-        title="Escrow Management"
-        description="Track pending, invested, and closed batches while driving batch lifecycle actions from the escrow surface."
+        title="Escrow Orchestration"
+        description="Monitor Treasury execution orders, AAA allocation, adapter deployment, return, and settlement automation."
         meta={
           <>
             <span className="data-chip"><Clock size={12} /> Updated: {new Date().toLocaleTimeString()}</span>
             <span className="data-chip">Escrow: {formatAddressShort(escrowAddr)}</span>
-            <span className="data-chip">Pending batch: {currentPendingId ?? 'n/a'}</span>
+            <span className="data-chip">Orders: {backendExecutionOrders.length}</span>
             <span className="data-chip" data-tone={isOperator ? 'warning' : 'neutral'}>Role: {role}</span>
-            <span className="data-chip" data-tone={runningCount > 0 ? 'warning' : 'success'}>
-              {runningCount > 0 ? `${runningCount} running` : 'No running batches'}
+            <span className="data-chip" data-tone={ordersByStatus.deployed > 0 ? 'warning' : 'success'}>
+              {ordersByStatus.deployed > 0 ? `${ordersByStatus.deployed} deployed` : 'No deployed orders'}
             </span>
           </>
         }
       />
+
+      <section className="grid grid-cols-12 gap-5">
+        <div className="sagitta-cell col-span-12">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 className="section-title !mb-0">Batch Tracker</h3>
+              <p className="section-subtitle !mt-1 !mb-0">Treasury handoffs awaiting allocation, route assignment, deployment, return, and settlement.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button className="action-button" onClick={refreshBackendExecutionQueue}>Refresh Queue</button>
+              <button className="action-button action-button--primary" onClick={runBackendAutomation} disabled={automationRunning}>
+                {automationRunning ? 'Running...' : 'Run Workers'}
+              </button>
+            </div>
+          </div>
+          <div className="filter-toolbar mb-4">
+            <div className="min-w-[220px] grow">
+              <label className="text-xs uppercase tracking-[0.16em] text-slate-400">Batch Filter</label>
+              <input
+                className="w-full mt-1 p-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
+                value={batchFilter}
+                onChange={(e) => setBatchFilter(e.target.value)}
+                placeholder="Batch, source, status, policy, strategy"
+              />
+            </div>
+            <div className="w-[160px]">
+              <label className="text-xs uppercase tracking-[0.16em] text-slate-400">Rows</label>
+              <select
+                className="w-full mt-1 p-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
+                value={String(batchPageSize)}
+                onChange={(e) => setBatchPageSize(Number(e.target.value))}
+              >
+                <option value="4">4</option>
+                <option value="6">6</option>
+                <option value="10">10</option>
+                <option value="20">20</option>
+              </select>
+            </div>
+            <div className="text-xs text-slate-400 pb-1">
+              {visibleExecutionOrders.length} / {filteredExecutionOrders.length} shown
+            </div>
+          </div>
+          {backendQueueError ? (
+            <div className="status-banner status-banner--warning">{backendQueueError}</div>
+          ) : null}
+          {backendExecutionOrders.length === 0 ? (
+            <div className="panel-note">No Treasury execution orders have been handed to Escrow yet.</div>
+          ) : filteredExecutionOrders.length === 0 ? (
+            <div className="panel-note">No execution orders match the current filter.</div>
+          ) : (
+            <div className="panel-stack panel-stack--dense">
+              {visibleExecutionOrders.map((order) => {
+                const legs = backendAllocationLegs.filter((leg) => leg.batchId === order.batchId);
+                const plan = backendAllocationPlans.find((item) => item.batchId === order.batchId);
+                const stage = orderStageIndex(order);
+                const eligibleCount = Number(plan?.universeSnapshot?.summary?.eligibleCandidates ?? 0);
+                const excludedCount = Number(plan?.universeSnapshot?.summary?.excludedCandidates ?? 0);
+                return (
+                  <div key={order.id} className="panel-row" style={{ alignItems: 'flex-start', gap: '1rem' }}>
+                    <span className="panel-row__label" style={{ minWidth: 120 }}>
+                      Batch #{order.batchId}
+                      <div className="text-[11px] text-slate-500">{order.sourceType || 'BANK'} source</div>
+                    </span>
+                    <span className="panel-row__value" style={{ flex: 1 }}>
+                      <div>
+                        {formatUsd6Value(order.principalReceivedUsd * 1_000_000)}
+                        {' | '}
+                        {order.durationClass}
+                        {' | '}
+                        horizon {order.executionHorizon || 'n/a'}
+                        {' | '}
+                        {order.policyProfileId}
+                        {' | '}
+                        {order.strategyClass}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-1">
+                        target {new Date(order.targetReturnAt).toLocaleDateString()}
+                        {' | hard close '}
+                        {new Date(order.hardCloseAt).toLocaleDateString()}
+                        {plan ? ` | AAA plan ${plan.status}` : ' | no AAA plan yet'}
+                        {plan ? ` | universe ${eligibleCount} eligible / ${excludedCount} excluded` : ''}
+                        {legs.length ? ` | ${legs.length} leg${legs.length === 1 ? '' : 's'}` : ' | no legs yet'}
+                        {legs.some((leg) => leg.returnedAmountUsd) ? ` | returned ${formatUsd6Value(legs.reduce((sum, leg) => sum + (leg.returnedAmountUsd || 0), 0) * 1_000_000)}` : ''}
+                      </div>
+                      {plan?.validationResult?.errors && plan.validationResult.errors.length > 0 && (
+                        <div className="text-[11px] text-amber-400 mt-1">
+                          {plan.validationResult.errors.join(' | ')}
+                        </div>
+                      )}
+                      {plan?.universeSnapshot?.excludedUniverse && plan.universeSnapshot.excludedUniverse.length > 0 && (
+                        <div className="text-[11px] text-slate-500 mt-1">
+                          Excluded: {plan.universeSnapshot.excludedUniverse.slice(0, 3).map((item) => `${item.assetSymbol} (${item.reasons.join(', ')})`).join('; ')}
+                          {plan.universeSnapshot.excludedUniverse.length > 3 ? ` +${plan.universeSnapshot.excludedUniverse.length - 3} more` : ''}
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {orderStageLabels.map((label, index) => (
+                          <span
+                            key={label}
+                            className="rounded px-2 py-1 text-[11px] border"
+                            style={{
+                              borderColor: index <= stage ? 'rgba(74, 222, 128, 0.35)' : 'rgba(100, 116, 139, 0.35)',
+                              color: index <= stage ? 'rgb(187, 247, 208)' : 'rgb(148, 163, 184)',
+                              background: index <= stage ? 'rgba(22, 101, 52, 0.16)' : 'rgba(15, 23, 42, 0.35)',
+                            }}
+                          >
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    </span>
+                    <span className="panel-row__value" data-tone={orderTone(order)} style={{ minWidth: 200, textAlign: 'right' }}>
+                      {order.executionStatus.replaceAll('_', ' ')}
+                      <div className="text-[11px] text-slate-500">
+                        AAA {order.aaaRequestStatus || 'n/a'} / deploy {order.deploymentStatus || 'n/a'} / settle {order.settlementStatus || 'n/a'}
+                      </div>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {filteredExecutionOrders.length > 0 && (
+            <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+              <button
+                className="pagination-button"
+                onClick={() => setOrderPage(Math.max(1, safeOrderPage - 1))}
+                disabled={safeOrderPage <= 1}
+              >
+                Prev
+              </button>
+              <span>Page {safeOrderPage} / {orderTotalPages}</span>
+              <button
+                className="pagination-button"
+                onClick={() => setOrderPage(Math.min(orderTotalPages, safeOrderPage + 1))}
+                disabled={safeOrderPage >= orderTotalPages}
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
 
       
       <section className="grid grid-cols-12 gap-5">
         <div className="sagitta-cell col-span-12 lg:col-span-4">
           <h3 className="section-title">Escrow Snapshot</h3>
           <div className="space-y-3">
-            <MetricCard title="Escrow USDC Balance" value={formatUsd6Value(escrowUsdc ?? 0)} tone="neutral" />
+            <MetricCard title="Available Escrow USDC" value={fmtUsd6(availableEscrowUsdcUsd6)} tone="neutral" />
+            <div className="panel-stack text-sm">
+              <div className="panel-row">
+                <span className="panel-row__label">Escrow wallet USDC</span>
+                <span className="panel-row__value">{fmtUsd6(escrowWalletUsdcUsd6)}</span>
+              </div>
+              <div className="panel-row">
+                <span className="panel-row__label">Transferred to external investments</span>
+                <span className="panel-row__value">{fmtUsd6(vaultCapitalDeployedExternallyUsd6)}</span>
+              </div>
+              {returnedLegsNetUsd6 !== 0 && (
+                <div className="panel-row">
+                  <span className="panel-row__label">Returned yield / drawdown</span>
+                  <span className={`panel-row__value ${returnedLegsNetUsd6 >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                    {returnedLegsNetUsd6 >= 0 ? '+' : ''}{fmtUsd6(BigInt(Math.round(returnedLegsNetUsd6)))}
+                  </span>
+                </div>
+              )}
+            </div>
             <div className="rounded-xl border border-slate-700/45 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.005)),rgba(8,9,12,0.88)] p-4">
               <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400 font-semibold">Escrow Address</div>
               <div className="mt-3 text-lg text-slate-100 font-mono">{formatAddressShort(escrowAddr)}</div>
@@ -1622,332 +2009,214 @@ export default function EscrowTab() {
         </div>
 
         <div className="sagitta-cell col-span-12 md:col-span-6 lg:col-span-4">
-          <h3 className="section-title">Batch Status</h3>
+          <h3 className="section-title">Automation Status</h3>
           <div className="panel-stack text-sm">
             <div className="panel-row">
-              <span className="panel-row__label">Current pending batch</span>
-              <span className="panel-row__value">{currentPendingId ?? 'n/a'}</span>
+              <span className="panel-row__label">Queued / allocation</span>
+              <span className="panel-row__value">{ordersByStatus.queued}</span>
             </div>
             <div className="panel-row">
-              <span className="panel-row__label">Pending principal</span>
-              <span className="panel-row__value">{pendingTotalUsd !== null ? fmtUsd6(pendingTotalUsd) : '$0.00'}</span>
+              <span className="panel-row__label">Deployed</span>
+              <span className="panel-row__value">{ordersByStatus.deployed}</span>
             </div>
             <div className="panel-row">
-              <span className="panel-row__label">Running / Invested / Closed</span>
-              <span className="panel-row__value">{runningCount} / {investedCount} / {closedCount}</span>
+              <span className="panel-row__label">Closing / settled</span>
+              <span className="panel-row__value">{ordersByStatus.closing} / {ordersByStatus.settled}</span>
             </div>
           </div>
-          <p className="text-xs text-slate-500 mt-3">Verify these before running batch actions.</p>
+          <p className="text-xs text-slate-500 mt-3">Workers are idempotent; retries refresh pending lifecycle jobs without duplicating legs.</p>
         </div>
 
         <div className="sagitta-cell col-span-12 md:col-span-6 lg:col-span-4">
-          <h3 className="section-title">Start Batch</h3>
-          {isOperator ? (
-            <>
-              <p className="text-sm text-slate-400 mb-4">
-                {isPaused
-                  ? 'Protocol is paused. Batch creation is disabled until the protocol is resumed.'
-                  : 'Roll pending into running and request treasury funding (admin path).'}
-              </p>
-              <button
-                onClick={handleStartBatch}
-                disabled={isPaused || loading}
-                className="action-button action-button--primary w-full"
-              >
-                {loading ? 'Submitting...' : 'Start Batch'}
-              </button>
-            </>
-          ) : (
-            <div className="panel-note">
-              Escrow write controls are hidden for viewer wallets. Connect an operator or owner wallet to reveal batch actions.
-            </div>
-          )}
+          <h3 className="section-title">Worker Queue</h3>
+          <div className="panel-stack text-sm">
+            <div className="panel-row"><span className="panel-row__label">Allocation plans</span><span className="panel-row__value">{backendAllocationPlans.length}</span></div>
+            <div className="panel-row"><span className="panel-row__label">Allocation legs</span><span className="panel-row__value">{backendAllocationLegs.length}</span></div>
+            <div className="panel-row"><span className="panel-row__label">Returned capital</span><span className="panel-row__value">{formatUsd6Value(backendAllocationLegs.reduce((sum, leg) => sum + (leg.returnedAmountUsd || 0), 0) * 1_000_000)}</span></div>
+          </div>
+          <p className="text-xs text-slate-500 mt-3">Treasury forms and funds batches. Escrow workers handle allocation, deployment, close, and settlement.</p>
         </div>
       </section>
 
       <section className="grid grid-cols-12 gap-5">
         <div className="sagitta-cell col-span-12 xl:col-span-8">
-          <h3 className="section-title">Investment Actions</h3>
-          {isOperator ? (
-            <>
-              <p className="section-subtitle">
-                {isPaused
-                  ? 'Protocol is paused. Investment and return posting are disabled until the protocol is resumed.'
-                  : 'Advance a running batch into investment, then deposit the final result using the closing NAV.'}
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm text-slate-300">Batch ID</label>
-                  <input
-                    className="w-full mt-1 p-2 rounded bg-slate-900"
-                    value={batchIdInput}
-                    onChange={e => setBatchIdInput(e.target.value)}
-                    placeholder="Batch ID"
-                    disabled={isPaused || loading}
-                  />
-                  <label className="text-sm text-slate-300 mt-3 block">Final NAV per share (1.10 = 10% Profit)</label>
-                  <input
-                    className="w-full mt-1 p-2 rounded bg-slate-900"
-                    value={navInput}
-                    onChange={e => setNavInput(e.target.value)}
-                    placeholder="1.10"
-                    disabled={isPaused || loading}
-                  />
-                </div>
-                <div className="flex flex-col justify-end gap-3">
-                  <button
-                    className="action-button action-button--danger w-full"
-                    onClick={investBatch}
-                    disabled={isPaused || loading}
-                  >
-                    Invest Batch (burn escrow USDC)
-                  </button>
-                  <button
-                    className="action-button action-button--success w-full"
-                    onClick={depositReturnForBatch}
-                    disabled={isPaused || loading}
-                  >
-                    Deposit Returns
-                  </button>
-                  <p className="text-xs text-slate-500">
-                    Invest when status is Running. Deposit returns after investment outcome is known.
-                  </p>
-                </div>
-              </div>
-            </>
+          <h3 className="section-title">Deployment Legs</h3>
+          <p className="section-subtitle !mt-1">Historic and active batch legs grouped by batch. Expand a batch to inspect the asset-level allocation view.</p>
+          {selectedAllocationOrder == null && deploymentBatchGroups.length === 0 ? (
+            <div className="panel-note">No Escrow deployment leg history is available yet.</div>
+          ) : aaaLoading && selectedAllocationOrder != null && deploymentBatchGroups.length === 0 ? (
+            <div className="panel-note">Fetching AAA deployment legs for batch #{selectedAllocationOrder.batchId}...</div>
+          ) : deploymentBatchGroups.length === 0 ? (
+            <div className="panel-note">No deployment leg history matches the current filter.</div>
           ) : (
-            <div className="panel-note mt-3">
-              Escrow lifecycle controls are hidden for viewer wallets. Batch lists remain visible for monitoring only.
+            <div className="panel-stack panel-stack--dense">
+              {visibleDeploymentBatchGroups.map(({ order, plan, legs }) => {
+                const isExpanded = expandedDeploymentBatches.includes(order.batchId);
+                const totalPrincipalUsd6 = legs.reduce((sum, leg) => sum + leg.principalUsd6, 0n);
+                return (
+                  <div key={`deployment-history-${order.batchId}`} className="rounded-xl border border-slate-700/50 overflow-hidden">
+                    <button
+                      type="button"
+                      className="w-full px-4 py-3 bg-slate-900/35 text-left hover:bg-slate-900/50 transition-colors"
+                      onClick={() => {
+                        setSelectedAllocationBatchId(order.batchId);
+                        setExpandedDeploymentBatches((current) =>
+                          current.includes(order.batchId)
+                            ? current.filter((batchId) => batchId !== order.batchId)
+                            : [...current, order.batchId]
+                        );
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-slate-100">Batch #{order.batchId}</span>
+                            <span className={`data-chip ${(legs[0]?.source ?? 'fallback') === 'aaa' ? '' : 'text-amber-400'}`}>
+                              {(legs[0]?.source ?? 'fallback') === 'aaa' ? 'AAA' : 'Local AAA Fallback'}
+                            </span>
+                            <span className="text-xs text-slate-500">{order.sourceType || 'BANK'} source</span>
+                          </div>
+                          <div className="mt-1 text-xs text-slate-400">
+                            {order.executionStatus.replaceAll('_', ' ')}
+                            {' | '}
+                            {legs.length} asset leg{legs.length === 1 ? '' : 's'}
+                            {' | '}
+                            {fmtUsd6(totalPrincipalUsd6)}
+                            {' | target '}
+                            {new Date(order.targetReturnAt).toLocaleString()}
+                            {plan ? ` | plan ${plan.status}` : ''}
+                          </div>
+                        </div>
+                        <div className="text-xs text-slate-300 whitespace-nowrap">
+                          {isExpanded ? 'Hide legs' : 'Show legs'}
+                        </div>
+                      </div>
+                    </button>
+                    {isExpanded && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs text-slate-300">
+                          <thead>
+                            <tr className="border-y border-slate-700/40 bg-slate-950/35">
+                              <th className="text-left px-3 py-2">Asset</th>
+                              <th className="text-left px-3 py-2">Risk / Role</th>
+                              <th className="text-right px-3 py-2">Weight</th>
+                              <th className="text-right px-3 py-2">Principal</th>
+                              <th className="text-left px-3 py-2">Expected close</th>
+                              <th className="text-left px-3 py-2">Source</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {legs.map((leg) => (
+                              <tr key={`${order.batchId}:${leg.symbol}`} className="border-b border-slate-700/30">
+                                <td className="px-3 py-2">
+                                  <div className="font-semibold text-slate-100">{leg.symbol}</div>
+                                  <div className="text-[11px] text-slate-500">{leg.assetName}</div>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <div>{leg.riskClassLabel}</div>
+                                  <div className="text-[11px] text-slate-500">{leg.roleLabel} • {leg.routeSummary}</div>
+                                </td>
+                                <td className="px-3 py-2 text-right font-mono">{leg.weightPct}</td>
+                                <td className="px-3 py-2 text-right">{fmtUsd6(leg.principalUsd6)}</td>
+                                <td className="px-3 py-2">{new Date(leg.expectedCloseAt).toLocaleString()}</td>
+                                <td className="px-3 py-2">
+                                  <span className={`data-chip ${leg.source === 'aaa' ? '' : 'text-amber-400'}`}>
+                                    {leg.source === 'aaa' ? 'AAA' : 'Local AAA Fallback'}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {deploymentBatchGroups.length > 0 && (
+            <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+              <button
+                className="pagination-button"
+                onClick={() => setDeploymentHistoryPage(Math.max(1, safeDeploymentHistoryPage - 1))}
+                disabled={safeDeploymentHistoryPage <= 1}
+              >
+                Prev
+              </button>
+              <span>Page {safeDeploymentHistoryPage} / {deploymentHistoryTotalPages}</span>
+              <button
+                className="pagination-button"
+                onClick={() => setDeploymentHistoryPage(Math.min(deploymentHistoryTotalPages, safeDeploymentHistoryPage + 1))}
+                disabled={safeDeploymentHistoryPage >= deploymentHistoryTotalPages}
+              >
+                Next
+              </button>
             </div>
           )}
         </div>
 
         <div className="sagitta-cell col-span-12 xl:col-span-4">
-          <h3 className="section-title">Operator Notes</h3>
+          <h3 className="section-title">Operator Overrides</h3>
+          {selectedAllocationOrder && (
+            <div className="mb-4 rounded-xl border border-slate-700/50 bg-slate-900/35 p-3">
+              <div className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Selected Batch</div>
+              <div className="mt-2 text-sm text-slate-100 font-mono">#{selectedAllocationOrder.batchId}</div>
+              <div className="mt-1 text-xs text-slate-500">
+                {selectedAllocationOrder.sourceType || 'BANK'} / {selectedAllocationOrder.executionStatus.replaceAll('_', ' ')}
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-2">
+                <button
+                  className="action-button action-button--secondary w-full"
+                  onClick={() => manuallyAdvanceSelectedBatch('returned')}
+                  disabled={!canAdvanceSelectedToReturned || manualStageAction !== null}
+                >
+                  {manualStageAction === 'returned' ? 'Advancing...' : 'Advance To Returned'}
+                </button>
+                <button
+                  className="action-button action-button--secondary w-full"
+                  onClick={() => manuallyAdvanceSelectedBatch('settled')}
+                  disabled={!canAdvanceSelectedToSettled || manualStageAction !== null}
+                >
+                  {manualStageAction === 'settled' ? 'Advancing...' : 'Advance To Settled'}
+                </button>
+              </div>
+              <div className="mt-2 text-[11px] text-slate-500">
+                Returned closes deployed legs and records returned USDC. Settled finalizes the batch and records Treasury unwind / wire readiness.
+              </div>
+            </div>
+          )}
           <ul className="note-list">
-            <li>Start a pending batch.</li>
-            <li>Invest the running batch.</li>
-            <li>Deposit returns with final NAV.</li>
-            <li>Confirm closed-batch results below.</li>
+            <li>Normal testnet flow runs through backend workers.</li>
+            <li>On-chain position controls below remain available for diagnostics.</li>
+            <li>Manual Start Batch, Invest Batch, and Deposit Returns are no longer the primary lifecycle.</li>
+            <li>Use Run Workers to retry allocation, deployment, return, or settlement jobs.</li>
           </ul>
         </div>
       </section>
 
-      <section className="grid grid-cols-12 gap-5">
-        <div className="sagitta-cell col-span-12">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="section-title !mb-0">External Asset Compliance</h3>
-              <p className="text-xs text-slate-500 mt-1">Track external portfolio assets and the compliance checks that gate future batch authorization.</p>
-            </div>
-            <button
-              className="action-button action-button--ghost"
-              onClick={() => Promise.allSettled([fetchPortfolioAssets(), fetchExecutionRoutes()])}
-              disabled={loading}
-            >
-              Refresh Compliance
-            </button>
-          </div>
-
-          {externalPortfolioAssets.length === 0 ? (
-            <div className="panel-note">
-              No external assets were found in the portfolio registry.
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-xl border border-slate-700/50">
-              <table className="w-full text-xs text-slate-300">
-                <thead>
-                  <tr className="border-b border-slate-700/50 bg-slate-900/50">
-                    <th className="text-left px-3 py-2">Asset</th>
-                    <th className="text-left px-3 py-2">Route</th>
-                    <th className="text-left px-3 py-2">Documents</th>
-                    <th className="text-left px-3 py-2">Fund</th>
-                    <th className="text-left px-3 py-2">NDA</th>
-                    <th className="text-left px-3 py-2">P&amp;L</th>
-                    <th className="text-left px-3 py-2">Active</th>
-                    <th className="text-left px-3 py-2">Eligible</th>
-                    <th className="text-left px-3 py-2">Endpoint</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {externalPortfolioAssets.map((asset) => {
-                    const matchingRoutes = executionRoutes.filter(
-                      (route) => route.routeType === 3 && route.assetSymbol.toLowerCase() === asset.symbol.toLowerCase()
-                    );
-                    const route = matchingRoutes[0] ?? null;
-                    const eligible = routeIsBatchEligible(route);
-                    const badge = (ok: boolean, okLabel: string, offLabel: string) => (
-                      <span className={`rounded-full px-2 py-0.5 ${ok ? 'bg-emerald-700/40 text-emerald-200' : 'bg-rose-700/40 text-rose-200'}`}>
-                        {ok ? okLabel : offLabel}
-                      </span>
-                    );
-
-                    return (
-                      <tr key={asset.symbol} className="border-b border-slate-700/30">
-                        <td className="px-3 py-2">
-                          <div className="font-semibold text-slate-100">{asset.symbol}</div>
-                          <div className="text-[11px] text-slate-400">{asset.name}</div>
-                        </td>
-                        <td className="px-3 py-2 font-mono text-slate-300">
-                          {route ? `#${route.routeId}${matchingRoutes.length > 1 ? ` (+${matchingRoutes.length - 1})` : ''}` : 'Missing'}
-                        </td>
-                        <td className="px-3 py-2">{badge(!!route?.documentsComplete, 'Ready', 'Missing')}</td>
-                        <td className="px-3 py-2">{badge(!!route?.sagittaFundApproved, 'Ready', 'Missing')}</td>
-                        <td className="px-3 py-2">{badge(!!route?.ndaSigned, 'Ready', 'Missing')}</td>
-                        <td className="px-3 py-2">{badge(!!route?.pnlEndpoint?.trim(), 'Ready', 'Missing')}</td>
-                        <td className="px-3 py-2">{badge(!!route?.active, 'Active', 'Inactive')}</td>
-                        <td className="px-3 py-2">{badge(eligible, 'Allowed', 'Blocked')}</td>
-                        <td className="px-3 py-2 font-mono text-slate-400 break-all">{route?.pnlEndpoint?.trim() || 'none'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </section>
-
-      <section className="grid grid-cols-12 gap-5">
-        <div className="sagitta-cell col-span-12">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="section-title !mb-0">Execution Ledger</h3>
-              <p className="text-xs text-slate-500 mt-1">Inspect batch mandates, accounting, positions, and settlement hashes.</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <input
-                className="w-32 px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
-                value={ledgerBatchId}
-                onChange={e => setLedgerBatchId(e.target.value)}
-                placeholder="Batch ID"
-                disabled={loading}
-              />
-              <button className="action-button action-button--ghost" onClick={() => refreshLedgerSnapshot()} disabled={loading}>
-                Refresh Ledger
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <MetricCard title="Authorized" value={fmtUsd6(ledgerAccounting?.principalAuthorizedUsd6 ?? 0n)} tone="neutral" />
-            <MetricCard title="Committed" value={fmtUsd6(ledgerAccounting?.principalCommittedUsd6 ?? 0n)} tone="neutral" />
-            <MetricCard title="Returned" value={fmtUsd6(ledgerAccounting?.principalReturnedUsd6 ?? 0n)} tone="neutral" />
-          </div>
-
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mt-5">
-            <div className="panel-stack">
-              <div className="panel-row"><span className="panel-row__label">Mandate configured</span><span className="panel-row__value">{ledgerMandate?.configured ? 'Yes' : 'No'}</span></div>
-              <div className="panel-row"><span className="panel-row__label">Settlement unit</span><span className="panel-row__value font-mono">{ledgerMandate?.settlementUnit || '0x0'}</span></div>
-              <div className="panel-row"><span className="panel-row__label">Expected close</span><span className="panel-row__value">{ledgerMandate?.expectedCloseTime ? new Date(Number(ledgerMandate.expectedCloseTime) * 1000).toLocaleString() : 'n/a'}</span></div>
-              <div className="panel-row"><span className="panel-row__label">Realized / Unrealized</span><span className="panel-row__value">{fmtUsd6(ledgerAccounting?.realizedPnlUsd6 ?? 0n)} / {fmtUsd6(ledgerAccounting?.unrealizedPnlUsd6 ?? 0n)}</span></div>
-              <div className="panel-row"><span className="panel-row__label">Fees / Frozen</span><span className="panel-row__value">{fmtUsd6(ledgerAccounting?.feesUsd6 ?? 0n)} / {ledgerAccounting?.frozen ? 'Yes' : 'No'}</span></div>
-              <div className="panel-row"><span className="panel-row__label">Settlement Hashes</span><span className="panel-row__value font-mono text-[11px]">{ledgerSettlement?.settlementReportHash && ledgerSettlement.settlementReportHash !== ethers.ZeroHash ? `${ledgerSettlement.settlementReportHash.slice(0, 10)}...${ledgerSettlement.settlementReportHash.slice(-6)}` : 'none'}</span></div>
-            </div>
-
-            {isOperator ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <div className="text-xs uppercase tracking-[0.16em] text-slate-400">Route Compliance</div>
-                  <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-4 text-sm text-slate-300">
-                    External routes are gated by the route registry checklist. Documents, fund approval, NDA, a live P&amp;L endpoint, and active status must all be in place before Treasury can send that route into the next batch.
-                  </div>
-                  <div className="panel-note">Manage investor-facing compliance checkmarks in DAO &gt; Execution Route Registry.</div>
-                </div>
-                <div className="space-y-2">
-                  <div className="text-xs uppercase tracking-[0.16em] text-slate-400">Open Position</div>
-                  <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={routeIdInput} onChange={e => setRouteIdInput(e.target.value)} placeholder="Route ID" disabled={loading} />
-                  <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={assetSymbolInput} onChange={e => setAssetSymbolInput(e.target.value)} placeholder="Asset symbol" disabled={loading} />
-                  <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={commitmentInput} onChange={e => setCommitmentInput(e.target.value)} placeholder="Commitment USD" disabled={loading} />
-                  <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={quantityInput} onChange={e => setQuantityInput(e.target.value)} placeholder="Quantity" disabled={loading} />
-                  <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={positionFeeInput} onChange={e => setPositionFeeInput(e.target.value)} placeholder="Fee USD" disabled={loading} />
-                  <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs" value={externalRefInput} onChange={e => setExternalRefInput(e.target.value)} placeholder="External ref or 0x hash" disabled={loading} />
-                  <button className="action-button action-button--primary w-full" onClick={openEscrowPosition} disabled={isPaused || loading}>Open Position</button>
-                </div>
-              </div>
-            ) : (
-              <div className="panel-note">Viewer wallets can inspect ledger state but cannot manage route selection or positions.</div>
-            )}
-          </div>
-
-          {isOperator && (
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mt-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={positionIdInput} onChange={e => setPositionIdInput(e.target.value)} placeholder="Position ID" disabled={loading} />
-                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={carryingValueInput} onChange={e => setCarryingValueInput(e.target.value)} placeholder="Carrying value USD" disabled={loading} />
-                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs" value={markHashInput} onChange={e => setMarkHashInput(e.target.value)} placeholder="Mark ref or 0x hash" disabled={loading} />
-                <button className="action-button action-button--secondary w-full" onClick={markEscrowPosition} disabled={isPaused || loading}>Mark Position</button>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={proceedsInput} onChange={e => setProceedsInput(e.target.value)} placeholder="Proceeds USD" disabled={loading} />
-                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" value={closeFeeInput} onChange={e => setCloseFeeInput(e.target.value)} placeholder="Close fee USD" disabled={loading} />
-                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs" value={closeRefInput} onChange={e => setCloseRefInput(e.target.value)} placeholder="Close ref or 0x hash" disabled={loading} />
-                <button className="action-button action-button--success w-full" onClick={closeEscrowPosition} disabled={isPaused || loading}>Close Position</button>
-                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs md:col-span-2" value={settlementHashInput} onChange={e => setSettlementHashInput(e.target.value)} placeholder="Settlement report ref or 0x hash" disabled={loading} />
-                <input className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs md:col-span-2" value={complianceHashInput} onChange={e => setComplianceHashInput(e.target.value)} placeholder="Compliance digest ref or 0x hash" disabled={loading} />
-                <button className="action-button action-button--primary md:col-span-2" onClick={finalizeEscrowSettlement} disabled={isPaused || loading}>Finalize Settlement</button>
-              </div>
-            </div>
-          )}
-
-          {ledgerPositions.length > 0 && (
-            <div className="mt-5 overflow-x-auto rounded-xl border border-slate-700/50">
-              <table className="w-full text-xs text-slate-300">
-                <thead>
-                  <tr className="border-b border-slate-700/50 bg-slate-900/50">
-                    <th className="text-left px-3 py-2">ID</th>
-                    <th className="text-left px-3 py-2">Route</th>
-                    <th className="text-left px-3 py-2">Asset</th>
-                    <th className="text-left px-3 py-2">Commitment</th>
-                    <th className="text-left px-3 py-2">Carrying</th>
-                    <th className="text-left px-3 py-2">Proceeds</th>
-                    <th className="text-left px-3 py-2">Fees</th>
-                    <th className="text-left px-3 py-2">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ledgerPositions.map((position) => (
-                    <tr key={position.id.toString()} className="border-b border-slate-700/30">
-                      <td className="px-3 py-2 font-mono">#{position.id.toString()}</td>
-                      <td className="px-3 py-2">{position.routeId.toString()}</td>
-                      <td className="px-3 py-2">{position.assetSymbol}</td>
-                      <td className="px-3 py-2">{fmtUsd6(position.commitmentUsd6)}</td>
-                      <td className="px-3 py-2">{fmtUsd6(position.carryingValueUsd6)}</td>
-                      <td className="px-3 py-2">{fmtUsd6(position.proceedsUsd6)}</td>
-                      <td className="px-3 py-2">{fmtUsd6(position.feeUsd6)}</td>
-                      <td className="px-3 py-2">{position.status === 1 ? 'Open' : position.status === 2 ? 'Closed' : position.status === 3 ? 'Written down' : 'Unknown'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {activeBatches.length > 0 && (
+      {selectedAllocationOrder && (
         <section className="grid grid-cols-12 gap-5">
           <div className="sagitta-cell col-span-12">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="section-title !mb-0">AAA Allocation</h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Recommended weights from <span className="font-mono">aaa.sagitta.systems</span> for the active batch.
-                  Blocked assets and assets above their minimum batch amount are excluded before allocation is shown.
+                  Stored AAA allocation result for batch #{selectedAllocationOrder.batchId}. This is the persisted plan linked to deployment, not a frontend-only preview.
                 </p>
               </div>
               <div className="flex items-center gap-3">
                 {aaaAllocation && (
                   <span className={`data-chip ${aaaAllocation.source === 'aaa' ? '' : 'text-amber-400'}`}>
-                    {aaaAllocation.source === 'aaa' ? 'Live from AAA' : 'Equal-weight fallback'}
+                    {aaaAllocation.source === 'aaa' ? 'Stored AAA Result' : 'Stored Local AAA Fallback'}
                   </span>
                 )}
                 <button
                   className="action-button action-button--secondary"
-                  onClick={() => fetchAAAAllocation(portfolioAssets)}
+                  onClick={() => runBackendAutomation()}
                   disabled={aaaLoading}
                 >
-                  {aaaLoading ? 'Fetching...' : aaaAllocation ? 'Refresh AAA' : 'Fetch from AAA'}
+                  {aaaLoading ? 'Refreshing...' : aaaAllocation ? 'Refresh AAA' : 'Run AAA'}
                 </button>
               </div>
             </div>
@@ -1957,27 +2226,28 @@ export default function EscrowTab() {
             )}
 
             {aaaAllocation && (() => {
-              const batch = activeAllocationBatch;
-              const principal = Number(batch?.totalCollateralUsd ?? 0);
+              const order = selectedAllocationOrder;
+              const principal = Math.round(Number(order?.principalReceivedUsd || 0) * 1_000_000);
               return (
                 <div>
                   <div className="text-xs text-slate-400 mb-3">
-                    Batch #{batch?.id} &middot; {fmtUsd6(principal)} total
+                    Batch #{order?.batchId} &middot; {fmtUsd6(principal)} total
+                    <span className="ml-2">{order?.sourceType || 'BANK'} / {order?.executionStatus.replaceAll('_', ' ')}</span>
                     <span className="ml-2">
-                      {allocationEligibility.eligible.length} eligible / {allocationEligibility.excluded.length} excluded
+                      {aaaAllocation.eligibleAssetCount ?? aaaAllocation.assets.length} eligible / {aaaAllocation.excludedAssetCount ?? aaaAllocation.excludedAssets?.length ?? 0} excluded
                     </span>
                     {aaaAllocation.source === 'fallback' && (
                       <span className="ml-2 text-amber-400">
-                        (equal weights — deploy AAA endpoint to get live weights)
+                        (stored local AAA fallback)
                       </span>
                     )}
                   </div>
-                  {allocationEligibility.excluded.length > 0 && (
+                  {(aaaAllocation.excludedAssets?.length ?? 0) > 0 && (
                     <div className="mb-4 rounded-xl border border-slate-700/50 bg-slate-900/35 p-3 text-xs text-slate-300">
                       <div className="uppercase tracking-[0.16em] text-slate-400 mb-2">Excluded From Allocation</div>
                       <div className="flex flex-wrap gap-2">
-                        {allocationEligibility.excluded.map((asset) => (
-                          <span key={asset.symbol} className="rounded-full px-2 py-1 bg-rose-700/20 text-rose-200 border border-rose-700/30">
+                        {aaaAllocation.excludedAssets?.map((asset) => (
+                          <span key={`${asset.symbol}:${asset.stage || 'excluded'}`} className="rounded-full px-2 py-1 bg-rose-700/20 text-rose-200 border border-rose-700/30">
                             {asset.symbol}: {asset.reasons.join(', ')}
                           </span>
                         ))}
@@ -1998,12 +2268,12 @@ export default function EscrowTab() {
                       <tbody>
                         {aaaAllocation.assets.map((a) => {
                           const meta = portfolioAssets.find(p => p.symbol === a.symbol);
-                          const usdcAmt = Math.round(principal * a.weight);
+                          const usdcAmt = Math.round(Number(a.principalAllocatedUsd || 0) * 1_000_000);
                           return (
                             <tr key={a.symbol} className="border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors">
                               <td className="py-2 pr-6">
                                 <span className="font-mono text-slate-100">{a.symbol}</span>
-                                {meta && <span className="ml-2 text-slate-500 text-xs">{meta.name}</span>}
+                                {(a.assetName || meta?.name) && <span className="ml-2 text-slate-500 text-xs">{a.assetName || meta?.name}</span>}
                               </td>
                               <td className="py-2 pr-6 text-slate-400 text-xs">
                                 {meta ? RISK_CLASS_LABELS[meta.riskClass] : '–'}
@@ -2040,177 +2310,12 @@ export default function EscrowTab() {
 
             {!aaaAllocation && !aaaLoading && (
               <div className="text-slate-500 text-sm py-6 text-center">
-                Click <strong>Fetch from AAA</strong> to load recommended allocation weights for the active batch.
+                Run the Escrow workers to generate and store an AAA allocation result for the active batch.
               </div>
             )}
           </div>
         </section>
       )}
-
-      <section className="grid grid-cols-12 gap-5">
-        <div className="sagitta-cell col-span-12">
-          <div className="filter-toolbar">
-            <div className="min-w-[220px] grow">
-              <label className="text-xs uppercase tracking-[0.16em] text-slate-400">Batch Filter (ID)</label>
-              <input
-                className="w-full mt-1 p-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
-                value={batchFilter}
-                onChange={(e) => setBatchFilter(e.target.value)}
-                placeholder="e.g. 12"
-              />
-            </div>
-            <div className="w-[160px]">
-              <label className="text-xs uppercase tracking-[0.16em] text-slate-400">Rows / Column</label>
-              <select
-                className="w-full mt-1 p-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
-                value={String(batchPageSize)}
-                onChange={(e) => setBatchPageSize(Number(e.target.value))}
-              >
-                <option value="4">4</option>
-                <option value="6">6</option>
-                <option value="10">10</option>
-                <option value="20">20</option>
-              </select>
-            </div>
-            <div className="text-xs text-slate-400 pb-1">
-              Newest batches are shown first.
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="grid grid-cols-12 gap-5">
-        <div className="sagitta-cell col-span-12 lg:col-span-4" style={{ minHeight: '220px' }}>
-          <div className="flex items-center justify-between">
-            <h3 className="section-title !mb-0">Active Batches</h3>
-            <span className="text-xs text-slate-400">
-              {activeVisible.length} / {activeSortedFiltered.length}
-            </span>
-          </div>
-          {runningCount === 0 && <div className="text-slate-500 text-sm">No running batches</div>}
-          {runningCount > 0 && activeSortedFiltered.length === 0 && (
-            <div className="text-slate-500 text-sm">No running batches match the current filter.</div>
-          )}
-          <div className="grid gap-3 mt-3 max-h-72 overflow-y-auto pr-1">
-            {activeVisible.map((b: any, i: number) => (
-              <div key={`running-${b?.id}-${i}`} className="p-3 bg-slate-800/50 rounded-lg border border-slate-700/40">
-                <div className="text-sm text-slate-200 font-mono">Batch #{String(b?.id ?? '0')}</div>
-                <div className="text-xs text-slate-400">Started: {b.startTime ? new Date(Number(b.startTime) * 1000).toLocaleString() : 'n/a'}</div>
-                <div className="text-sm mt-1">Collateral: {fmtUsd6(b.totalCollateralUsd)}</div>
-                <div className="text-xs text-slate-400">Shares: {String(b?.totalShares ?? '0')}</div>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-            <button
-              className="pagination-button"
-              onClick={() => setActivePage(Math.max(1, safeActivePage - 1))}
-              disabled={safeActivePage <= 1}
-            >
-              Prev
-            </button>
-            <span>Page {safeActivePage} / {activeTotalPages}</span>
-            <button
-              className="pagination-button"
-              onClick={() => setActivePage(Math.min(activeTotalPages, safeActivePage + 1))}
-              disabled={safeActivePage >= activeTotalPages}
-            >
-              Next
-            </button>
-          </div>
-        </div>
-
-        <div className="sagitta-cell col-span-12 lg:col-span-4" style={{ minHeight: '220px' }}>
-          <div className="flex items-center justify-between">
-            <h3 className="section-title !mb-0">Invested Batches</h3>
-            <span className="text-xs text-slate-400">
-              {investedVisible.length} / {investedSortedFiltered.length}
-            </span>
-          </div>
-          {investedCount === 0 && <div className="text-slate-500 text-sm">No invested batches</div>}
-          {investedCount > 0 && investedSortedFiltered.length === 0 && (
-            <div className="text-slate-500 text-sm">No invested batches match the current filter.</div>
-          )}
-          <div className="grid gap-3 mt-3 max-h-72 overflow-y-auto pr-1">
-            {investedVisible.map((b: any, i: number) => (
-              <div key={`invested-${b?.id}-${i}`} className="p-3 bg-emerald-900/10 rounded-lg border border-emerald-700/20">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm text-slate-200 font-mono">Batch #{String(b?.id ?? '0')}</div>
-                  <div className="text-xs text-emerald-300 font-semibold">Invested</div>
-                </div>
-                <div className="text-xs text-slate-400">Started: {b.startTime ? new Date(Number(b.startTime) * 1000).toLocaleString() : 'n/a'}</div>
-                <div className="text-sm mt-1">Collateral: {fmtUsd6(b.totalCollateralUsd)}</div>
-                <div className="text-xs text-slate-400">Shares: {String(b?.totalShares ?? '0')}</div>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-            <button
-              className="pagination-button"
-              onClick={() => setInvestedPage(Math.max(1, safeInvestedPage - 1))}
-              disabled={safeInvestedPage <= 1}
-            >
-              Prev
-            </button>
-            <span>Page {safeInvestedPage} / {investedTotalPages}</span>
-            <button
-              className="pagination-button"
-              onClick={() => setInvestedPage(Math.min(investedTotalPages, safeInvestedPage + 1))}
-              disabled={safeInvestedPage >= investedTotalPages}
-            >
-              Next
-            </button>
-          </div>
-        </div>
-
-        <div className="sagitta-cell col-span-12 lg:col-span-4" style={{ minHeight: '220px' }}>
-          <div className="flex items-center justify-between">
-            <h3 className="section-title !mb-0">Closed Batches</h3>
-            <span className="text-xs text-slate-400">
-              {closedVisible.length} / {closedSortedFiltered.length}
-            </span>
-          </div>
-          {closedCount === 0 && <div className="text-slate-500 text-sm">No closed batches</div>}
-          {closedCount > 0 && closedSortedFiltered.length === 0 && (
-            <div className="text-slate-500 text-sm">No closed batches match the current filter.</div>
-          )}
-          <div className="grid gap-3 mt-3 max-h-72 overflow-y-auto pr-1">
-            {closedVisible.map(({ batch, result }, i) => (
-              <div key={batch.id.toString() + i} className="p-3 bg-slate-800/50 rounded-lg border border-slate-700/40">
-                <div className="flex justify-between items-center">
-                  <div className="text-sm text-slate-200 font-mono">Batch #{batch.id.toString()}</div>
-                  <div className="text-xs text-slate-400">Closed: {new Date(Number(batch.endTime) * 1000).toLocaleString()}</div>
-                </div>
-                <div className="mt-1 text-sm">Principal: {fmtUsd6(batch.totalCollateralUsd)}</div>
-                {result ? (
-                  <div className="text-sm mt-1">
-                    Final: {fmtUsd6(result.finalValueUsd)} - Profit: {fmtUsd6(result.profitUsd)} - User: {fmtUsd6(result.userProfitUsd)} - Fee: {fmtUsd6(result.feeUsd)}
-                  </div>
-                ) : (
-                  <div className="text-sm mt-1 text-slate-400">Result unavailable (missing final NAV/result data on this deployment)</div>
-                )}
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-            <button
-              className="pagination-button"
-              onClick={() => setClosedPage(Math.max(1, safeClosedPage - 1))}
-              disabled={safeClosedPage <= 1}
-            >
-              Prev
-            </button>
-            <span>Page {safeClosedPage} / {closedTotalPages}</span>
-            <button
-              className="pagination-button"
-              onClick={() => setClosedPage(Math.min(closedTotalPages, safeClosedPage + 1))}
-              disabled={safeClosedPage >= closedTotalPages}
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      </section>
 
       {/* Engine Log */}
       <div className="sagitta-hero">

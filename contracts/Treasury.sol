@@ -70,6 +70,13 @@ interface IEscrowForTreasury {
         uint256 maxAllocationUsd6;
     }
 
+    function receiveTreasuryBatch(
+        uint256 batchId,
+        uint256 deployedPrincipal,
+        uint256 expectedReturnAt,
+        uint256 settlementDeadlineAt,
+        bytes32 executionContextHash
+    ) external;
     function receiptBatchId(uint256 tokenId) external view returns (uint256);
     function currentBatchId() external view returns (uint256);
     function lastBatchRollTime() external view returns (uint256);
@@ -79,6 +86,8 @@ interface IEscrowForTreasury {
         uint256 batchId,
         uint256 expectedCloseTime,
         bytes32 settlementUnit,
+        bytes32 policyContextHash,
+        bytes32 allocationPlanHash,
         RouteAllocation[] calldata routeAllocations
     ) external;
     function freezeBatch(uint256 batchId, bool frozen) external;
@@ -121,6 +130,27 @@ interface IEscrowForTreasury {
  */
 contract Treasury is Ownable {
     using SafeERC20 for IERC20;
+
+    // Custom errors (cheaper than require strings)
+    error NotVault();
+    error NotEscrow();
+    error NotVaultOrOwner();
+    error ZeroAddress();
+    error EscrowNotSet();
+    error VaultNotSet();
+    error OracleNotSet();
+    error OracleInvalid();
+    error AlreadyExists();
+    error LotNotFound();
+    error LotNotAvailable();
+    error LotAlreadyAllocated();
+    error InsufficientBalance();
+    error TransferFailed();
+    error BatchNotFound();
+    error AlreadySettled();
+    error NoPendingProfit();
+    error RecipientNotFound();
+    error InvalidParam();
 
     uint256 public constant BPS_SCALE = 10_000;
     uint256 public constant PRICE_SCALE = 1e8;
@@ -167,6 +197,51 @@ contract Treasury is Ownable {
         Recapitalization,
         BuybackBurn,
         IdleBurn
+    }
+
+    enum OriginType {
+        NONE,
+        VAULT,
+        BANK
+    }
+
+    enum OriginLotStatus {
+        None,
+        Available,
+        Allocated,
+        Settled,
+        Cancelled
+    }
+
+    enum TreasuryBatchStatus {
+        None,
+        Opened,
+        Funded,
+        Closed,
+        Cancelled
+    }
+
+    struct OriginLot {
+        uint256 id;
+        OriginType originType;
+        bytes32 originRefId;
+        uint256 amount;
+        uint64 fundedAt;
+        uint64 liabilityUnlockAt;
+        OriginLotStatus status;
+        uint256 batchId;
+    }
+
+    struct TreasuryBatch {
+        uint256 batchId;
+        OriginType originType;
+        uint256[] lotIds;
+        uint256 principalAllocated;
+        uint64 openedAt;
+        uint64 expectedReturnAt;
+        uint64 settlementDeadlineAt;
+        uint64 actualReturnedAt;
+        TreasuryBatchStatus status;
     }
 
     /*
@@ -244,6 +319,12 @@ contract Treasury is Ownable {
     mapping(uint256 => mapping(uint256 => uint256)) public receiptBatchProfitPaidUsd;
     // Track processed deposit/receipt IDs to make collateralizeForReceipt idempotent
     mapping(uint256 => bool) public processedReceipts;
+    uint256 public nextOriginLotId = 1;
+    uint256 public nextTreasuryBatchId = 1;
+    mapping(uint256 => OriginLot) public originLots;
+    mapping(uint256 => TreasuryBatch) private treasuryBatches;
+    mapping(OriginType => uint256[]) private originLotsByType;
+    mapping(bytes32 => uint256) public originRefToLotId;
     // ------------------ END NEW STATE ------------------
 
     // SECURITY: dev/test escape hatch — allows Treasury to self-mint USDC to cover
@@ -272,7 +353,7 @@ contract Treasury is Ownable {
     );
 
     function setSlippageBps(uint16 bps) external onlyOwner {
-        require(bps <= 1000, "slippage too large"); // max 10%
+        if (bps > 1000) revert InvalidParam(); // max 10%
         slippageBps = bps;
         emit SlippageBpsUpdated(bps);
     }
@@ -311,21 +392,39 @@ contract Treasury is Ownable {
         bool batchRolled,
         bool reserveRebalanced
     );
+    event OriginLotCreated(
+        uint256 indexed lotId,
+        OriginType indexed originType,
+        bytes32 indexed originRefId,
+        uint256 amountUsd,
+        uint64 fundedAt,
+        uint64 liabilityUnlockAt
+    );
+    event OriginLotAllocated(uint256 indexed lotId, uint256 indexed batchId);
+    event TreasuryBatchCreated(
+        uint256 indexed batchId,
+        OriginType indexed originType,
+        uint256 principalAllocated,
+        uint64 expectedReturnAt,
+        uint64 settlementDeadlineAt
+    );
+    event TreasuryBatchFunded(uint256 indexed batchId, uint256 amountUsd);
+    event TreasuryBatchClosed(uint256 indexed batchId, uint256 principalUsd, uint64 actualReturnedAt);
 
     modifier onlyVault() {
-        require(msg.sender == vault, "Only vault");
+        if (msg.sender != vault) revert NotVault();
         _;
     }
 
     // Allow owner OR vault to invoke certain helper entrypoints (dev/admin convenience)
     modifier onlyVaultOrOwner() {
-        require(msg.sender == vault || msg.sender == owner(), "Only vault or owner");
+        if (msg.sender != vault && msg.sender != owner()) revert NotVaultOrOwner();
         _;
     }
 
     // NEW modifier: only calls originating from the Escrow contract
     modifier onlyEscrow() {
-        require(msg.sender == escrow, "Only escrow");
+        if (msg.sender != escrow) revert NotEscrow();
         _;
     }
 
@@ -346,17 +445,17 @@ contract Treasury is Ownable {
     }
 
     function setVault(address _vault) external onlyOwner {
-        require(_vault != address(0), "Vault address cannot be zero");
+        if (_vault == address(0)) revert ZeroAddress();
         vault = _vault;
     }
 
     function setReserveAddress(address _reserve) external onlyOwner {
-        require(_reserve != address(0), "Reserve address cannot be zero");
+        if (_reserve == address(0)) revert ZeroAddress();
         reserveAddress = _reserve;
     }
 
     function setPriceOracle(address _oracle) external onlyOwner {
-        require(_oracle != address(0), "Oracle address cannot be zero");
+        if (_oracle == address(0)) revert ZeroAddress();
         priceOracle = IPriceOracle(_oracle);
     }
 
@@ -366,7 +465,7 @@ contract Treasury is Ownable {
     }
 
     function setGoldOracle(address _oracle) external onlyOwner {
-        require(_oracle != address(0), "Oracle address cannot be zero");
+        if (_oracle == address(0)) revert ZeroAddress();
         goldOracle = IPriceOracle(_oracle);
     }
 
@@ -377,7 +476,7 @@ contract Treasury is Ownable {
 
     // NEW: register escrow contract
     function setEscrow(address _escrow) external onlyOwner {
-        require(_escrow != address(0), "Escrow cannot be zero");
+        if (_escrow == address(0)) revert ZeroAddress();
         escrow = _escrow;
     }
 
@@ -387,13 +486,151 @@ contract Treasury is Ownable {
         bytes32 settlementUnit,
         IEscrowForTreasury.RouteAllocation[] calldata routeAllocations
     ) external onlyOwner {
-        require(escrow != address(0), "escrow not set");
-        IEscrowForTreasury(escrow).authorizeBatchExecution(batchId, expectedCloseTime, settlementUnit, routeAllocations);
+        _authorizeEscrowBatch(batchId, expectedCloseTime, settlementUnit, bytes32(0), bytes32(0), routeAllocations);
+    }
+
+    function authorizeEscrowBatch(
+        uint256 batchId,
+        uint256 expectedCloseTime,
+        bytes32 settlementUnit,
+        bytes32 policyContextHash,
+        bytes32 allocationPlanHash,
+        IEscrowForTreasury.RouteAllocation[] calldata routeAllocations
+    ) external onlyOwner {
+        _authorizeEscrowBatch(batchId, expectedCloseTime, settlementUnit, policyContextHash, allocationPlanHash, routeAllocations);
+    }
+
+    function _authorizeEscrowBatch(
+        uint256 batchId,
+        uint256 expectedCloseTime,
+        bytes32 settlementUnit,
+        bytes32 policyContextHash,
+        bytes32 allocationPlanHash,
+        IEscrowForTreasury.RouteAllocation[] calldata routeAllocations
+    ) internal {
+        if (escrow == address(0)) revert EscrowNotSet();
+        IEscrowForTreasury(escrow).authorizeBatchExecution(batchId, expectedCloseTime, settlementUnit, policyContextHash, allocationPlanHash, routeAllocations);
     }
 
     function freezeEscrowBatch(uint256 batchId, bool frozen) external onlyOwner {
-        require(escrow != address(0), "escrow not set");
+        if (escrow == address(0)) revert EscrowNotSet();
         IEscrowForTreasury(escrow).freezeBatch(batchId, frozen);
+    }
+
+    function registerVaultOriginLot(
+        uint256 receiptId,
+        uint256 amountUsd6,
+        uint64 liabilityUnlockAt
+    ) external onlyVault returns (uint256 lotId) {
+        bytes32 originRefId = bytes32(receiptId);
+        if (originRefToLotId[_originKey(OriginType.VAULT, originRefId)] != 0) revert AlreadyExists();
+        _doCollateralize(amountUsd6);
+        processedReceipts[receiptId] = true;
+        lotId = _createOriginLot(OriginType.VAULT, originRefId, amountUsd6, liabilityUnlockAt);
+    }
+
+    function registerBankOriginLot(
+        bytes32 originRefId,
+        uint256 amountUsd6,
+        uint64 liabilityUnlockAt
+    ) external onlyOwner returns (uint256 lotId) {
+        if (originRefId == bytes32(0)) revert InvalidParam();
+        if (originRefToLotId[_originKey(OriginType.BANK, originRefId)] != 0) revert AlreadyExists();
+        if (amountUsd6 == 0) revert InvalidParam();
+        if (usdc.balanceOf(address(this)) < amountUsd6) revert InsufficientBalance();
+
+        totalCollateralUsd += amountUsd6;
+        emit Collateralized(amountUsd6);
+        lotId = _createOriginLot(OriginType.BANK, originRefId, amountUsd6, liabilityUnlockAt);
+    }
+
+    function createAndFundBatch(
+        OriginType originType,
+        uint256[] calldata lotIds,
+        uint64 expectedReturnAt,
+        uint64 settlementDeadlineAt
+    ) external onlyOwner returns (uint256 batchId) {
+        return _createAndFundBatch(originType, lotIds, expectedReturnAt, settlementDeadlineAt, bytes32(0));
+    }
+
+    function createAndFundBatch(
+        OriginType originType,
+        uint256[] calldata lotIds,
+        uint64 expectedReturnAt,
+        uint64 settlementDeadlineAt,
+        bytes32 executionContextHash
+    ) external onlyOwner returns (uint256 batchId) {
+        return _createAndFundBatch(originType, lotIds, expectedReturnAt, settlementDeadlineAt, executionContextHash);
+    }
+
+    function _createAndFundBatch(
+        OriginType originType,
+        uint256[] calldata lotIds,
+        uint64 expectedReturnAt,
+        uint64 settlementDeadlineAt,
+        bytes32 executionContextHash
+    ) internal returns (uint256 batchId) {
+        if (escrow == address(0)) revert EscrowNotSet();
+        if (originType != OriginType.VAULT && originType != OriginType.BANK) revert InvalidParam();
+        if (lotIds.length == 0) revert InvalidParam();
+        if (expectedReturnAt <= block.timestamp) revert InvalidParam();
+        if (settlementDeadlineAt < expectedReturnAt) revert InvalidParam();
+
+        batchId = nextTreasuryBatchId;
+        nextTreasuryBatchId = batchId + 1;
+
+        TreasuryBatch storage batch_ = treasuryBatches[batchId];
+        batch_.batchId = batchId;
+        batch_.originType = originType;
+        batch_.openedAt = uint64(block.timestamp);
+        batch_.expectedReturnAt = expectedReturnAt;
+        batch_.settlementDeadlineAt = settlementDeadlineAt;
+        batch_.status = TreasuryBatchStatus.Opened;
+
+        uint256 principalAllocated = 0;
+        for (uint256 i = 0; i < lotIds.length; i++) {
+            uint256 lotId = lotIds[i];
+            OriginLot storage lot = originLots[lotId];
+            if (lot.id != lotId) revert LotNotFound();
+            if (lot.originType != originType) revert InvalidParam();
+            if (lot.status != OriginLotStatus.Available) revert LotNotAvailable();
+            if (lot.batchId != 0) revert LotAlreadyAllocated();
+            if (lot.liabilityUnlockAt < settlementDeadlineAt) revert InvalidParam();
+
+            lot.status = OriginLotStatus.Allocated;
+            lot.batchId = batchId;
+            batch_.lotIds.push(lotId);
+            principalAllocated += lot.amount;
+            emit OriginLotAllocated(lotId, batchId);
+        }
+
+        batch_.principalAllocated = principalAllocated;
+        emit TreasuryBatchCreated(batchId, originType, principalAllocated, expectedReturnAt, settlementDeadlineAt);
+
+        if (usdc.balanceOf(address(this)) < principalAllocated) revert InsufficientBalance();
+        usdc.safeTransfer(escrow, principalAllocated);
+        IEscrowForTreasury(escrow).receiveTreasuryBatch(
+            batchId,
+            principalAllocated,
+            expectedReturnAt,
+            settlementDeadlineAt,
+            executionContextHash
+        );
+
+        batch_.status = TreasuryBatchStatus.Funded;
+        emit TreasuryBatchFunded(batchId, principalAllocated);
+    }
+
+    function getTreasuryBatch(uint256 batchId) external view returns (TreasuryBatch memory) {
+        return treasuryBatches[batchId];
+    }
+
+    function getTreasuryBatchLotIds(uint256 batchId) external view returns (uint256[] memory) {
+        return treasuryBatches[batchId].lotIds;
+    }
+
+    function getOriginLotsByType(OriginType originType) external view returns (uint256[] memory) {
+        return originLotsByType[originType];
     }
 
     /// @notice Toggle the dev/test USDC auto-mint fallback. MUST remain false on mainnet.
@@ -513,7 +750,7 @@ contract Treasury is Ownable {
     }
 
     /// @notice Returns whether Treasury has any due roll actions.
-    /// @dev batchDue: Escrow weekly batch roll; rebalanceDue: reserve ratio drift.
+    /// @dev batchDue is disabled for origin-lot batches; Treasury batches are formed explicitly.
     function canRoll() public view returns (bool batchDue, bool rebalanceDue, bool anyDue) {
         batchDue = _isBatchRollDue();
         rebalanceDue = _isReserveRebalanceDue();
@@ -568,7 +805,7 @@ contract Treasury is Ownable {
                     usdcBal = usdc.balanceOf(address(this));
                 }
             }
-            require(usdcBal >= depositValueUsd, "Not enough USDC for collateralization");
+            if (usdcBal < depositValueUsd) revert InsufficientBalance();
         }
         emit CollateralizeSucceeded(depositValueUsd, usdcBal);
 
@@ -590,12 +827,8 @@ contract Treasury is Ownable {
     function rollIfDue() external returns (bool batchRolled, bool reserveRebalanced) {
         (bool batchDue, bool rebalanceDue, ) = canRoll();
 
-        if (batchDue && escrow != address(0)) {
-            try IEscrowForTreasury(escrow).rollToNewBatch() {
-                batchRolled = true;
-            } catch {
-                batchRolled = false;
-            }
+        if (batchDue) {
+            batchRolled = false;
         }
 
         if (rebalanceDue) {
@@ -610,7 +843,7 @@ contract Treasury is Ownable {
     }
 
     function _rebalanceReserve() internal {
-        require(address(goldOracle) != address(0), "goldOracle not set");
+        if (address(goldOracle) == address(0)) revert OracleNotSet();
         uint256 treasuryUsdc6 = usdc.balanceOf(address(this)); // 6 decimals
         uint256 goldBal = gold.balanceOf(reserveAddress); // 18 decimals
         uint256 goldPrice8 = _requireGoldPrice8();
@@ -642,47 +875,7 @@ contract Treasury is Ownable {
     }
 
     function _isBatchRollDue() internal view returns (bool) {
-        if (escrow == address(0)) return false;
-        IEscrowForTreasury escrowContract = IEscrowForTreasury(escrow);
-
-        uint256 lastRoll;
-        try escrowContract.lastBatchRollTime() returns (uint256 t) {
-            lastRoll = t;
-        } catch {
-            return false;
-        }
-
-        uint256 interval = 7 days;
-        try escrowContract.BATCH_INTERVAL() returns (uint256 configured) {
-            if (configured > 0) interval = configured;
-        } catch {
-            // keep default
-        }
-        if (block.timestamp < lastRoll + interval) return false;
-
-        // Best-effort: only signal batch roll due if the default pending batch has collateral.
-        uint256 pendingBatchId;
-        try escrowContract.currentBatchId() returns (uint256 id) {
-            pendingBatchId = id;
-        } catch {
-            return true;
-        }
-
-        try escrowContract.batches(pendingBatchId) returns (
-            uint256 /*id*/,
-            uint256 /*startTime*/,
-            uint256 /*endTime*/,
-            uint256 pendingCollateralUsd,
-            uint256 /*totalShares*/,
-            uint256 /*finalNavPerShare*/,
-            uint8 status,
-            bool /*distributed*/
-        ) {
-            // BatchStatus.Pending == 0
-            return status == 0 && pendingCollateralUsd > 0;
-        } catch {
-            return true;
-        }
+        return false;
     }
 
     function _isReserveRebalanceDue() internal view returns (bool) {
@@ -715,32 +908,32 @@ contract Treasury is Ownable {
      */
     function _buyGoldWithUsdc(uint256 usdAmount) internal {
         uint256 usdcBal = usdc.balanceOf(address(this));
-        require(usdcBal >= usdAmount, "Not enough USDC");
+        if (usdcBal < usdAmount) revert InsufficientBalance();
 
         uint256 goldPrice = _requireGoldPrice8();
         // token wei conversion (USD6 -> token wei): goldWei = usd6 * 1e20 / price8
         uint256 goldAmount = (usdAmount * (10 ** 20)) / goldPrice;
         // Transfer gold to reserve
-        require(gold.transfer(reserveAddress, goldAmount), "Gold transfer failed");
+        if (!gold.transfer(reserveAddress, goldAmount)) revert TransferFailed();
         // Simulate USDC outflow by sending to dead address (MVP — replace with real swap in prod)
-        require(usdc.transfer(address(0xdead), usdAmount), "USDC transfer failed");
+        if (!usdc.transfer(address(0xdead), usdAmount)) revert TransferFailed();
         emit GoldBought(usdAmount);
     }
 
     function _sellGoldForUsdc(uint256 usdAmount) internal {
         uint256 goldPrice = _requireGoldPrice8();
         uint256 goldAmount = (usdAmount * (10 ** 20)) / goldPrice;
-        require(gold.balanceOf(reserveAddress) >= goldAmount, "Not enough GOLD at reserve");
+        if (gold.balanceOf(reserveAddress) < goldAmount) revert InsufficientBalance();
         // For MVP: pull GOLD from reserve back to treasury and emit event.
         // In a more advanced flow you may swap GOLD->USDC via AMM; keep existing transfer logic here.
-        require(gold.transferFrom(reserveAddress, address(this), goldAmount), "Gold transferFrom failed");
+        if (!gold.transferFrom(reserveAddress, address(this), goldAmount)) revert TransferFailed();
         emit GoldSold(usdAmount);
     }
 
     // NEW: fund an escrow batch (called by Escrow contract)
     // Transfers USDC from Treasury to msg.sender (the escrow contract)
     function fundEscrowBatch(uint256 batchId, uint256 amountUsd) external onlyEscrow {
-        require(usdc.balanceOf(address(this)) >= amountUsd, "Not enough USDC");
+        if (usdc.balanceOf(address(this)) < amountUsd) revert InsufficientBalance();
         // Transfer USDC to escrow (msg.sender)
         usdc.safeTransfer(msg.sender, amountUsd);
         emit BatchFunded(batchId, amountUsd);
@@ -842,10 +1035,27 @@ contract Treasury is Ownable {
         // 2) Allocate userProfitUsd pro-rata by shares.
         // Move heavy per-token work into an internal helper to avoid "stack too deep".
         // Copy calldata arrays into memory and call helper.
-        require(usdc.balanceOf(address(this)) >= userProfitUsd, "Treasury lacks USDC for payouts");
+        if (usdc.balanceOf(address(this)) < userProfitUsd) revert InsufficientBalance();
         uint256[] memory tokenIdsMem = new uint256[](n);
         for (uint256 i = 0; i < n; i++) tokenIdsMem[i] = tokenIds[i];
         _distributeUserProfit(userProfitUsd, tokenIdsMem, shares, totalShares);
+    }
+
+    // Owner-callable settlement report for when the Escrow is operating in simulated mode.
+    // Equivalent to reportBatchResult but bypasses the onlyEscrow guard so the server
+    // operator can complete Treasury accounting when no on-chain Escrow tx was broadcast.
+    // Idempotent: reverts if the batch is already Closed.
+    function adminReportBatchSettled(
+        uint256 batchId,
+        uint256 principalUsd,
+        uint256 returnedUsd
+    ) external onlyOwner {
+        TreasuryBatch storage batch_ = treasuryBatches[batchId];
+        if (batch_.batchId != batchId) revert BatchNotFound();
+        if (batch_.status == TreasuryBatchStatus.Closed) revert AlreadySettled();
+        uint256 userProfit = returnedUsd > principalUsd ? returnedUsd - principalUsd : 0;
+        uint256 finalNav = principalUsd > 0 ? (returnedUsd * 1e18) / principalUsd : 1e18;
+        _recordBatchResult(batchId, principalUsd, userProfit, 0, finalNav, bytes32(0), bytes32(0));
     }
 
     // Internal helper to distribute userProfitUsd pro-rata by shares to receipt owners.
@@ -910,16 +1120,16 @@ contract Treasury is Ownable {
     /// @param receiptId Vault receipt token id
     /// @param amountUsd USD amount in 6 decimals (e.g. $112.50 => 112500000)
     function payProfitToReceiptOwner(uint256 receiptId, uint256 amountUsd) external onlyOwner {
-        require(amountUsd > 0, "amount must be > 0");
-        require(vault != address(0), "vault not set");
-        require(usdc.balanceOf(address(this)) >= amountUsd, "Treasury lacks USDC");
+        if (amountUsd == 0) revert InvalidParam();
+        if (vault == address(0)) revert VaultNotSet();
+        if (usdc.balanceOf(address(this)) < amountUsd) revert InsufficientBalance();
 
         (uint256 batchId, uint256 dueUsd, uint256 alreadyPaidUsd, uint256 unpaidUsd, address recipient) =
             previewReceiptProfitUsd(receiptId);
-        require(recipient != address(0), "recipient not found");
+        if (recipient == address(0)) revert RecipientNotFound();
 
         if (batchId != 0 && dueUsd > 0) {
-            require(amountUsd <= unpaidUsd, "amount exceeds unpaid batch profit");
+            if (amountUsd > unpaidUsd) revert InvalidParam();
             uint256 newPaid = alreadyPaidUsd + amountUsd;
             receiptBatchProfitPaidUsd[batchId][receiptId] = newPaid;
             emit ReceiptProfitPaidDetailed(batchId, receiptId, recipient, amountUsd, newPaid, dueUsd);
@@ -1005,15 +1215,15 @@ contract Treasury is Ownable {
     /// @notice Pay exact unpaid batch-derived profit to the current receipt owner.
     /// @dev Uses previewReceiptProfitUsd() and updates per-receipt paid tracking.
     function payReceiptProfit(uint256 receiptId) external onlyOwner {
-        require(vault != address(0), "vault not set");
-        require(escrow != address(0), "escrow not set");
+        if (vault == address(0)) revert VaultNotSet();
+        if (escrow == address(0)) revert EscrowNotSet();
 
         (uint256 batchId, uint256 dueUsd, uint256 alreadyPaidUsd, uint256 unpaidUsd, address recipient) =
             previewReceiptProfitUsd(receiptId);
-        require(batchId != 0, "receipt batch not found");
-        require(recipient != address(0), "recipient not found");
-        require(unpaidUsd > 0, "no unpaid profit");
-        require(usdc.balanceOf(address(this)) >= unpaidUsd, "Treasury lacks USDC");
+        if (batchId == 0) revert BatchNotFound();
+        if (recipient == address(0)) revert RecipientNotFound();
+        if (unpaidUsd == 0) revert NoPendingProfit();
+        if (usdc.balanceOf(address(this)) < unpaidUsd) revert InsufficientBalance();
 
         uint256 newPaid = alreadyPaidUsd + unpaidUsd;
         receiptBatchProfitPaidUsd[batchId][receiptId] = newPaid;
@@ -1044,8 +1254,54 @@ contract Treasury is Ownable {
             totalCollateralUsd = 0;
         }
 
+        TreasuryBatch storage batch_ = treasuryBatches[batchId];
+        if (batch_.batchId == batchId && batch_.status != TreasuryBatchStatus.Closed) {
+            batch_.actualReturnedAt = uint64(block.timestamp);
+            batch_.status = TreasuryBatchStatus.Closed;
+            uint256 len = batch_.lotIds.length;
+            for (uint256 i = 0; i < len; i++) {
+                uint256 lotId = batch_.lotIds[i];
+                if (originLots[lotId].status == OriginLotStatus.Allocated) {
+                    originLots[lotId].status = OriginLotStatus.Settled;
+                }
+            }
+            emit TreasuryBatchClosed(batchId, principalUsd, uint64(block.timestamp));
+        }
+
         emit BatchResult(batchId, principalUsd, userProfitUsd, feeUsd);
         emit BatchResultExtended(batchId, settlementReportHash, complianceDigestHash);
+    }
+
+    function _createOriginLot(
+        OriginType originType,
+        bytes32 originRefId,
+        uint256 amountUsd6,
+        uint64 liabilityUnlockAt
+    ) internal returns (uint256 lotId) {
+        if (amountUsd6 == 0) revert InvalidParam();
+        if (liabilityUnlockAt < block.timestamp) revert InvalidParam();
+
+        lotId = nextOriginLotId;
+        nextOriginLotId = lotId + 1;
+
+        originLots[lotId] = OriginLot({
+            id: lotId,
+            originType: originType,
+            originRefId: originRefId,
+            amount: amountUsd6,
+            fundedAt: uint64(block.timestamp),
+            liabilityUnlockAt: liabilityUnlockAt,
+            status: OriginLotStatus.Available,
+            batchId: 0
+        });
+        originLotsByType[originType].push(lotId);
+        originRefToLotId[_originKey(originType, originRefId)] = lotId;
+
+        emit OriginLotCreated(lotId, originType, originRefId, amountUsd6, uint64(block.timestamp), liabilityUnlockAt);
+    }
+
+    function _originKey(OriginType originType, bytes32 originRefId) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(originType, originRefId));
     }
 
     function _resolveProfitRecipient(IVaultForTreasury vaultContract, uint256 receiptId) internal view returns (address recipient) {
@@ -1373,7 +1629,7 @@ contract Treasury is Ownable {
     function _requireGoldPrice8() internal view returns (uint256 goldPrice8) {
         bool isValid;
         (goldPrice8,, isValid) = _readOraclePrice8(address(goldOracle), true);
-        require(isValid && goldPrice8 > 0, "goldOracle invalid");
+        if (!isValid || goldPrice8 == 0) revert OracleInvalid();
     }
 
     function _isOracleFresh(bool isValid, uint256 updatedAt_) internal view returns (bool) {

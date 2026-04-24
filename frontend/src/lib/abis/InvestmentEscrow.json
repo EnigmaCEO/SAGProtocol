@@ -56,6 +56,32 @@
         "internalType": "uint256",
         "name": "batchId",
         "type": "uint256"
+      }
+    ],
+    "name": "BatchAllocationCleared",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      }
+    ],
+    "name": "BatchAllocationPending",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
       },
       {
         "indexed": false,
@@ -495,6 +521,62 @@
     "inputs": [
       {
         "indexed": true,
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "deployedPrincipal",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "expectedReturnAt",
+        "type": "uint64"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "settlementDeadlineAt",
+        "type": "uint64"
+      }
+    ],
+    "name": "TreasuryBatchReceived",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "settlementAmount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "actualReturnedAt",
+        "type": "uint64"
+      }
+    ],
+    "name": "TreasuryBatchReturned",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
         "internalType": "address",
         "name": "vault",
         "type": "address"
@@ -593,6 +675,19 @@
     "name": "authorizeBatchExecution",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "batchAwaitingAllocationId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -750,6 +845,55 @@
     "name": "distributeBatchBurn",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "escrowBatchPositions",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "deployedPrincipal",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint64",
+        "name": "expectedReturnAt",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "settlementDeadlineAt",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "actualReturnedAt",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint256",
+        "name": "settlementAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "enum InvestmentEscrow.BatchPositionStatus",
+        "name": "status",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -1448,6 +1592,34 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "deployedPrincipal",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "expectedReturnAt",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "settlementDeadlineAt",
+        "type": "uint256"
+      }
+    ],
+    "name": "receiveTreasuryBatch",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {

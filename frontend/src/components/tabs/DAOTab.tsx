@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ethers } from 'ethers';
 import { getContract } from '../../lib/ethers';
 import { getRuntimeAddress, setRuntimeAddress, isValidAddress, getDefaultAddress, loadGeneratedRuntimeAddresses } from '../../lib/runtime-addresses';
@@ -183,6 +183,22 @@ type PortfolioAsset = {
   addedAt: number;
 };
 
+type PortfolioAssetHistory = {
+  assetSymbol: string;
+  batchId: string;
+  sourceType: string;
+  routeType: string;
+  routeId?: string;
+  adapterId?: string;
+  deployedAt?: string;
+  returnedAt?: string;
+  principalAllocatedUsd: number;
+  returnedAmountUsd?: number;
+  realizedPnlUsd: number;
+  realizedPnlPct: number;
+  status: string;
+};
+
 type ExecutionRoute = {
   routeId: number;
   assetSymbol: string;
@@ -344,6 +360,39 @@ export default function DAOTab() {
   // Portfolio Registry state
   const [portfolioRegistryAddress, setPortfolioRegistryAddress] = useState<string>(() => getRuntimeAddress('PortfolioRegistry'));
   const [portfolioAssets, setPortfolioAssets] = useState<PortfolioAsset[]>([]);
+  const [portfolioAssetHistory, setPortfolioAssetHistory] = useState<PortfolioAssetHistory[]>([]);
+
+  const aggregatedPortfolioHistory = useMemo(() => {
+    const map = new Map<string, {
+      assetSymbol: string;
+      batchCount: number;
+      sources: Set<string>;
+      routeTypes: Set<string>;
+      principalTotal: number;
+      returnedTotal: number;
+      pnlTotal: number;
+    }>();
+    for (const row of portfolioAssetHistory) {
+      const key = row.assetSymbol;
+      if (!map.has(key)) {
+        map.set(key, { assetSymbol: key, batchCount: 0, sources: new Set(), routeTypes: new Set(), principalTotal: 0, returnedTotal: 0, pnlTotal: 0 });
+      }
+      const agg = map.get(key)!;
+      agg.batchCount += 1;
+      if (row.sourceType) agg.sources.add(row.sourceType);
+      if (row.routeType) agg.routeTypes.add(row.routeType);
+      agg.principalTotal += row.principalAllocatedUsd;
+      agg.returnedTotal += row.returnedAmountUsd ?? 0;
+      agg.pnlTotal += row.realizedPnlUsd;
+    }
+    return Array.from(map.values()).map(agg => ({
+      ...agg,
+      yieldPct: agg.principalTotal > 0 ? (agg.pnlTotal / agg.principalTotal) * 100 : 0,
+      sourceLabel: agg.sources.size > 1 ? 'Multiple' : [...agg.sources][0] ?? '—',
+      routeLabel: [...agg.routeTypes].join(', ') || '—',
+    }));
+  }, [portfolioAssetHistory]);
+
   const [portfolioStatus, setPortfolioStatus] = useState<string | null>(null);
   const [portfolioLoading, setPortfolioLoading] = useState(false);
   const [newAssetToken, setNewAssetToken] = useState('');
@@ -514,6 +563,10 @@ export default function DAOTab() {
     refreshPortfolioState();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, portfolioRegistryAddress]);
+
+  useEffect(() => {
+    refreshPortfolioAssetHistory();
+  }, []);
 
   useEffect(() => {
     if (!provider) return;
@@ -1820,6 +1873,17 @@ export default function DAOTab() {
     }
   };
 
+  const refreshPortfolioAssetHistory = async () => {
+    try {
+      const response = await fetch('/api/banking/escrow/asset-history');
+      const payload = await response.json().catch(() => null);
+      const rows = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+      setPortfolioAssetHistory(rows);
+    } catch {
+      setPortfolioAssetHistory([]);
+    }
+  };
+
   const handleAddPortfolioAsset = async (
     bypassProposal = false,
     payload?: {
@@ -2866,6 +2930,68 @@ export default function DAOTab() {
                           )}
                         </tr>
                       ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                  Portfolio Asset History ({aggregatedPortfolioHistory.length})
+                </div>
+                <button
+                  className="action-button action-button--ghost"
+                  onClick={refreshPortfolioAssetHistory}
+                  disabled={configBusy}
+                >
+                  Refresh History
+                </button>
+              </div>
+              {aggregatedPortfolioHistory.length === 0 ? (
+                <div className="rounded-xl border border-slate-700/50 bg-slate-900/35 p-4 text-sm text-slate-400">
+                  No settled asset history yet.
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-700/50">
+                  <table className="w-full text-xs text-slate-300">
+                    <thead>
+                      <tr className="border-b border-slate-700/50 bg-slate-900/50">
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Asset</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Batches</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Source</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Route</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Principal</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Returned</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">PnL</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Yield</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {aggregatedPortfolioHistory.map((row) => {
+                        const asset = portfolioAssets.find((item) => item.symbol.toLowerCase() === row.assetSymbol.toLowerCase());
+                        const positive = row.pnlTotal >= 0;
+                        return (
+                          <tr key={row.assetSymbol} className="border-b border-slate-700/30 hover:bg-slate-800/30">
+                            <td className="px-3 py-2">
+                              <div className="font-semibold text-slate-100">{row.assetSymbol}</div>
+                              <div className="text-[11px] text-slate-400">{asset?.name || row.assetSymbol}</div>
+                            </td>
+                            <td className="px-3 py-2 text-slate-400">{row.batchCount}</td>
+                            <td className="px-3 py-2">{row.sourceLabel}</td>
+                            <td className="px-3 py-2">{row.routeLabel}</td>
+                            <td className="px-3 py-2">${row.principalTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            <td className="px-3 py-2">${row.returnedTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            <td className={`px-3 py-2 ${positive ? 'text-emerald-300' : 'text-rose-300'}`}>
+                              ${row.pnlTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                            <td className={`px-3 py-2 ${positive ? 'text-emerald-300' : 'text-rose-300'}`}>
+                              {row.yieldPct.toFixed(2)}%
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

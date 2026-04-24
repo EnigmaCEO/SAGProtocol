@@ -17,7 +17,7 @@ import {
   mapTermPosition,
 } from './api';
 
-export type BankingViewId = 'accounts' | 'term-deposits' | 'api' | 'docs';
+export type BankingViewId = 'accounts' | 'term-deposits' | 'institutions' | 'api' | 'docs';
 
 export interface BankingViewOption {
   id: BankingViewId;
@@ -80,6 +80,11 @@ export const BANKING_VIEW_OPTIONS: BankingViewOption[] = [
     id: 'term-deposits',
     label: 'Term Deposits',
     description: 'Deposit servicing and lifecycle status',
+  },
+  {
+    id: 'institutions',
+    label: 'Institution Policy',
+    description: 'Governed bank allocation profiles',
   },
   {
     id: 'api',
@@ -146,9 +151,9 @@ export function buildBankingApiObjects(state: BankingDashboardState): BankingApi
     {
       id: 'funding-instruction',
       name: 'FundingInstruction',
-      description: 'Describes how a partner bank or platform funds the Banking layer before a term deposit is opened.',
+      description: 'Describes how a partner bank or platform funds the Checking Account before a term deposit is opened.',
       fields: [
-        { name: 'capital_account_id', type: 'string', description: 'Account that will receive or source the incoming funds.' },
+        { name: 'capital_account_id', type: 'string', description: 'Checking Account that will receive the incoming funds.' },
         { name: 'rail', type: 'wire | ach | internal_transfer', description: 'Funding rail presented to the partner.' },
         { name: 'amount_usd', type: 'number', description: 'Expected incoming funding amount.' },
         { name: 'status', type: 'created | available | completed', description: 'Instruction lifecycle state.' },
@@ -165,11 +170,17 @@ export function buildBankingApiObjects(state: BankingDashboardState): BankingApi
         { name: 'id', type: 'string', description: 'Stable term position identifier.' },
         { name: 'principal_usd', type: 'number', description: 'Funded principal amount.' },
         { name: 'term_years', type: 'number', description: 'Selected customer term length.' },
-        { name: 'status', type: 'active | processing | matured', description: 'Lifecycle status for the term position.' },
+        { name: 'status', type: 'not_funded | funded | processing | active | matured', description: 'Banking product lifecycle status for the term position.' },
+        { name: 'protocol_status', type: 'awaiting_circle_conversion | circle_transfer_pending | circle_transfer_complete | treasury_lot_registered | batch_pending | batch_formed | batch_funded | handed_to_escrow | in_execution | settled', description: 'Background protocol lifecycle state.' },
+        { name: 'treasury_origin_lot_id', type: 'string', description: 'BANK-origin Treasury lot created for this term deposit.' },
+        { name: 'treasury_batch_id', type: 'string', description: 'Treasury execution mandate once compatible liquidity is handed to Escrow.' },
+        { name: 'policy_profile_id', type: 'string', description: 'Institution policy profile snapshotted when the term was funded.' },
+        { name: 'duration_class', type: 'string', description: 'Duration class used by Treasury compatibility batching.' },
+        { name: 'strategy_class', type: 'string', description: 'Execution sleeve used for Treasury batching and Escrow routing.' },
         { name: 'maturity_date', type: 'string', description: 'Scheduled maturity timestamp.' },
         { name: 'settlement_reference', type: 'string', description: 'Reference tying the product object to settlement records.' },
       ],
-      statuses: ['processing', 'active', 'matured'],
+      statuses: ['funded', 'processing', 'active', 'settled'],
       example: termPosition,
     },
     {
@@ -263,7 +274,7 @@ export function buildBankingApiEndpoints(state: BankingDashboardState): BankingA
       id: 'post-term-position',
       method: 'POST',
       path: '/api/banking/term-positions',
-      description: 'Open a new term deposit position after funds are available in the Banking layer.',
+      description: 'Open a new term deposit position from available Checking Account funds.',
       requestExample: {
         amountUsd: 1500,
         termYears: 3,
@@ -331,10 +342,10 @@ export const BANKING_DOC_SECTIONS: BankingDocsSection[] = [
   {
     id: 'deposit-lifecycle',
     title: 'Deposit Lifecycle',
-    body: 'Customer funds enter a checking account first. The Banking layer records the funding movement, posts the balance, and only then allows a term deposit to be opened from available funds.',
+    body: 'Customer funds enter a Checking Account first. The Banking layer records the incoming wire, posts the balance, and only then allows a term deposit to be opened from available funds.',
     bullets: [
       'Funding instruction created',
-      'Incoming funds posted to checking',
+      'Incoming USD wire posted to Checking',
       'Available balance updated',
       'Customer eligible to open a term deposit',
     ],
@@ -342,21 +353,21 @@ export const BANKING_DOC_SECTIONS: BankingDocsSection[] = [
   {
     id: 'term-deposit-lifecycle',
     title: 'Term Deposit Lifecycle',
-    body: 'When a customer opens a term deposit, Banking creates the term position, records the settlement intent, and updates the product account state. As the term matures, servicing updates return through the same product objects.',
+    body: 'When a customer opens a term deposit, Banking moves value from Checking into the Sagitta product account, marks the term funded, and starts protocol allocation in the background.',
     bullets: [
       'TermPosition created',
-      'Settlement processing or mirror update posted',
-      'TermPosition becomes active',
-      'Maturity servicing and settlement events continue through Banking',
+      'Checking balance debited',
+      'TermPosition becomes funded',
+      'Circle conversion and Treasury lot registration run after product funding',
     ],
   },
   {
     id: 'settlement-model',
     title: 'Settlement Model',
-    body: 'Settlement is reported as a banking-layer event stream. Partners can treat mirrored and completed settlement modes as product states without coupling customer workflows to underlying protocol mechanics.',
+    body: 'Settlement is reported as a banking-layer event stream. Partners can treat funding and processing states as product states without coupling customer workflows to Circle or protocol mechanics.',
     bullets: [
-      'Mirrored settlement supports sandbox and staged backend wiring.',
-      'Completed settlement reflects a finalized product update.',
+      'Incoming wire events credit Checking Account.',
+      'Term funding events move value from Checking into the Sagitta product account.',
       'Shared references let partner ledgers reconcile funding, activation, and maturity events.',
     ],
   },
@@ -376,17 +387,17 @@ export const BANKING_INTEGRATION_FLOW: BankingFlowStep[] = [
   {
     id: 'fund',
     title: '1. Fund checking',
-    body: 'Customer funds a checking account through a bank-managed transfer rail.',
+    body: 'Customer funds Checking Account through a bank-managed transfer rail.',
   },
   {
     id: 'record',
     title: '2. Post banking objects',
-    body: 'Banking creates or updates CapitalAccount and FundingInstruction records.',
+    body: 'Banking posts incoming_wire_received and updates available checking balance.',
   },
   {
     id: 'open',
     title: '3. Open term deposit',
-    body: 'A TermPosition is created from available checking funds and begins servicing.',
+    body: 'A TermPosition is funded from available checking funds and then background protocol allocation begins.',
   },
   {
     id: 'sync',

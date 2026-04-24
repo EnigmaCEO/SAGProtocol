@@ -72,13 +72,22 @@ export interface ApiTermPosition {
   principal_usd: number;
   term_years: number;
   status: TermPosition['status'];
+  protocol_status: TermPosition['protocolStatus'];
+  protocol_sync_status: TermPosition['protocolSyncStatus'];
+  protocol_sync_error?: string;
   opened_at: string;
+  funded_at: string;
   maturity_date: string;
   rate_label: string;
   protection_status: TermPosition['protectionStatus'];
   reserve_status: string;
   settlement_reference: string;
   settlement_mode: SettlementMode;
+  treasury_origin_lot_id?: string;
+  treasury_batch_id?: string;
+  treasury_expected_return_at?: string;
+  treasury_settlement_deadline_at?: string;
+  treasury_settlement_status?: string;
 }
 
 export interface ApiMaturitySchedule {
@@ -152,13 +161,20 @@ function summaryKind(kind: BankingAccountSummary['kind']): ApiCapitalAccount['ki
 
 function summaryStatus(summary: BankingAccountSummary, state: BankingDashboardState): string {
   if (summary.kind !== 'term-deposit') {
+    if (summary.kind === 'checking') {
+      if (summary.currentBalanceUsd > 0) return 'funds_available';
+      return state.capitalAccount.transactions.some((transaction) => transaction.category === 'credit')
+        ? 'wire_received'
+        : 'awaiting_wire';
+    }
     return summary.currentBalanceUsd > 0 ? 'available' : summary.statusText.toLowerCase();
   }
 
-  const activePositions = state.termPositions.filter((position) => position.status === 'active');
-  if (activePositions.length === 0) return 'no_active_term_deposit';
-  if (activePositions.length === 1) return 'active';
-  return 'active_multi_position';
+  const fundedPositions = state.termPositions.filter((position) => position.status !== 'not_funded');
+  if (fundedPositions.length === 0) return 'not_funded';
+  if (fundedPositions.some((position) => position.status === 'active')) return 'active_term_position';
+  if (fundedPositions.some((position) => position.status === 'processing')) return 'processing';
+  return 'funded';
 }
 
 function mapSummaryAccount(summary: BankingAccountSummary, state: BankingDashboardState): ApiCapitalAccount {
@@ -189,7 +205,11 @@ function mapCheckingAccount(capitalAccount: CapitalAccount, state: BankingDashbo
     account_number_masked: capitalAccount.accountNumberMasked,
     currency: capitalAccount.currency,
     current_balance_usd: capitalAccount.availableBalanceUsd,
-    status: capitalAccount.availableBalanceUsd > 0 ? 'available' : 'awaiting_funding',
+    status: capitalAccount.availableBalanceUsd > 0
+      ? 'funds_available'
+      : capitalAccount.transactions.some((transaction) => transaction.category === 'credit')
+        ? 'wire_received'
+        : 'awaiting_wire',
     available_balance_usd: capitalAccount.availableBalanceUsd,
     posted_balance_usd: capitalAccount.postedBalanceUsd,
     routing_number_masked: capitalAccount.routingNumberMasked,
@@ -260,13 +280,22 @@ export function mapTermPosition(position: TermPosition): ApiTermPosition {
     principal_usd: position.principalUsd,
     term_years: position.termYears,
     status: position.status,
+    protocol_status: position.protocolStatus,
+    protocol_sync_status: position.protocolSyncStatus,
+    protocol_sync_error: position.protocolSyncError,
     opened_at: position.openedAt,
+    funded_at: position.fundedAt,
     maturity_date: position.maturityDate,
     rate_label: position.rateLabel,
     protection_status: position.protectionStatus,
     reserve_status: position.reserveStatusLabel,
     settlement_reference: position.settlementReference,
     settlement_mode: position.settlementMode,
+    treasury_origin_lot_id: position.treasuryOriginLotId,
+    treasury_batch_id: position.treasuryBatchId,
+    treasury_expected_return_at: position.treasuryBatchExpectedReturnAt,
+    treasury_settlement_deadline_at: position.treasuryBatchSettlementDeadlineAt,
+    treasury_settlement_status: position.treasurySettlementStatus,
   };
 }
 
@@ -314,7 +343,7 @@ export function mapProtectionStatus(
     summary: protectionStatus.summary || 'Protection status will update after a funded term deposit becomes active.',
     reserve_coverage_label: protectionStatus.reserveCoverageLabel || 'Pending first active term deposit',
     protected_capital_usd: protectionStatus.protectedCapitalUsd,
-    active_term_positions: state.termPositions.filter((position) => position.status === 'active').length,
+    active_term_positions: state.termPositions.filter((position) => position.status !== 'not_funded').length,
     as_of: protectionStatus.asOf,
     note: protectionStatus.note || 'This object is intended for partner-bank servicing and customer status sync.',
   };

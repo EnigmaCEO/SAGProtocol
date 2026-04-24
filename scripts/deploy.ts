@@ -335,11 +335,12 @@ async function main() {
   }
 
   try {
-    if (typeof (escrow as any).setRouteRegistry === "function") {
-      await (await (escrow as any).setRouteRegistry(addr(executionRouteRegistry))).wait();
+    if (typeof (escrow as any).setProtocolDAO === "function") {
+      await (await (escrow as any).setProtocolDAO(addr(protocolDao))).wait();
+      console.log("InvestmentEscrow linked to ProtocolDAO");
     }
   } catch (e) {
-    console.warn("escrow.setRouteRegistry failed (non-fatal):", e);
+    console.warn("escrow.setProtocolDAO failed (non-fatal):", e);
   }
 
   // On local chains, authorize the deployer as keeper so manual batch operations work
@@ -508,6 +509,18 @@ async function main() {
   await (await (protocolDao as any).setAddresses(daoKeys, daoAddrs)).wait();
   await verifyProtocolDaoRegistry(protocolDao, daoEntries);
   console.log("ProtocolDAO registry populated with", daoKeys.length, "addresses");
+
+  try {
+    if (typeof (escrow as any).syncRouteRegistryFromDAO === "function") {
+      await (await (escrow as any).syncRouteRegistryFromDAO()).wait();
+      console.log("InvestmentEscrow route registry synced from ProtocolDAO");
+    } else if (typeof (escrow as any).setRouteRegistry === "function") {
+      await (await (escrow as any).setRouteRegistry(addr(executionRouteRegistry))).wait();
+      console.log("InvestmentEscrow route registry set directly");
+    }
+  } catch (e) {
+    console.warn("escrow route-registry linking failed (non-fatal):", e);
+  }
 
   const deploymentNetworkName = normalizeDeploymentNetworkName(chainId, network.name);
   const deployments: Record<string, string | number | null> = {

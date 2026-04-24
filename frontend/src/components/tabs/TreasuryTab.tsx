@@ -15,17 +15,30 @@ const TREASURY_ABI_NORM: any = normalizeAbi(TREASURY_ABI);
 const GOLD_ORACLE_ABI_NORM: any = normalizeAbi(GOLD_ORACLE_ABI);
 
 const LOCALHOST_RPC = RPC_URL;
-const LOCAL_CHAIN_IDS = new Set([1337, 31337]);
-const BATCH_CADENCE_KEY = 'sagitta.batchCadenceSeconds';
-const DEFAULT_BATCH_CADENCE_SECONDS = 7 * 24 * 60 * 60;
-const BATCH_CADENCE_OPTIONS: Array<{ label: string; seconds: number }> = [
-  { label: '1 day', seconds: 24 * 60 * 60 },
-  { label: '1 week', seconds: 7 * 24 * 60 * 60 },
-  { label: '2 weeks', seconds: 14 * 24 * 60 * 60 },
-  { label: '1 month', seconds: 30 * 24 * 60 * 60 },
-];
+const BATCH_CADENCE_KEY = 'sagitta:treasury-batch-cadence-seconds';
 // Local test private key (Hardhat/Anvil default account #0)
 const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+const TREASURY_BATCH_STATUS: Record<number, string> = {
+  0: 'Pending',
+  1: 'Funded',
+  2: 'Authorized',
+  3: 'Settled',
+  4: 'Cancelled',
+};
+const TREASURY_ORIGIN_TYPE: Record<number, string> = {
+  0: 'NONE',
+  1: 'VAULT',
+  2: 'BANK',
+};
+const ORIGIN_TYPE_VAULT = 1;
+const ORIGIN_LOT_STATUS: Record<number, string> = {
+  0: 'None',
+  1: 'Available',
+  2: 'Allocated',
+  3: 'Settled',
+  4: 'Cancelled',
+};
+
 const TREASURY_ENGINE_EVENTS = [
   'CollateralizeAttempt',
   'CollateralizeSucceeded',
@@ -106,8 +119,6 @@ export default function TreasuryTab() {
   const [vaultLinkInput, setVaultLinkInput] = useState<string>(() => getRuntimeAddress('Vault'));
   const [escrowLinkInput, setEscrowLinkInput] = useState<string>(() => getRuntimeAddress('InvestmentEscrow'));
   const [reserveLinkInput, setReserveLinkInput] = useState<string>(() => getRuntimeAddress('ReserveController'));
-  const [linkConfigLoading, setLinkConfigLoading] = useState(false);
-  const [linkConfigStatus, setLinkConfigStatus] = useState<string | null>(null);
   const [linkedReserveAddress, setLinkedReserveAddress] = useState<string | null>(null);
 
   const [goldPrice, setGoldPrice] = useState<number>(0);
@@ -125,12 +136,6 @@ export default function TreasuryTab() {
   const [escrowAddress, setEscrowAddress] = useState<string | null>(null);
   const [escrowUsdcBalance, setEscrowUsdcBalance] = useState<number>(0);
 
-  const [isLocalhostNetwork, setIsLocalhostNetwork] = useState(false);
-  const [localChainId, setLocalChainId] = useState<number | null>(null);
-  const [localChainTime, setLocalChainTime] = useState<number | null>(null);
-  const [timeControlLoading, setTimeControlLoading] = useState(false);
-  const [batchCadenceSeconds, setBatchCadenceSeconds] = useState<number>(DEFAULT_BATCH_CADENCE_SECONDS);
-  const [escrowLastRollTime, setEscrowLastRollTime] = useState<number | null>(null);
 
   // Providers and contracts
   const [provider, setProvider] = useState<JsonRpcProvider>();
@@ -141,6 +146,70 @@ export default function TreasuryTab() {
 
   // NEW: show configured vault address and helper formatting
   const [vaultAddress, setVaultAddress] = useState<string | null>(null);
+
+  // BANK Liquidity panel state
+  const [bankLots, setBankLots] = useState<Array<{
+    id: string;
+    treasuryOriginLotId: string;
+    principalUsd: number;
+    liabilityUnlockAt?: string;
+    maturityDate: string;
+    treasuryBatchId?: string;
+    protocolStatus?: string;
+    durationClass?: string;
+    policyProfileId?: string;
+    policyVersion?: number;
+    originInstitutionId?: string;
+    strategyClass?: string;
+    escrowExecutionOrderId?: string;
+  }>>([]);
+  const [bankLotsLoading, setBankLotsLoading] = useState(false);
+  const [bankLotsError, setBankLotsError] = useState<string | null>(null);
+  const [bankBatchLoading, setBankBatchLoading] = useState(false);
+  const [bankBatchStatus, setBankBatchStatus] = useState<string | null>(null);
+  const [bankBatchTone, setBankBatchTone] = useState<'success' | 'warning' | 'danger'>('success');
+  const [vaultLots, setVaultLots] = useState<Array<{
+    id: number;
+    receiptId: string;
+    amountUsd6: number;
+    fundedAt: number;
+    liabilityUnlockAt: number;
+    status: number;
+    batchId: number;
+  }>>([]);
+  const [vaultLotsLoading, setVaultLotsLoading] = useState(false);
+  const [vaultLotsError, setVaultLotsError] = useState<string | null>(null);
+  const [settledVaultBatchIds, setSettledVaultBatchIds] = useState<Set<string>>(new Set());
+  const [vaultBatchLoading, setVaultBatchLoading] = useState(false);
+  const [vaultBatchStatus, setVaultBatchStatus] = useState<string | null>(null);
+  const [vaultBatchTone, setVaultBatchTone] = useState<'success' | 'warning' | 'danger'>('success');
+  const [batchCadenceSeconds] = useState<number>(() => {
+    const raw = typeof window !== 'undefined' ? window.localStorage.getItem(BATCH_CADENCE_KEY) : null;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 30 * 24 * 60 * 60;
+  });
+  const [linkConfigLoading, setLinkConfigLoading] = useState(false);
+  const [linkConfigStatus, setLinkConfigStatus] = useState<string | null>(null);
+
+  // Execution Authorization panel state
+  const [authBatchIdInput, setAuthBatchIdInput] = useState('');
+  const [authBatchInfo, setAuthBatchInfo] = useState<{
+    batchId: number;
+    originType: number;
+    principalAllocated: number;
+    lotCount: number;
+    status: number;
+    expectedReturnAt: number;
+  } | null>(null);
+  const [authBatchFetchError, setAuthBatchFetchError] = useState<string | null>(null);
+  const [authBatchLoading, setAuthBatchLoading] = useState(false);
+  const [authRouteId, setAuthRouteId] = useState('');
+  const [authMaxAllocation, setAuthMaxAllocation] = useState('');
+  const [authExpectedCloseTime, setAuthExpectedCloseTime] = useState('');
+  const [authSettlementUnit, setAuthSettlementUnit] = useState('USDC');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authStatus, setAuthStatus] = useState<string | null>(null);
+  const [authStatusTone, setAuthStatusTone] = useState<'success' | 'danger' | 'warning'>('success');
 
   // Keep address states in sync whenever loadGeneratedRuntimeAddresses() or setRuntimeAddress() fires.
   useEffect(() => {
@@ -269,75 +338,13 @@ export default function TreasuryTab() {
     })();
   }, [treasuryAddress, goldOracleAddress]);
 
-  async function refreshLocalChainClock(rpcProvider: JsonRpcProvider) {
-    try {
-      const network = await rpcProvider.getNetwork();
-      const chainIdNum = Number(network.chainId);
-      const rpcLooksLocal = LOCALHOST_RPC.includes('localhost') || LOCALHOST_RPC.includes('127.0.0.1');
-      const localNetwork = rpcLooksLocal && LOCAL_CHAIN_IDS.has(chainIdNum);
-
-      setIsLocalhostNetwork(localNetwork);
-      setLocalChainId(chainIdNum);
-
-      if (!localNetwork) {
-        setLocalChainTime(null);
-        return;
-      }
-
-      const latestBlock = await rpcProvider.getBlock('latest');
-      setLocalChainTime(latestBlock ? Number(latestBlock.timestamp) : null);
-    } catch {
-      setIsLocalhostNetwork(false);
-      setLocalChainId(null);
-      setLocalChainTime(null);
-    }
-  }
-
-  async function refreshProtocolConfigState(rpcProvider: JsonRpcProvider) {
-    const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
-
-    try {
-      const configuredEscrow = escrowAddress && escrowAddress !== ZERO_ADDRESS ? escrowAddress : null;
-      if (configuredEscrow) {
-        try {
-          const escrowRead = new Contract(
-            configuredEscrow,
-            ['function lastBatchRollTime() view returns (uint256)'],
-            rpcProvider
-          );
-          const lastRollRaw = await escrowRead.lastBatchRollTime();
-          const lastRollSec = Number(lastRollRaw);
-          setEscrowLastRollTime(Number.isFinite(lastRollSec) && lastRollSec > 0 ? lastRollSec : null);
-        } catch {
-          setEscrowLastRollTime(null);
-        }
-      } else {
-        setEscrowLastRollTime(null);
-      }
-    } catch {
-      // ignore config refresh errors to keep dashboard resilient
-    }
-  }
-
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const saved = window.localStorage.getItem(BATCH_CADENCE_KEY);
-    if (!saved) return;
-    const parsed = Number(saved);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      setBatchCadenceSeconds(parsed);
-    }
+    fetchBankLots();
   }, []);
 
   useEffect(() => {
-    if (!provider) return;
-    refreshLocalChainClock(provider);
-  }, [provider]);
-
-  useEffect(() => {
-    if (!provider) return;
-    refreshProtocolConfigState(provider);
-  }, [provider, escrowAddress]);
+    if (treasury) fetchVaultLots();
+  }, [treasury]);
 
   useEffect(() => {
     setTreasuryAddressInput(treasuryAddress);
@@ -629,10 +636,6 @@ export default function TreasuryTab() {
         )
       );
 
-      if (provider) {
-        await refreshLocalChainClock(provider);
-      }
-
     } catch (e) {
       console.error(e);
       setLog(l => [`[${new Date().toLocaleTimeString()}] Error fetching state: ${e}`, ...l]);
@@ -641,29 +644,252 @@ export default function TreasuryTab() {
     }
   }
 
-  async function handleAdvanceLocalTime(seconds: number, label: string) {
-    if (!provider) return;
-
+  async function fetchBankLots() {
+    setBankLotsLoading(true);
+    setBankLotsError(null);
     try {
-      setTimeControlLoading(true);
-      const network = await provider.getNetwork();
-      const chainIdNum = Number(network.chainId);
-      const rpcLooksLocal = LOCALHOST_RPC.includes('localhost') || LOCALHOST_RPC.includes('127.0.0.1');
-      if (!rpcLooksLocal || !LOCAL_CHAIN_IDS.has(chainIdNum)) {
-        setLog(l => [`[time controls] Skipped ${label}: active network is not localhost`, ...l]);
-        return;
+      const res = await fetch('/api/banking/state');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const positions = (data.termPositions ?? data.state?.termPositions ?? []) as Array<any>;
+      setBankLots(
+        positions
+          .filter((p: any) => p.treasuryOriginLotId && p.status !== 'not_funded')
+          .map((p: any) => ({
+            id: p.id,
+            treasuryOriginLotId: p.treasuryOriginLotId,
+            principalUsd: p.principalUsd ?? 0,
+            maturityDate: p.maturityDate,
+            liabilityUnlockAt: p.liabilityUnlockAt,
+            treasuryBatchId: p.treasuryBatchId,
+            protocolStatus: p.protocolStatus ?? p.protocolSyncStatus,
+            durationClass: p.durationClass,
+            policyProfileId: p.policyProfileId,
+            policyVersion: p.policyVersion,
+            originInstitutionId: p.originInstitutionId,
+            strategyClass: p.strategyClass,
+            escrowExecutionOrderId: p.escrowExecutionOrderId,
+          }))
+      );
+    } catch (e: any) {
+      setBankLotsError(String(e?.message || e));
+    } finally {
+      setBankLotsLoading(false);
+    }
+  }
+
+  function decodeReceiptId(originRefId: any): string {
+    const raw = originRefId?.toString?.() ?? String(originRefId ?? '');
+    if (!/^0x[a-fA-F0-9]{64}$/.test(raw)) return raw || 'n/a';
+    try {
+      return BigInt(raw).toString();
+    } catch {
+      return raw;
+    }
+  }
+
+  function getVaultBatchWindow(lots = vaultLots): { expectedReturnAt: number; settlementDeadlineAt: number; eligibleLots: typeof vaultLots } {
+    const now = Math.floor(Date.now() / 1000);
+    const expectedReturnAt = now + batchCadenceSeconds;
+    const settlementDeadlineAt = expectedReturnAt + 7 * 24 * 60 * 60;
+    const eligibleLots = lots.filter(lot =>
+      lot.status === 1 &&
+      lot.batchId === 0 &&
+      lot.liabilityUnlockAt >= settlementDeadlineAt
+    );
+    return { expectedReturnAt, settlementDeadlineAt, eligibleLots };
+  }
+
+  async function fetchVaultLots() {
+    if (!treasury) return;
+    setVaultLotsLoading(true);
+    setVaultLotsError(null);
+    try {
+      const [idsRaw, ordersRes] = await Promise.allSettled([
+        (treasury as any).getOriginLotsByType(ORIGIN_TYPE_VAULT),
+        fetch('/api/banking/escrow/execution-orders'),
+      ]);
+
+      // Collect settled batch IDs from escrow execution orders (for simulated Treasury mode
+      // where on-chain lot.status stays Allocated even after settlement)
+      if (ordersRes.status === 'fulfilled' && ordersRes.value.ok) {
+        const ordersData = await ordersRes.value.json().catch(() => ({}));
+        const orders: any[] = ordersData.data ?? ordersData ?? [];
+        const settled = new Set<string>(
+          orders
+            .filter((o: any) => o.sourceType === 'VAULT' && o.settlementStatus === 'settled')
+            .map((o: any) => String(o.batchId ?? ''))
+            .filter(Boolean)
+        );
+        setSettledVaultBatchIds(settled);
       }
 
-      await provider.send('evm_increaseTime', [seconds]);
-      await provider.send('evm_mine', []);
-      await refreshLocalChainClock(provider);
-      await refreshTreasuryState();
-
-      setLog(l => [`[${new Date().toLocaleTimeString()}] Time advanced by ${label}`, ...l]);
-    } catch (e) {
-      setLog(l => [`[${new Date().toLocaleTimeString()}] Error advancing time (${label}): ${e}`, ...l]);
+      if (idsRaw.status === 'rejected') throw idsRaw.reason;
+      const ids = Array.from(idsRaw.value ?? []).map((id: any) => Number(id));
+      const lotsRaw = await Promise.all(ids.map(id => (treasury as any).originLots(id)));
+      setVaultLots(lotsRaw.map((lot: any, idx) => ({
+        id: Number(lot.id ?? lot[0] ?? ids[idx] ?? 0),
+        receiptId: decodeReceiptId(lot.originRefId ?? lot[2]),
+        amountUsd6: Number(lot.amount ?? lot[3] ?? 0),
+        fundedAt: Number(lot.fundedAt ?? lot[4] ?? 0),
+        liabilityUnlockAt: Number(lot.liabilityUnlockAt ?? lot[5] ?? 0),
+        status: Number(lot.status ?? lot[6] ?? 0),
+        batchId: Number(lot.batchId ?? lot[7] ?? 0),
+      })));
+    } catch (e: any) {
+      setVaultLotsError(String(e?.reason || e?.message || e));
     } finally {
-      setTimeControlLoading(false);
+      setVaultLotsLoading(false);
+    }
+  }
+
+  async function handleCreateVaultBatch() {
+    const { expectedReturnAt, settlementDeadlineAt, eligibleLots } = getVaultBatchWindow();
+    if (eligibleLots.length === 0) {
+      setVaultBatchTone('warning');
+      setVaultBatchStatus(`No VAULT-origin lots can cover settlement by ${formatChainTime(settlementDeadlineAt)}.`);
+      return;
+    }
+    if (!signer || !isValidAddress(treasuryAddress)) {
+      setVaultBatchTone('danger');
+      setVaultBatchStatus('Treasury signer not available. Ensure Treasury address is set.');
+      return;
+    }
+
+    setVaultBatchLoading(true);
+    setVaultBatchStatus(null);
+    try {
+      const treasuryWrite = new Contract(treasuryAddress, TREASURY_ABI_NORM, signer);
+      const lotIds = eligibleLots.map(lot => BigInt(lot.id));
+      const batchId = await treasuryWrite.createAndFundBatch.staticCall(
+        ORIGIN_TYPE_VAULT,
+        lotIds,
+        BigInt(expectedReturnAt),
+        BigInt(settlementDeadlineAt),
+      );
+      const tx = await treasuryWrite.createAndFundBatch(
+        ORIGIN_TYPE_VAULT,
+        lotIds,
+        BigInt(expectedReturnAt),
+        BigInt(settlementDeadlineAt),
+      );
+      await tx.wait();
+      const batchIdStr = batchId.toString();
+      setVaultBatchTone('success');
+      setVaultBatchStatus(`Batch #${batchIdStr} created with ${eligibleLots.length} lot(s). Tx: ${tx.hash}`);
+      pushEngineLog(`[TreasuryHandoff:Vault] batch=${batchIdStr} lots=${eligibleLots.map(l => l.id).join(',')}`);
+
+      // Register the on-chain batch with the banking tracker (fire-and-forget — non-blocking)
+      fetch('/api/banking/treasury/vault-batches/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          batchId: batchIdStr,
+          txHash: tx.hash,
+          lotIds: eligibleLots.map(l => String(l.id)),
+          principalUsd: eligibleLots.reduce((sum, l) => sum + l.amountUsd6 / 1_000_000, 0),
+          expectedReturnAt: new Date(expectedReturnAt * 1000).toISOString(),
+          settlementDeadlineAt: new Date(settlementDeadlineAt * 1000).toISOString(),
+        }),
+      }).catch(() => {/* tracker unavailable — batch still succeeded on-chain */});
+
+      await Promise.allSettled([fetchVaultLots(), refreshTreasuryState()]);
+    } catch (e: any) {
+      setVaultBatchTone('danger');
+      setVaultBatchStatus(String(e?.reason || e?.message || e));
+    } finally {
+      setVaultBatchLoading(false);
+    }
+  }
+
+  async function handleCreateBankBatch() {
+    setBankBatchLoading(true);
+    setBankBatchStatus(null);
+    try {
+      const res = await fetch('/api/banking/treasury/batches', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      if (data.treasuryBatchId) {
+        setBankBatchTone('success');
+        setBankBatchStatus(`Batch #${data.treasuryBatchId} handed to Escrow with ${data.includedTermDepositIds?.length ?? 0} compatible lot(s).`);
+        pushEngineLog(`[TreasuryHandoff] batch=${data.treasuryBatchId} lots=${(data.includedTermDepositIds ?? []).join(',')}`);
+      } else {
+        setBankBatchTone('warning');
+        setBankBatchStatus(data.skippedReason || 'No eligible BANK lots are ready for batching.');
+      }
+      await fetchBankLots();
+    } catch (e: any) {
+      setBankBatchTone('danger');
+      setBankBatchStatus(String(e?.message || e));
+    } finally {
+      setBankBatchLoading(false);
+    }
+  }
+
+  async function handleFetchBatch() {
+    const batchId = parseInt(authBatchIdInput.trim(), 10);
+    if (!treasury || isNaN(batchId) || batchId <= 0) {
+      setAuthBatchFetchError('Enter a valid batch ID and ensure Treasury is connected.');
+      return;
+    }
+    setAuthBatchLoading(true);
+    setAuthBatchFetchError(null);
+    setAuthBatchInfo(null);
+    try {
+      const batch = await treasury.getTreasuryBatch(batchId);
+      setAuthBatchInfo({
+        batchId: Number(batch.batchId),
+        originType: Number(batch.originType),
+        principalAllocated: Number(batch.principalAllocated),
+        lotCount: Array.isArray(batch.lotIds) ? batch.lotIds.length : 0,
+        status: Number(batch.status),
+        expectedReturnAt: Number(batch.expectedReturnAt),
+      });
+    } catch (e: any) {
+      setAuthBatchFetchError(`Batch not found: ${String(e?.reason || e?.message || e)}`);
+    } finally {
+      setAuthBatchLoading(false);
+    }
+  }
+
+  async function handleAuthorizeExecution() {
+    if (!signer || !authBatchInfo) return;
+    const routeId = parseInt(authRouteId.trim(), 10);
+    const maxAllocUsd = parseFloat(authMaxAllocation.trim());
+    const closeTime = parseInt(authExpectedCloseTime.trim(), 10);
+    const unit = authSettlementUnit.trim();
+    if (isNaN(routeId) || routeId <= 0) { setAuthStatus('Route ID is required.'); setAuthStatusTone('danger'); return; }
+    if (isNaN(maxAllocUsd) || maxAllocUsd <= 0) { setAuthStatus('Max allocation is required.'); setAuthStatusTone('danger'); return; }
+    if (isNaN(closeTime) || closeTime <= 0) { setAuthStatus('Expected close time (unix) is required.'); setAuthStatusTone('danger'); return; }
+    if (!unit) { setAuthStatus('Settlement unit is required.'); setAuthStatusTone('danger'); return; }
+
+    const maxAllocUsd6 = Math.round(maxAllocUsd * 1_000_000);
+    const settlementUnitBytes32 = '0x' + Buffer.from(unit.slice(0, 32).padEnd(32, '\0')).toString('hex');
+
+    setAuthLoading(true);
+    setAuthStatus(null);
+    try {
+      const treasuryWrite = new Contract(treasuryAddress, TREASURY_ABI_NORM, signer);
+      const tx = await treasuryWrite.authorizeEscrowBatch(
+        authBatchInfo.batchId,
+        closeTime,
+        settlementUnitBytes32,
+        [{ routeId, maxAllocationUsd6: maxAllocUsd6 }],
+      );
+      await tx.wait();
+      setAuthStatus(`Batch #${authBatchInfo.batchId} authorized. Tx: ${tx.hash}`);
+      setAuthStatusTone('success');
+      setAuthBatchInfo(prev => prev ? { ...prev, status: 2 } : prev);
+      pushEngineLog(`[AuthorizeEscrowBatch] batch=${authBatchInfo.batchId} route=${routeId} maxAlloc=${fmtUsd6FromAny(maxAllocUsd6)}`);
+    } catch (e: any) {
+      setAuthStatus(`Authorization failed: ${String(e?.reason || e?.message || e)}`);
+      setAuthStatusTone('danger');
+    } finally {
+      setAuthLoading(false);
     }
   }
 
@@ -784,6 +1010,8 @@ export default function TreasuryTab() {
   const availableUsdc = Math.max(usdcBalance - unfundedLiability, 0);
   const collateralShortfall = Math.max(unfundedLiability - usdcBalance, 0);
   const treasuryValuationGap = Math.abs(treasuryUsd - usdcBalance);
+  const vaultBatchWindow = getVaultBatchWindow();
+  const vaultCompatibleLotCount = vaultBatchWindow.eligibleLots.length;
   return (
     <div className="tab-screen">
       <PageHeader
@@ -910,6 +1138,166 @@ export default function TreasuryTab() {
           </div>
         </div>
       </div>
+      {/* BANK Liquidity */}
+      <div className="sagitta-hero">
+        <div className="sagitta-cell">
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', marginBottom: '0.75rem' }}>
+            <div>
+              <h3 className="section-title !mb-0">Compatible Treasury Liquidity</h3>
+              <p className="section-subtitle !mt-1 !mb-0">BANK-origin lots grouped by duration, policy profile, and strategy sleeve before Escrow handoff.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <button className="action-button" onClick={fetchBankLots} disabled={bankLotsLoading}>
+                {bankLotsLoading ? 'Loading…' : 'Refresh'}
+              </button>
+              <button
+                className="action-button action-button--primary"
+                onClick={handleCreateBankBatch}
+                disabled={bankBatchLoading || bankLots.filter(l => !l.treasuryBatchId).length === 0}
+              >
+                {bankBatchLoading ? 'Creating…' : 'Create Bank Batch'}
+              </button>
+            </div>
+          </div>
+
+          {bankLotsError && (
+            <div className="status-banner status-banner--warning" style={{ marginBottom: '0.5rem' }}>{bankLotsError}</div>
+          )}
+          {bankBatchStatus && (
+            <div className={`status-banner status-banner--${bankBatchTone}`} style={{ marginBottom: '0.5rem' }}>{bankBatchStatus}</div>
+          )}
+
+          {bankLots.length === 0 && !bankLotsLoading && !bankLotsError ? (
+            <div className="panel-stack panel-stack--dense">
+              <div className="panel-row">
+                <span className="panel-row__label" style={{ color: 'var(--text-muted)' }}>No BANK-origin lots on record. Refresh to load from banking backend.</span>
+              </div>
+            </div>
+          ) : (
+            <div className="panel-stack panel-stack--dense">
+              {bankLots.map(lot => {
+                const isSettled = lot.protocolStatus === 'settled' || lot.protocolStatus === 'wire_ready';
+                const eligible = !lot.treasuryBatchId && !isSettled;
+                const statusLabel = isSettled
+                  ? lot.protocolStatus === 'wire_ready' ? 'Wire Return Pending' : 'Settled'
+                  : lot.treasuryBatchId
+                    ? `Handed to Escrow #${lot.treasuryBatchId}`
+                    : lot.protocolStatus === 'lot_registered'
+                      ? 'Waiting for compatible batch'
+                      : (lot.protocolStatus ?? 'Waiting');
+                return (
+                  <div key={lot.id} className="panel-row" style={{ alignItems: 'flex-start' }}>
+                    <span className="panel-row__label" style={{ minWidth: 90 }}>
+                      Lot #{lot.treasuryOriginLotId}
+                    </span>
+                    <span className="panel-row__value" style={{ flex: 1 }}>
+                      {formatUsd(lot.principalUsd * 1_000_000)}
+                      {' | '}
+                      {lot.durationClass || 'duration n/a'}
+                      {' | '}
+                      {lot.policyProfileId || 'policy n/a'}
+                      {' | '}
+                      {lot.strategyClass || 'sleeve n/a'}
+                      {lot.maturityDate ? ` | matures ${new Date(lot.maturityDate).toLocaleDateString()}` : ''}
+                    </span>
+                    <span
+                      className="panel-row__value"
+                      data-tone={isSettled ? 'neutral' : eligible ? 'warning' : 'success'}
+                      style={{ minWidth: 120, textAlign: 'right' }}
+                    >
+                      {statusLabel}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* VAULT Liquidity */}
+      <div className="sagitta-hero">
+        <div className="sagitta-cell">
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', marginBottom: '0.75rem' }}>
+            <div>
+              <h3 className="section-title !mb-0">Compatible Vault Collateral</h3>
+              <p className="section-subtitle !mt-1 !mb-0">VAULT-origin lots grouped from collateralized receipt deposits before Escrow handoff.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <button className="action-button" onClick={fetchVaultLots} disabled={vaultLotsLoading || !treasury}>
+                {vaultLotsLoading ? 'Loading...' : 'Refresh'}
+              </button>
+              <button
+                className="action-button action-button--primary"
+                onClick={handleCreateVaultBatch}
+                disabled={vaultBatchLoading || vaultCompatibleLotCount === 0 || !treasury}
+              >
+                {vaultBatchLoading ? 'Creating...' : 'Create Vault Batch'}
+              </button>
+            </div>
+          </div>
+
+          <div className="text-xs text-slate-400" style={{ marginBottom: '0.75rem' }}>
+            Current batch window: expected return {formatChainTime(vaultBatchWindow.expectedReturnAt)} with hard close {formatChainTime(vaultBatchWindow.settlementDeadlineAt)}. Only lots with liability unlock at or after hard close are compatible.
+          </div>
+
+          {vaultLotsError && (
+            <div className="status-banner status-banner--warning" style={{ marginBottom: '0.5rem' }}>{vaultLotsError}</div>
+          )}
+          {vaultBatchStatus && (
+            <div className={`status-banner status-banner--${vaultBatchTone}`} style={{ marginBottom: '0.5rem' }}>{vaultBatchStatus}</div>
+          )}
+
+          {vaultLots.length === 0 && !vaultLotsLoading && !vaultLotsError ? (
+            <div className="panel-stack panel-stack--dense">
+              <div className="panel-row">
+                <span className="panel-row__label" style={{ color: 'var(--text-muted)' }}>No VAULT-origin lots on record. User deposits must register Treasury origin lots first.</span>
+              </div>
+            </div>
+          ) : (
+            <div className="panel-stack panel-stack--dense">
+              {vaultLots.map(lot => {
+                const compatible = vaultBatchWindow.eligibleLots.some(item => item.id === lot.id);
+                const status = ORIGIN_LOT_STATUS[lot.status] ?? `Status ${lot.status}`;
+                const isLotSettled = lot.status >= 3 || (lot.batchId > 0 && settledVaultBatchIds.has(String(lot.batchId)));
+                const statusLabel = isLotSettled
+                  ? lot.status === 4 ? 'Cancelled' : 'Settled'
+                  : lot.batchId > 0
+                    ? `Handed to Escrow #${lot.batchId}`
+                    : compatible
+                      ? 'Ready for batch'
+                      : lot.status === 1
+                        ? 'Unlock before batch window'
+                        : status;
+                return (
+                  <div key={lot.id} className="panel-row" style={{ alignItems: 'flex-start' }}>
+                    <span className="panel-row__label" style={{ minWidth: 90 }}>
+                      Lot #{lot.id}
+                    </span>
+                    <span className="panel-row__value" style={{ flex: 1 }}>
+                      {formatUsd(lot.amountUsd6)}
+                      {' | receipt #'}
+                      {lot.receiptId}
+                      {' | funded '}
+                      {formatChainTime(lot.fundedAt)}
+                      {' | unlocks '}
+                      {formatChainTime(lot.liabilityUnlockAt)}
+                    </span>
+                    <span
+                      className="panel-row__value"
+                      data-tone={isLotSettled ? 'neutral' : compatible ? 'warning' : lot.batchId > 0 ? 'success' : 'neutral'}
+                      style={{ minWidth: 150, textAlign: 'right' }}
+                    >
+                      {statusLabel}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Engine Log */}
       <div className="sagitta-hero">
         <div className="sagitta-cell">

@@ -29,5 +29,34 @@
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "receiptId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amountUsd6",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint64",
+        "name": "liabilityUnlockAt",
+        "type": "uint64"
+      }
+    ],
+    "name": "registerVaultOriginLot",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
   }
 ]

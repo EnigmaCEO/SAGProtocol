@@ -3,9 +3,9 @@ import hre from "hardhat";
 
 const { ethers } = hre;
 
-describe("Escrow Accounting and Compliance v1", function () {
+describe("Treasury origin lots and Escrow batch positions", function () {
   async function deployFixture() {
-    const [owner, keeper] = await ethers.getSigners();
+    const [owner, keeper, user] = await ethers.getSigners();
 
     const MockUSDC = await ethers.getContractFactory("MockUSDC");
     const MockGOLD = await ethers.getContractFactory("MockGOLD");
@@ -46,21 +46,126 @@ describe("Escrow Accounting and Compliance v1", function () {
 
     await usdc.mint(await treasury.getAddress(), ethers.parseUnits("1000000", 6));
 
-    return { owner, keeper, usdc, treasury, escrow, routeRegistry };
+    return { owner, keeper, user, usdc, oracle, treasury, escrow, routeRegistry };
   }
 
-  async function seedRunningBatch(fixture: Awaited<ReturnType<typeof deployFixture>>, batchId: number, amountUsd6: bigint) {
-    const { owner, escrow } = fixture;
-    await escrow.connect(owner).registerDepositTo(batchId, batchId, amountUsd6, ethers.parseEther("1"));
-    await escrow.connect(owner).rollBatch(batchId);
+  async function registerBankLot(
+    fixture: Awaited<ReturnType<typeof deployFixture>>,
+    ref: string,
+    amountUsd6: bigint,
+    liabilityUnlockAt: bigint
+  ) {
+    const { treasury } = fixture;
+    await treasury.registerBankOriginLot(ethers.id(ref), amountUsd6, liabilityUnlockAt);
+    return Number((await treasury.nextOriginLotId()) - 1n);
   }
 
-  it("blocks external routes from the next batch until compliance checklist is complete", async function () {
+  async function seedTreasuryBatch(
+    fixture: Awaited<ReturnType<typeof deployFixture>>,
+    amountUsd6: bigint,
+    expectedReturnAt: bigint,
+    settlementDeadlineAt: bigint
+  ) {
+    const { treasury } = fixture;
+    const lotId = await registerBankLot(fixture, `bank-lot-${expectedReturnAt}`, amountUsd6, settlementDeadlineAt);
+    await treasury.createAndFundBatch(2, [lotId], expectedReturnAt, settlementDeadlineAt);
+    return Number((await treasury.nextTreasuryBatchId()) - 1n);
+  }
+
+  it("routes BANK-origin lots into Treasury-owned batches and Escrow batch positions", async function () {
     const fixture = await deployFixture();
-    const { owner, keeper, escrow, treasury, routeRegistry } = fixture;
+    const { treasury, escrow } = fixture;
+    const now = BigInt((await ethers.provider.getBlock("latest"))!.timestamp);
     const amountUsd6 = ethers.parseUnits("100", 6);
 
-    await seedRunningBatch(fixture, 1, amountUsd6);
+    const firstBatchId = await seedTreasuryBatch(fixture, amountUsd6, now + 30n * 24n * 60n * 60n, now + 35n * 24n * 60n * 60n);
+    const secondBatchId = await seedTreasuryBatch(fixture, amountUsd6, now + 60n * 24n * 60n * 60n, now + 65n * 24n * 60n * 60n);
+
+    const firstBatch = await treasury.getTreasuryBatch(firstBatchId);
+    expect(firstBatch.originType).to.equal(2);
+    expect(firstBatch.principalAllocated).to.equal(amountUsd6);
+    expect(firstBatch.status).to.equal(2);
+
+    const firstPosition = await escrow.escrowBatchPositions(firstBatchId);
+    const secondPosition = await escrow.escrowBatchPositions(secondBatchId);
+    expect(firstPosition.deployedPrincipal).to.equal(amountUsd6);
+    expect(secondPosition.deployedPrincipal).to.equal(amountUsd6);
+    expect(firstPosition.expectedReturnAt).to.not.equal(secondPosition.expectedReturnAt);
+    expect(firstPosition.status).to.equal(1);
+    expect(secondPosition.status).to.equal(1);
+  });
+
+  it("records VAULT-origin lots without sending Vault unlock timing to Escrow", async function () {
+    const fixture = await deployFixture();
+    const { user, usdc, oracle, treasury, escrow } = fixture;
+    const now = BigInt((await ethers.provider.getBlock("latest"))!.timestamp);
+    const amountUsd6 = ethers.parseUnits("50", 6);
+    const expectedReturnAt = now + 90n * 24n * 60n * 60n;
+
+    const Vault = await ethers.getContractFactory("Vault");
+    const vault = await Vault.deploy();
+    await vault.waitForDeployment();
+    await treasury.setVault(await vault.getAddress());
+    await vault.setTreasury(await treasury.getAddress());
+    await vault.setAsset(await usdc.getAddress(), true, 6, await oracle.getAddress());
+
+    await usdc.mint(user.address, amountUsd6);
+    await usdc.connect(user).approve(await vault.getAddress(), amountUsd6);
+    await vault.connect(user).deposit(await usdc.getAddress(), amountUsd6);
+
+    await treasury.createAndFundBatch(1, [1], expectedReturnAt, expectedReturnAt + 7n * 24n * 60n * 60n);
+
+    const lot = await treasury.originLots(1);
+    const batch = await treasury.getTreasuryBatch(1);
+    const escrowPosition = await escrow.escrowBatchPositions(1);
+
+    expect(lot.originType).to.equal(1);
+    expect(lot.originRefId).to.equal(ethers.ZeroHash);
+    expect(lot.liabilityUnlockAt).to.be.gte(now + 365n * 24n * 60n * 60n);
+    expect(batch.expectedReturnAt).to.equal(expectedReturnAt);
+    expect(escrowPosition.expectedReturnAt).to.equal(expectedReturnAt);
+    expect(escrowPosition.expectedReturnAt).to.not.equal(lot.liabilityUnlockAt);
+  });
+
+  it("enforces source-liability eligibility and single-origin batches", async function () {
+    const fixture = await deployFixture();
+    const { treasury } = fixture;
+    const now = BigInt((await ethers.provider.getBlock("latest"))!.timestamp);
+    const amountUsd6 = ethers.parseUnits("25", 6);
+    const expectedReturnAt = now + 90n * 24n * 60n * 60n;
+
+    const bankLotId = await registerBankLot(fixture, "short-bank-lot", amountUsd6, expectedReturnAt - 1n);
+    await expect(
+      treasury.createAndFundBatch(2, [bankLotId], expectedReturnAt, expectedReturnAt + 1n)
+    ).to.be.revertedWith("liability before settlement");
+
+    await treasury.registerVaultOriginLot(11, amountUsd6, expectedReturnAt + 100n);
+    const vaultLotId = 2;
+    await expect(
+      treasury.createAndFundBatch(2, [vaultLotId], expectedReturnAt, expectedReturnAt + 100n)
+    ).to.be.revertedWith("mixed origin");
+  });
+
+  it("blocks Escrow-origin batch formation APIs", async function () {
+    const fixture = await deployFixture();
+    const { owner, escrow } = fixture;
+
+    await expect(
+      escrow.connect(owner).createPendingBatch()
+    ).to.be.revertedWith("Treasury owns batches");
+
+    await expect(
+      escrow.connect(owner).registerDeposit(1, ethers.parseUnits("10", 6), ethers.parseEther("1"))
+    ).to.be.revertedWith("Treasury owns origin lots");
+  });
+
+  it("blocks external routes until compliance checklist is complete", async function () {
+    const fixture = await deployFixture();
+    const { keeper, escrow, treasury, routeRegistry } = fixture;
+    const now = BigInt((await ethers.provider.getBlock("latest"))!.timestamp);
+    const amountUsd6 = ethers.parseUnits("100", 6);
+
+    await seedTreasuryBatch(fixture, amountUsd6, now + 30n * 24n * 60n * 60n, now + 35n * 24n * 60n * 60n);
 
     await routeRegistry.addRoute(
       "SPC",
@@ -128,108 +233,13 @@ describe("Escrow Accounting and Compliance v1", function () {
     ).to.be.revertedWith("Route allocation exceeded");
   });
 
-  it("allows creating a pending batch while the current batch awaits allocation, but blocks rolling it active", async function () {
-    const fixture = await deployFixture();
-    const { owner, escrow, treasury, routeRegistry } = fixture;
-    const amountUsd6 = ethers.parseUnits("100", 6);
-
-    await seedRunningBatch(fixture, 1, amountUsd6);
-
-    await routeRegistry.addRoute(
-      "OUSG",
-      2,
-      ethers.id("counterparty-pending"),
-      ethers.id("jurisdiction-pending"),
-      ethers.id("custody-pending"),
-      false,
-      false,
-      false,
-      "",
-      true,
-      true
-    );
-
-    await escrow.connect(owner).createPendingBatch();
-    await escrow.connect(owner).registerDepositTo(2, 2001, ethers.parseUnits("25", 6), ethers.parseEther("1"));
-
-    await expect(
-      escrow.connect(owner).rollBatch(2)
-    ).to.be.revertedWith("Allocate current batch first");
-
-    await treasury.authorizeEscrowBatch(1, 1_900_000_000, ethers.encodeBytes32String("USD6"), [
-      { routeId: 1, maxAllocationUsd6: amountUsd6 },
-    ]);
-
-    await escrow.connect(owner).rollBatch(2);
-    const batchTwo = await escrow.getBatch(2);
-    expect(batchTwo.status).to.equal(1);
-  });
-
-  it("updates unrealized PnL on marks, freezes execution, and allows owner write-down recovery", async function () {
+  it("closes positions, finalizes settlement, and closes Treasury batch lots", async function () {
     const fixture = await deployFixture();
     const { keeper, escrow, treasury, routeRegistry } = fixture;
-    const amountUsd6 = ethers.parseUnits("80", 6);
-
-    await seedRunningBatch(fixture, 1, amountUsd6);
-
-    await routeRegistry.addRoute(
-      "OUSG",
-      2,
-      ethers.id("counterparty-2"),
-      ethers.id("jurisdiction-2"),
-      ethers.id("custody-2"),
-      false,
-      false,
-      false,
-      "",
-      true,
-      true
-    );
-
-    await treasury.authorizeEscrowBatch(1, 1_900_000_000, ethers.encodeBytes32String("USD6"), [
-      { routeId: 1, maxAllocationUsd6: ethers.parseUnits("80", 6) },
-    ]);
-
-    await escrow.connect(keeper).openPosition(
-      1,
-      1,
-      "OUSG",
-      ethers.parseUnits("60", 6),
-      ethers.parseEther("1"),
-      ethers.id("open-ref"),
-      ethers.parseUnits("1", 6)
-    );
-
     const now = BigInt((await ethers.provider.getBlock("latest"))!.timestamp);
-    await escrow.connect(keeper).markPosition(1, ethers.parseUnits("55", 6), ethers.id("mark-1"), Number(now + 60n));
-    const afterMark = await escrow.getBatchAccounting(1);
-    expect(afterMark.unrealizedPnlUsd6).to.equal(-5n * 10n ** 6n);
-
-    await treasury.freezeEscrowBatch(1, true);
-
-    await expect(
-      escrow.connect(keeper).markPosition(1, ethers.parseUnits("54", 6), ethers.id("mark-2"), Number(now + 120n))
-    ).to.be.revertedWith("Batch frozen");
-
-    await expect(
-      escrow.connect(keeper).closePosition(1, ethers.parseUnits("58", 6), ethers.id("close-ref"), 0)
-    ).to.be.revertedWith("Batch frozen");
-
-    await escrow.writeDownPosition(1, ethers.id("write-down"), 0);
-    await escrow.finalizeBatchSettlement(1, ethers.id("settlement-1"), ethers.id("compliance-1"));
-
-    const settlement = await escrow.getBatchSettlement(1);
-    expect(settlement.finalValueUsd6).to.equal(ethers.parseUnits("20", 6));
-    expect(settlement.settlementReportHash).to.equal(ethers.id("settlement-1"));
-    expect(settlement.complianceDigestHash).to.equal(ethers.id("compliance-1"));
-  });
-
-  it("closes positions, finalizes deterministic settlement, and Treasury stores settlement hashes", async function () {
-    const fixture = await deployFixture();
-    const { keeper, escrow, treasury, routeRegistry } = fixture;
     const amountUsd6 = ethers.parseUnits("100", 6);
 
-    await seedRunningBatch(fixture, 1, amountUsd6);
+    await seedTreasuryBatch(fixture, amountUsd6, now + 30n * 24n * 60n * 60n, now + 35n * 24n * 60n * 60n);
 
     await routeRegistry.addRoute(
       "SPC",
@@ -259,8 +269,6 @@ describe("Escrow Accounting and Compliance v1", function () {
       ethers.parseUnits("1", 6)
     );
 
-    const now = BigInt((await ethers.provider.getBlock("latest"))!.timestamp);
-    await escrow.connect(keeper).markPosition(1, ethers.parseUnits("70", 6), ethers.id("mark-3"), Number(now + 60n));
     await escrow.connect(keeper).closePosition(
       1,
       ethers.parseUnits("72", 6),
@@ -273,9 +281,18 @@ describe("Escrow Accounting and Compliance v1", function () {
     await escrow.finalizeBatchSettlement(1, settlementHash, complianceHash);
 
     const settlement = await escrow.getBatchSettlement(1);
+    const escrowPosition = await escrow.escrowBatchPositions(1);
+    const treasuryBatch = await treasury.getTreasuryBatch(1);
+    const lot = await treasury.originLots(1);
+
     expect(settlement.finalValueUsd6).to.equal(ethers.parseUnits("110", 6));
     expect(settlement.userProfitUsd6).to.equal(ethers.parseUnits("8", 6));
     expect(settlement.protocolFeeUsd6).to.equal(ethers.parseUnits("2", 6));
+    expect(escrowPosition.settlementAmount).to.equal(ethers.parseUnits("110", 6));
+    expect(escrowPosition.status).to.equal(2);
+    expect(treasuryBatch.status).to.equal(3);
+    expect(treasuryBatch.actualReturnedAt).to.be.gt(0);
+    expect(lot.status).to.equal(3);
 
     expect(await treasury.batchProfitUsd(1)).to.equal(ethers.parseUnits("8", 6));
     expect(await treasury.batchFinalNavPerShare(1)).to.equal(ethers.parseEther("1.1"));

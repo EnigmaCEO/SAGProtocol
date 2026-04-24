@@ -15,6 +15,8 @@
     "demo": "concurrently -k -n NODE,DEPLOY,WEB -c blue,magenta,green \"hardhat node\" \"sleep 2 && hardhat run scripts/deploy.ts --network localhost\" \"sleep 4 && pnpm --dir frontend dev\"",
     "prepare": "npm run compile",
     "dev": "npm run compile && cd frontend && npm run dev",
+    "server": "cd server && npm run dev",
+    "server:install": "cd server && npm install",
     "debugVaultDeposit": "ts-node scripts/debugVaultDeposit.ts"
   },
   "keywords": [],

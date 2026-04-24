@@ -27,6 +27,7 @@ interface ITreasury {
     function collateralize(uint256 depositValueUsd) external;
     // idempotent entrypoint keyed by deposit/receipt id
     function collateralizeForReceipt(uint256 receiptId, uint256 depositValueUsd) external;
+    function registerVaultOriginLot(uint256 receiptId, uint256 amountUsd6, uint64 liabilityUnlockAt) external returns (uint256);
 }
 
 /**
@@ -56,6 +57,7 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
     event TreasuryCollateralizeAttempt(uint256 indexed depositId, uint256 amountUsd6);
     event TreasuryCollateralizeFailed(uint256 indexed depositId, string reason);
     event TreasuryCollateralizeSucceeded(uint256 indexed depositId, uint256 amountUsd6);
+    event TreasuryOriginLotRegistered(uint256 indexed depositId, uint256 indexed lotId, uint256 amountUsd6, uint64 liabilityUnlockAt);
 
     struct AssetInfo {
         bool enabled;
@@ -267,11 +269,6 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         totalSharesByAsset[asset] += shares;
         sharesOf[msg.sender][asset] += shares;
 
-        // --- NEW: register deposit with Escrow batching (if configured)
-        if (escrow != address(0)) {
-            IEscrow(escrow).registerDeposit(depositId, amountUsd6, shares);
-        }
-        
         // Mint receipt NFT (tokenId == depositId)
         if (receiptNFT != address(0)) {
             IReceiptNFT(receiptNFT).mint(msg.sender, depositId);
@@ -285,12 +282,14 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
         if (treasury != address(0)) {
             emit TreasuryCollateralizeAttempt(depositId, amountUsd6);
             if (requireCollateralizeSuccess) {
-                // production mode: bubble any revert so deposit cannot create unsecured collateral
-                ITreasury(treasury).collateralize(amountUsd6);
+                // production mode: bubble any revert so deposit cannot create unsecured collateral or an untracked lot
+                uint256 lotId = ITreasury(treasury).registerVaultOriginLot(depositId, amountUsd6, lockUntil);
+                emit TreasuryOriginLotRegistered(depositId, lotId, amountUsd6, lockUntil);
                 emit TreasuryCollateralizeSucceeded(depositId, amountUsd6);
             } else {
                 // best-effort (legacy/testing): do not revert deposit
-                try ITreasury(treasury).collateralize(amountUsd6) {
+                try ITreasury(treasury).registerVaultOriginLot(depositId, amountUsd6, lockUntil) returns (uint256 lotId) {
+                    emit TreasuryOriginLotRegistered(depositId, lotId, amountUsd6, lockUntil);
                     emit TreasuryCollateralizeSucceeded(depositId, amountUsd6);
                 } catch Error(string memory reason) {
                     emit TreasuryCollateralizeFailed(depositId, reason);
@@ -495,7 +494,7 @@ contract Vault is Ownable, ReentrancyGuard, Pausable {
      * @param amountUsd6 Amount in USD with 6 decimals.
      * @param unlockAt Timestamp when the credit becomes claimable.
      */
-    function issueCredit(address user, uint256 amountUsd6, uint64 unlockAt) external onlyOwner {
+    function issueCredit(address user, uint256 amountUsd6, uint64 unlockAt) external onlyEscrowOrTreasury {
         require(user != address(0), "Invalid user");
         require(amountUsd6 > 0, "Invalid amount");
         
