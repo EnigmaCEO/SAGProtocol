@@ -1,0 +1,15 @@
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
+
+server
+node_modules
+**/node_modules
+.next
+**/.next
+artifacts
+cache
+coverage
