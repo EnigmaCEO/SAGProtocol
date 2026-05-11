@@ -7,6 +7,7 @@ artifacts/
 frontend/.env.local
 frontend/.env.*.local
 cache/
+.next/
 frontend/.next/
 deployments.json
 .vercel

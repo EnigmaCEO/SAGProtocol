@@ -4,6 +4,7 @@
     "scripts": {
         "dev": "next dev --webpack",
         "build": "next build",
+        "postbuild": "node scripts/ensure-vercel-routes-manifest.cjs",
         "start": "next start"
     },
     "dependencies": {
