@@ -3,5 +3,5 @@
   "framework": "nextjs",
   "installCommand": "node -e \"const fs=require('fs');const cp=require('child_process');const cmd=fs.existsSync('frontend/package.json')?'npm install && npm --prefix frontend install':'npm install';cp.execSync(cmd,{stdio:'inherit'});\"",
   "buildCommand": "node -e \"const fs=require('fs');const cp=require('child_process');const cmd=fs.existsSync('frontend/package.json')?'npm --prefix frontend run build':'npm run build';cp.execSync(cmd,{stdio:'inherit'});\"",
-  "outputDirectory": ".next"
+  "outputDirectory": "frontend/.next"
 }
