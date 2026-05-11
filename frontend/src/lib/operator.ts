@@ -2,7 +2,7 @@ import { ethers } from 'ethers';
 import { CONTRACT_ADDRESSES } from './addresses';
 import VaultABI from './abis/Vault.json';
 import { getEffectiveRole, listRoleAssignments } from './roles';
-import { RPC_URL } from './network';
+import { getActiveRpcUrl } from './network';
 
 const OPERATOR_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 
@@ -31,7 +31,7 @@ export async function getOperator(): Promise<string | null> {
 
 export async function getOperatorAddress(): Promise<string | null> {
   try {
-    const provider = new ethers.JsonRpcProvider(RPC_URL);
+    const provider = new ethers.JsonRpcProvider(getActiveRpcUrl());
     const vault = new ethers.Contract(CONTRACT_ADDRESSES.Vault, normalizeAbi(VaultABI), provider);
     const owner = await vault.owner();
     return owner;

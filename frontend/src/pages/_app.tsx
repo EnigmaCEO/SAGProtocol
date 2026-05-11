@@ -2,6 +2,7 @@ import type { AppProps } from 'next/app';
 import Head from 'next/head';
 import '../styles/globals.css';
 import { initOnChainAddresses } from '../lib/runtime-addresses';
+import { ProtocolChainProvider } from '../context/ProtocolChainContext';
 
 // Kick off the ProtocolDAO address fetch as early as possible so that by the
 // time any component mounts and calls fetchData, the on-chain cache is already
@@ -53,7 +54,9 @@ export default function App({ Component, pageProps }: AppProps) {
 
         <meta name="theme-color" content="#0a111c" />
       </Head>
-      <Component {...pageProps} />
+      <ProtocolChainProvider>
+        <Component {...pageProps} />
+      </ProtocolChainProvider>
     </>
   );
 }

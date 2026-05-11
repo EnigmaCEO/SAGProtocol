@@ -8,13 +8,12 @@ import PageHeader from '../ui/PageHeader';
 import TREASURY_ABI from '../../lib/abis/Treasury.json';
 import GOLD_ORACLE_ABI from '../../lib/abis/MockOracle.json'; // use MockOracle ABI for GOLD (or replace with GoldOracle.json if you add it)
 import { getRuntimeAddress, isValidAddress, setRuntimeAddress } from '../../lib/runtime-addresses';
-import { RPC_URL } from '../../lib/network';
+import { useProtocolChain } from '../../context/ProtocolChainContext';
 
 const normalizeAbi = (x: any): any => Array.isArray(x) ? x : x?.abi ?? x?.default?.abi ?? x?.default ?? [];
 const TREASURY_ABI_NORM: any = normalizeAbi(TREASURY_ABI);
 const GOLD_ORACLE_ABI_NORM: any = normalizeAbi(GOLD_ORACLE_ABI);
 
-const LOCALHOST_RPC = RPC_URL;
 const BATCH_CADENCE_KEY = 'sagitta:treasury-batch-cadence-seconds';
 // Local test private key (Hardhat/Anvil default account #0)
 const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
@@ -112,6 +111,7 @@ function formatSecondsLabel(seconds: number): string {
 }
 
 export default function TreasuryTab() {
+  const { selectedChain } = useProtocolChain();
   const [treasuryAddress, setTreasuryAddress] = useState<string>(() => getRuntimeAddress('Treasury'));
   const [goldOracleAddress, setGoldOracleAddress] = useState<string>(() => getRuntimeAddress('GoldOracle'));
   const [treasuryAddressInput, setTreasuryAddressInput] = useState<string>(treasuryAddress);
@@ -226,7 +226,7 @@ export default function TreasuryTab() {
       window.removeEventListener('sagitta:addresses-updated', sync);
       window.removeEventListener('storage', sync);
     };
-  }, []);
+  }, [selectedChain.key]);
 
   // On mount: setup provider and contracts
   useEffect(() => {
@@ -235,7 +235,7 @@ export default function TreasuryTab() {
       setGoldOracle(undefined);
       return;
     }
-    const rp = new JsonRpcProvider(LOCALHOST_RPC);
+    const rp = new JsonRpcProvider(selectedChain.rpcUrl);
     // create local contract instances immediately for initial fetch
     const localTreasury = new Contract(treasuryAddress, TREASURY_ABI_NORM, rp);
     const localGoldOracle = new Contract(goldOracleAddress, GOLD_ORACLE_ABI_NORM, rp);
@@ -336,7 +336,7 @@ export default function TreasuryTab() {
         setLoading(false);
       }
     })();
-  }, [treasuryAddress, goldOracleAddress]);
+  }, [treasuryAddress, goldOracleAddress, selectedChain.rpcUrl]);
 
   useEffect(() => {
     fetchBankLots();
@@ -785,6 +785,8 @@ export default function TreasuryTab() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           batchId: batchIdStr,
+          chainKey: selectedChain.key,
+          chainId: selectedChain.chainId,
           txHash: tx.hash,
           lotIds: eligibleLots.map(l => String(l.id)),
           principalUsd: eligibleLots.reduce((sum, l) => sum + l.amountUsd6 / 1_000_000, 0),
@@ -809,7 +811,7 @@ export default function TreasuryTab() {
       const res = await fetch('/api/banking/treasury/batches', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ chainKey: selectedChain.key, chainId: selectedChain.chainId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);

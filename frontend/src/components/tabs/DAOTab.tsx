@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ethers } from 'ethers';
 import { getContract } from '../../lib/ethers';
-import { getRuntimeAddress, setRuntimeAddress, isValidAddress, getDefaultAddress, loadGeneratedRuntimeAddresses } from '../../lib/runtime-addresses';
+import { getRuntimeAddress, setRuntimeAddress, isValidAddress, getDefaultAddress, loadGeneratedRuntimeAddresses, ZERO_ADDRESS } from '../../lib/runtime-addresses';
 import { AppRole, listRoleAssignments, removeAddressRole, ROLES_UPDATED_EVENT, setAddressRole } from '../../lib/roles';
 import { emitUiRefresh } from '../../lib/ui-refresh';
 import {
@@ -15,10 +15,10 @@ import {
 } from '../icons/SagittaIcons';
 import useRoleAccess from '../../hooks/useRoleAccess';
 import PageHeader from '../ui/PageHeader';
-import { RPC_URL, IS_LOCAL_CHAIN } from '../../lib/network';
+import { isActiveLocalChain } from '../../lib/network';
+import { useProtocolChain } from '../../context/ProtocolChainContext';
+import ChainSelector from '../chain/ChainSelector';
 
-const LOCALHOST_RPC = RPC_URL;
-const LOCAL_CHAIN_IDS = new Set([1337, 31337]);
 const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 const DAO_PROPOSALS_KEY = 'sagitta.daoProposals.v1';
 const BATCH_CADENCE_KEY = 'sagitta.batchCadenceSeconds';
@@ -172,6 +172,10 @@ type ProposalAction =
   | 'UPDATE_PORTFOLIO_ASSET'
   | 'REMOVE_PORTFOLIO_ASSET';
 
+function daoProposalsKey(chainKey: string): string {
+  return `${DAO_PROPOSALS_KEY}.${chainKey}`;
+}
+
 type PortfolioAsset = {
   symbol: string;
   name: string;
@@ -268,6 +272,7 @@ type DaoProposal = {
 };
 
 export default function DAOTab() {
+  const { selectedChain, walletMismatch, switchWalletToSelectedChain } = useProtocolChain();
   const {
     address: connectedAddress,
     ownerAddress: connectedOwnerAddress,
@@ -438,7 +443,7 @@ export default function DAOTab() {
       window.removeEventListener('sagitta:addresses-updated', sync);
       window.removeEventListener('storage', sync);
     };
-  }, []);
+  }, [selectedChain.key]);
 
   const nextBatchRollDue = escrowLastRollTime ? escrowLastRollTime + batchCadenceSeconds : null;
 
@@ -465,17 +470,28 @@ export default function DAOTab() {
     proposal?.action === 'TOGGLE_VAULT_PAUSE' && proposal?.payload?.targetPaused === false;
 
   useEffect(() => {
-    const rp = new ethers.JsonRpcProvider(LOCALHOST_RPC);
+    const rp = new ethers.JsonRpcProvider(selectedChain.rpcUrl);
     setProvider(rp);
-  }, []);
+  }, [selectedChain.rpcUrl]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    const scopedKey = daoProposalsKey(selectedChain.key);
     try {
-      const raw = window.localStorage.getItem(DAO_PROPOSALS_KEY);
-      if (!raw) return;
+      let raw = window.localStorage.getItem(scopedKey);
+      if (!raw && selectedChain.key === 'moonbase') {
+        raw = window.localStorage.getItem(DAO_PROPOSALS_KEY);
+        if (raw) window.localStorage.setItem(scopedKey, raw);
+      }
+      if (!raw) {
+        setGovernanceProposals([]);
+        return;
+      }
       const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return;
+      if (!Array.isArray(parsed)) {
+        setGovernanceProposals([]);
+        return;
+      }
       setGovernanceProposals(
         parsed
           .filter((item: any) => item && typeof item.id === 'string' && typeof item.action === 'string')
@@ -495,13 +511,14 @@ export default function DAOTab() {
       );
     } catch {
       // ignore malformed cached proposals
+      setGovernanceProposals([]);
     }
-  }, []);
+  }, [selectedChain.key]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    window.localStorage.setItem(DAO_PROPOSALS_KEY, JSON.stringify(governanceProposals));
-  }, [governanceProposals]);
+    window.localStorage.setItem(daoProposalsKey(selectedChain.key), JSON.stringify(governanceProposals));
+  }, [governanceProposals, selectedChain.key]);
 
   useEffect(() => {
     const refreshRoles = () => setRoleAssignments(listRoleAssignments());
@@ -513,12 +530,18 @@ export default function DAOTab() {
       window.removeEventListener(ROLES_UPDATED_EVENT, refreshRoles as EventListener);
       window.removeEventListener('storage', refreshRoles);
     };
-  }, []);
+  }, [selectedChain.key]);
 
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
       try {
+        const vaultAddress = getRuntimeAddress('Vault');
+        if (!isValidAddress(vaultAddress) || vaultAddress === ZERO_ADDRESS) {
+          setVaultPaused(false);
+          setAdminAddresses([]);
+          return;
+        }
         const vault = await getContract('vault') as any;
         if (!vault) return;
         const [owner, paused] = await Promise.all([
@@ -530,13 +553,13 @@ export default function DAOTab() {
           setAdminAddresses([owner]);
         }
       } catch (error) {
-        console.error('Failed to load DAO data:', error);
+        console.warn('Failed to load DAO data:', error);
       } finally {
         setLoading(false);
       }
     };
     loadData();
-  }, []);
+  }, [selectedChain.key]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -578,8 +601,7 @@ export default function DAOTab() {
     try {
       const network = await rpcProvider.getNetwork();
       const chainIdNum = Number(network.chainId);
-      const rpcLooksLocal = LOCALHOST_RPC.includes('localhost') || LOCALHOST_RPC.includes('127.0.0.1');
-      const localNetwork = rpcLooksLocal && LOCAL_CHAIN_IDS.has(chainIdNum);
+      const localNetwork = !!selectedChain.isLocal && selectedChain.chainId === chainIdNum;
       setIsLocalhostNetwork(localNetwork);
       setLocalChainId(chainIdNum);
       if (!localNetwork) {
@@ -596,7 +618,7 @@ export default function DAOTab() {
   }
 
   async function getWriteSigner() {
-    if (IS_LOCAL_CHAIN) {
+    if (isActiveLocalChain()) {
       if (!provider) throw new Error('Local RPC provider not ready');
       return new ethers.Wallet(TEST_PRIVATE_KEY, provider);
     }
@@ -1494,8 +1516,7 @@ export default function DAOTab() {
       setTimeStatus(null);
       const network = await provider.getNetwork();
       const chainIdNum = Number(network.chainId);
-      const rpcLooksLocal = LOCALHOST_RPC.includes('localhost') || LOCALHOST_RPC.includes('127.0.0.1');
-      if (!rpcLooksLocal || !LOCAL_CHAIN_IDS.has(chainIdNum)) {
+      if (!selectedChain.isLocal || selectedChain.chainId !== chainIdNum) {
         setTimeStatus(`Skipped ${label}: active network is not localhost`);
         return;
       }
@@ -2436,6 +2457,25 @@ export default function DAOTab() {
           </>
         }
       />
+
+      <section className="grid grid-cols-12 gap-5">
+        <div className="sagitta-cell col-span-12">
+          <div className="dao-chain-control">
+            <div>
+              <h3 className="section-title !mb-1">Protocol Chain Context</h3>
+              <div className="section-subtitle !mt-0 !mb-0">
+                DAO/admin evaluation controls update the frontend deployment context only. Active chain: {selectedChain.name}.
+              </div>
+            </div>
+            <ChainSelector />
+            {walletMismatch ? (
+              <button className="action-button action-button--warning" onClick={() => void switchWalletToSelectedChain()}>
+                Align Wallet Chain
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </section>
 
       {/* ── Governance Snapshot ──────────────────────────────────────────── */}
       <section className="grid grid-cols-12 gap-5">

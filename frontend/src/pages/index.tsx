@@ -8,6 +8,8 @@ import SidebarTabs from '../components/navigation/SidebarTabs';
 import type { Tab } from '../components/navigation/SidebarTabs';
 import { getSigner, getContract } from '../lib/ethers';
 import useProtocolPause from '../hooks/useProtocolPause';
+import { useProtocolChain } from '../context/ProtocolChainContext';
+import { getRuntimeAddress, isValidAddress, ZERO_ADDRESS } from '../lib/runtime-addresses';
 
 // Dynamic imports for tab components
 const UserTab = dynamic(() => import('../components/tabs/UserTab'), { ssr: false });
@@ -29,8 +31,8 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>('user');
   const [address, setAddress] = useState<string>('');
   const [ownerAddress, setOwnerAddress] = useState<string>('');
-  const [network, setNetwork] = useState<string>('');
   const { isPaused } = useProtocolPause();
+  const { selectedChain } = useProtocolChain();
 
   useEffect(() => {
     loadAccountData();
@@ -45,24 +47,16 @@ export default function Home() {
       const addr = await signer.getAddress();
       setAddress(addr);
 
-      const provider = signer.provider;
-      if (provider) {
-        const net = await provider.getNetwork();
-        const chainId = Number(net.chainId);
-        const networkNames: Record<number, string> = {
-          1287: "Moonbase Alpha",
-          1337: "Localhost",
-          31337: "Localhost",
-          1: "Mainnet",
-        };
-        setNetwork(networkNames[chainId] || `Chain ${chainId}`);
+      const vaultAddress = getRuntimeAddress('Vault');
+      if (isValidAddress(vaultAddress) && vaultAddress !== ZERO_ADDRESS) {
+        const vault = await getContract('vault') as any;
+        const owner = await vault.owner().catch(() => '');
+        setOwnerAddress(owner);
+      } else {
+        setOwnerAddress('');
       }
-
-      const vault = await getContract('vault') as any;
-      const owner = await vault.owner().catch(() => '');
-      setOwnerAddress(owner);
     } catch (error) {
-      console.error('Failed to load account data:', error);
+      console.warn('Failed to load account data:', error);
     }
   };
 
@@ -94,7 +88,7 @@ default:
       </Head>
       <AppShell
         topbar={<TopBar address={address} ownerAddress={ownerAddress} />}
-        sidebar={<SidebarTabs active={activeTab} paused={isPaused} network={network} onChange={setActiveTab} />}
+        sidebar={<SidebarTabs active={activeTab} paused={isPaused} network={selectedChain.name} onChange={setActiveTab} />}
       >
         {renderTab()}
       </AppShell>

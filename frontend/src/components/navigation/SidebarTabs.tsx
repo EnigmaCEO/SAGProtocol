@@ -60,7 +60,7 @@ const navGroups: NavGroup[] = [
     label: 'Systems',
     entries: [
       { kind: 'external', href: 'https://aaa.sagitta.systems/', label: 'Allocations', Icon: AllocationIcon },
-      { kind: 'external', href: 'https://continuity.sagitta.systems/', label: 'Continuity',  Icon: LayersIcon     },
+      { kind: 'external', href: 'https://sce.sagitta.systems/', label: 'Continuity',  Icon: LayersIcon     },
     ],
   },
 ];

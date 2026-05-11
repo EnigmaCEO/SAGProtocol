@@ -7,7 +7,7 @@ import {
 } from '../icons/SagittaIcons';
 import MetricCard from '../ui/MetricCard';
 import useVaultMetrics from '../../hooks/useVaultMetrics';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Wallet, Contract, JsonRpcProvider } from 'ethers';
 import VAULT_ABI from '../../lib/abis/Vault.json';
 import { getRuntimeAddress, isValidAddress, setRuntimeAddress } from '../../lib/runtime-addresses';
@@ -15,10 +15,9 @@ import { emitUiRefresh } from '../../lib/ui-refresh';
 import useRoleAccess from '../../hooks/useRoleAccess';
 import useProtocolPause from '../../hooks/useProtocolPause';
 import PageHeader from '../ui/PageHeader';
-import { RPC_URL } from '../../lib/network';
+import { useProtocolChain } from '../../context/ProtocolChainContext';
 
 const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
-const provider = new JsonRpcProvider(RPC_URL);
 const VAULT_ABI_NORM: any = Array.isArray(VAULT_ABI) ? VAULT_ABI : (VAULT_ABI as any)?.abi ?? VAULT_ABI;
 const DEFAULT_VAULT_UNLOCK_SECONDS = 365 * 24 * 60 * 60;
 const VAULT_UNLOCK_OPTIONS: Array<{ label: string; seconds: number }> = [
@@ -61,6 +60,8 @@ function shortenAddress(value: string): string {
 }
 
 export default function VaultTab() {
+  const { selectedChain } = useProtocolChain();
+  const provider = useMemo(() => new JsonRpcProvider(selectedChain.rpcUrl), [selectedChain.rpcUrl]);
   const { isPaused } = useProtocolPause();
   const { isOperator, role } = useRoleAccess();
   const [vaultAddress, setVaultAddressState] = useState<string>(() => getRuntimeAddress('Vault'));
@@ -145,13 +146,13 @@ export default function VaultTab() {
       window.removeEventListener('sagitta:addresses-updated', sync);
       window.removeEventListener('storage', sync);
     };
-  }, []);
+  }, [selectedChain.key]);
 
   useEffect(() => {
     setVaultAddressInput(vaultAddress);
     refreshLockDurationConfig(vaultAddress);
     refreshVaultLinks(vaultAddress);
-  }, [vaultAddress]);
+  }, [vaultAddress, provider]);
 
   function handleSaveVaultAddress() {
     const next = vaultAddressInput.trim();

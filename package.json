@@ -10,6 +10,7 @@
     "clean": "hardhat clean",
     "deploy:local": "hardhat run scripts/deploy.ts --network localhost",
     "deploy:moonbase": "hardhat run scripts/deploy.ts --network moonbase",
+    "deploy:arc": "hardhat run scripts/deploy.ts --network arc",
     "ff:year": "hardhat run scripts/fastForward.ts --network localhost",
     "ff:days": "hardhat run scripts/fastForward.ts --network localhost",
     "demo": "concurrently -k -n NODE,DEPLOY,WEB -c blue,magenta,green \"hardhat node\" \"sleep 2 && hardhat run scripts/deploy.ts --network localhost\" \"sleep 4 && pnpm --dir frontend dev\"",

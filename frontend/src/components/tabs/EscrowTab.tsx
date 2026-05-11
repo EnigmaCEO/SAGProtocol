@@ -139,7 +139,7 @@ import { emitUiRefresh } from '../../lib/ui-refresh';
 import useRoleAccess from '../../hooks/useRoleAccess';
 import useProtocolPause from '../../hooks/useProtocolPause';
 import PageHeader from '../ui/PageHeader';
-import { RPC_URL } from '../../lib/network';
+import { useProtocolChain } from '../../context/ProtocolChainContext';
 
 async function readJsonResponse(response: Response) {
   const raw = await response.text();
@@ -151,12 +151,12 @@ async function readJsonResponse(response: Response) {
 }
 
 export default function EscrowTab() {
+  const { selectedChain } = useProtocolChain();
   const { isPaused } = useProtocolPause();
   const { isOperator, role } = useRoleAccess();
   const portfolioRegistryAddress = useRuntimeAddress('PortfolioRegistry');
   const executionRouteRegistryAddress = useRuntimeAddress('ExecutionRouteRegistry');
   // On-chain constants
-  const LOCALHOST_RPC = RPC_URL;
   const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 
   const [provider, setProvider] = useState<JsonRpcProvider | null>(null);
@@ -234,14 +234,14 @@ export default function EscrowTab() {
       window.removeEventListener('sagitta:addresses-updated', sync);
       window.removeEventListener('storage', sync);
     };
-  }, []);
+  }, [selectedChain.key]);
 
   useEffect(() => {
-    const rp = new JsonRpcProvider(LOCALHOST_RPC);
+    const rp = new JsonRpcProvider(selectedChain.rpcUrl);
     const w = new Wallet(TEST_PRIVATE_KEY, rp);
     setProvider(rp);
     setSigner(w);
-  }, []);
+  }, [selectedChain.rpcUrl]);
 
   useEffect(() => {
     if (!provider) return;
@@ -620,10 +620,11 @@ export default function EscrowTab() {
 
   async function refreshBackendExecutionQueue() {
     try {
+      const chainQuery = `?chainKey=${encodeURIComponent(selectedChain.key)}`;
       const [ordersRes, legsRes, plansRes] = await Promise.all([
-        fetch('/api/banking/escrow/execution-orders'),
-        fetch('/api/banking/escrow/allocation-legs'),
-        fetch('/api/banking/escrow/allocation-plans'),
+        fetch(`/api/banking/escrow/execution-orders${chainQuery}`),
+        fetch(`/api/banking/escrow/allocation-legs${chainQuery}`),
+        fetch(`/api/banking/escrow/allocation-plans${chainQuery}`),
       ]);
       const [ordersJson, legsJson, plansJson] = await Promise.all([
         readJsonResponse(ordersRes),
@@ -648,7 +649,7 @@ export default function EscrowTab() {
   async function runBackendAutomation() {
     setAutomationRunning(true);
     try {
-      const response = await fetch('/api/banking/escrow/run-automation', { method: 'POST' });
+      const response = await fetch(`/api/banking/escrow/run-automation?chainKey=${encodeURIComponent(selectedChain.key)}`, { method: 'POST' });
       const payload = await readJsonResponse(response);
       if (!response.ok) throw new Error(payload?.error || `automation HTTP ${response.status}`);
       setLog(l => [`[escrow worker] ${JSON.stringify(payload?.data ?? payload)}`, ...l]);
@@ -667,7 +668,7 @@ export default function EscrowTab() {
       const path = stage === 'returned'
         ? `/api/banking/escrow/execution-orders/${selectedAllocationOrder.batchId}/advance-return`
         : `/api/banking/escrow/execution-orders/${selectedAllocationOrder.batchId}/advance-settlement`;
-      const response = await fetch(path, { method: 'POST' });
+      const response = await fetch(`${path}?chainKey=${encodeURIComponent(selectedChain.key)}`, { method: 'POST' });
       const payload = await readJsonResponse(response);
       if (!response.ok) throw new Error(payload?.error || `advance ${stage} HTTP ${response.status}`);
       setLog((items) => [`[escrow ${stage}] batch ${selectedAllocationOrder.batchId}`, ...items]);
@@ -1112,7 +1113,7 @@ export default function EscrowTab() {
           hardCloseAt: selectedOrder.hardCloseAt,
         } : undefined,
         routeAllowlist: selectedOrder?.eligibleRouteTypes,
-        marketContext: { source: 'escrow-ui', mode: 'localhost' },
+        marketContext: { source: 'escrow-ui', mode: selectedChain.key },
         universe: universe.eligible.map((asset) => ({
           symbol: asset.symbol,
           riskClass: asset.riskClass,

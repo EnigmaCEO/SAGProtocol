@@ -54,6 +54,17 @@ function normalizeDeploymentNetworkName(chainId: number, networkName: string | n
   return normalized || "unknown";
 }
 
+function deploymentChainKey(chainId: number, networkName: string | null | undefined): string {
+  if (isLocalChainId(chainId)) return "localhost";
+  if (chainId === 5042002) return "arc";
+  const normalized = normalizeDeploymentNetworkName(chainId, networkName);
+  if (normalized === "arc") return "arc";
+  if (normalized === "baseSepolia") return "base-sepolia";
+  if (normalized === "arbitrumSepolia") return "arbitrum-sepolia";
+  if (normalized === "optimismSepolia") return "optimism-sepolia";
+  return normalized;
+}
+
 async function deployAndVerify(factory: any, ...args: any[]) {
   const contract = await factory.deploy(...args);
   // Wait for the deployment tx to be mined (1 confirmation minimum).
@@ -126,6 +137,46 @@ function writeDeploymentsSnapshot(deployments: Record<string, string | number | 
   const outFile = path.join(__dirname, "../deployments.json");
   fs.writeFileSync(outFile, `${JSON.stringify(deployments, null, 2)}\n`);
   console.log(`Saved deployments -> ${outFile}`);
+
+  const chainId = Number(deployments.chainId);
+  const networkName = normalizeDeploymentNetworkName(
+    chainId,
+    typeof deployments.network === "string" ? deployments.network : undefined
+  );
+  const chainKey = deploymentChainKey(chainId, typeof deployments.network === "string" ? deployments.network : undefined);
+  const deploymentsDir = path.join(__dirname, "../deployments");
+  if (!fs.existsSync(deploymentsDir)) fs.mkdirSync(deploymentsDir, { recursive: true });
+  const chainFile = path.join(deploymentsDir, `${chainKey}.json`);
+  fs.writeFileSync(chainFile, `${JSON.stringify({ chainKey, ...deployments, network: networkName }, null, 2)}\n`);
+  console.log(`Saved chain deployment -> ${chainFile}`);
+  writeFrontendDeploymentArtifacts(deploymentsDir);
+}
+
+function writeFrontendDeploymentArtifacts(deploymentsDir: string) {
+  const outFile = path.join(__dirname, "../frontend/src/lib/config/deployment-artifacts.ts");
+  const artifacts: Record<string, any> = {};
+
+  if (fs.existsSync(deploymentsDir)) {
+    for (const fileName of fs.readdirSync(deploymentsDir)) {
+      if (!fileName.endsWith(".json")) continue;
+      const fullPath = path.join(deploymentsDir, fileName);
+      try {
+        const parsed = JSON.parse(fs.readFileSync(fullPath, "utf8"));
+        const key = parsed.chainKey || path.basename(fileName, ".json");
+        artifacts[key] = parsed;
+      } catch (e) {
+        console.warn(`Skipping malformed deployment artifact ${fullPath}`);
+      }
+    }
+  }
+
+  const content =
+    `// AUTO-GENERATED MIRROR OF deployments/*.json FOR FRONTEND BUNDLING.\n` +
+    `// Source of truth remains the root deployments/<chain-key>.json files.\n` +
+    `export const DEPLOYMENT_ARTIFACTS = ${JSON.stringify(artifacts, null, 2)} as const;\n`;
+
+  fs.writeFileSync(outFile, content);
+  console.log(`Saved frontend deployment artifact mirror -> ${outFile}`);
 }
 
 function writeAddresses(deployments: Record<string, string | number | null>) {
@@ -135,14 +186,16 @@ function writeAddresses(deployments: Record<string, string | number | null>) {
     chainId,
     typeof deployments.network === "string" ? deployments.network : undefined
   );
+  const chainKey = deploymentChainKey(chainId, networkName);
 
   // Non-local chains: only write the ProtocolDAO address.
   // All other addresses are fetched at runtime from the ProtocolDAO contract,
   // so they don't need to live in the repo.
   // Local chains: write all addresses (needed for the localStorage dev-override system).
   const payload = isLocal
-    ? { ...deployments, network: networkName }
+    ? { chainKey, ...deployments, network: networkName }
     : {
+        chainKey,
         network: networkName,
         chainId,
         ProtocolDAO: deployments.ProtocolDAO,
@@ -168,14 +221,10 @@ function writeAddresses(deployments: Record<string, string | number | null>) {
 
   if (isLocal) {
     console.log(`\nSet this in frontend/.env.local for localhost:`);
-    console.log(`  NEXT_PUBLIC_NETWORK=local`);
-    console.log(`  NEXT_PUBLIC_RPC_URL=http://127.0.0.1:8545`);
-    console.log(`  NEXT_PUBLIC_CHAIN_ID=${chainId}`);
-    console.log(`  NEXT_PUBLIC_PROTOCOL_DAO_ADDRESS=${deployments.ProtocolDAO}`);
+    console.log(`  NEXT_PUBLIC_LOCALHOST_RPC_URL=http://127.0.0.1:8545`);
   } else {
-    console.log(`\nSet this in Vercel / .env.local for the frontend:`);
-    console.log(`  NEXT_PUBLIC_NETWORK=${networkName}`);
-    console.log(`  NEXT_PUBLIC_PROTOCOL_DAO_ADDRESS=${deployments.ProtocolDAO}`);
+    console.log(`\nDeployment artifact written to deployments/${chainKey}.json`);
+    console.log(`Use NEXT_PUBLIC_PROTOCOL_DAO_OVERRIDE_${chainKey.toUpperCase().replace(/-/g, "_")}=... only for emergency frontend overrides.`);
   }
 }
 
@@ -208,6 +257,12 @@ async function verifyProtocolDaoRegistry(
 async function main() {
   const [deployer] = await ethers.getSigners();
   const metadataBaseUri = process.env.NFT_METADATA_BASE_URI || DEFAULT_METADATA_BASE_URI;
+  if (!deployer) {
+    throw new Error(
+      `No deployer account configured for network "${hre.network.name}". ` +
+        `Set DEPLOYER_PRIVATE_KEY, PRIVATE_KEY, or the network-specific deployer key in .env.`
+    );
+  }
   console.log("Deploying with:", deployer.address);
 
   const network = await ethers.provider.getNetwork();

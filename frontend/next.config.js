@@ -2,7 +2,7 @@
 const BANKING_API = process.env.BANKING_API_URL || 'http://localhost:4000';
 
 const nextConfig = {
-  turbopack: {},
+  outputFileTracingRoot: __dirname,
 
   async rewrites() {
     return [

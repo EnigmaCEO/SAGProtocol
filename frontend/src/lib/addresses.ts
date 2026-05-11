@@ -1,18 +1,17 @@
-// Stable selector — committed to git, never auto-generated.
-// Deploy scripts write to addresses.<network>.ts (e.g. addresses.moonbase.ts, addresses.local.ts).
-// Set NEXT_PUBLIC_NETWORK in .env.local to match the target environment.
-// Defaults to "moonbase" if unset.
+import { getActiveDeployment } from './config/deployments';
 
-const network = process.env.NEXT_PUBLIC_NETWORK ?? 'moonbase';
-
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-export const CONTRACT_ADDRESSES: Record<string, any> =
-  (() => {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      return require(`./addresses.${network}`).CONTRACT_ADDRESSES ?? {};
-    } catch {
-      console.warn(`[addresses] No addresses file found for network "${network}". Run the deploy script.`);
-      return {};
-    }
-  })();
+export const CONTRACT_ADDRESSES: Record<string, any> = new Proxy({}, {
+  get(_target, prop: string) {
+    const deployment = getActiveDeployment();
+    if (prop === 'network') return deployment.network;
+    if (prop === 'chainId') return deployment.chainId;
+    return (deployment.contracts as Record<string, any>)[prop];
+  },
+  ownKeys() {
+    const deployment = getActiveDeployment();
+    return ['network', 'chainId', ...Object.keys(deployment.contracts)];
+  },
+  getOwnPropertyDescriptor() {
+    return { enumerable: true, configurable: true };
+  },
+});

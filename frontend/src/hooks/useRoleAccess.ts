@@ -4,12 +4,11 @@ import { ethers } from 'ethers';
 import { getEffectiveRole, type AppRole, ROLES_UPDATED_EVENT } from '../lib/roles';
 import { getSigner } from '../lib/ethers';
 import { ADDRESSES_UPDATED_EVENT, getRuntimeAddress, isValidAddress, ZERO_ADDRESS } from '../lib/runtime-addresses';
-import { RPC_URL, IS_LOCAL_CHAIN } from '../lib/network';
+import { getActiveRpcUrl, isActiveLocalChain } from '../lib/network';
 
 // Hardhat/Anvil default account #0 — always the deployer on local chains
 const LOCAL_DEMO_OWNER = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 
-const LOCALHOST_RPC = RPC_URL;
 const ROLE_VIEW_OVERRIDE_KEY = 'sagitta.roleViewOverride.v1';
 export const ROLE_VIEW_OVERRIDE_EVENT = 'sagitta:role-view-override';
 export const WALLET_MODE_CHANGED_EVENT = 'sagitta:wallet-mode-changed';
@@ -68,7 +67,7 @@ async function resolveSessionAddress(): Promise<string | null> {
   }
 
   // 4. localStorage persisted address (live networks only)
-  if (!IS_LOCAL_CHAIN) {
+  if (!isActiveLocalChain()) {
     const persisted = readPersistedAddress();
     if (persisted) return persisted;
   }
@@ -130,9 +129,9 @@ export default function useRoleAccess(): {
 
   useEffect(() => {
     let active = true;
-    const staticProvider = new ethers.JsonRpcProvider(LOCALHOST_RPC);
 
     const syncOwner = async () => {
+      const staticProvider = new ethers.JsonRpcProvider(getActiveRpcUrl());
       const vaultAddress = getRuntimeAddress('Vault');
       if (!isValidAddress(vaultAddress) || vaultAddress === ZERO_ADDRESS) {
         if (active) {
@@ -142,10 +141,7 @@ export default function useRoleAccess(): {
         return;
       }
 
-      // Prefer the injected provider (MetaMask) so we query the chain the
-      // wallet is actually connected to instead of the hardcoded RPC_URL.
-      const eth = typeof window !== 'undefined' ? (window as any).ethereum : null;
-      const readProvider = eth ? new ethers.BrowserProvider(eth) : staticProvider;
+      const readProvider = staticProvider;
 
       try {
         const vault = new ethers.Contract(vaultAddress, ['function owner() view returns (address)'], readProvider);
@@ -153,9 +149,9 @@ export default function useRoleAccess(): {
         const resolved = normalizeAddress(owner);
         // On local chains fall back to the Hardhat default deployer if the
         // node isn't running or contracts aren't deployed yet.
-        if (active) setOwnerAddress(resolved ?? (IS_LOCAL_CHAIN ? LOCAL_DEMO_OWNER : null));
+        if (active) setOwnerAddress(resolved ?? (isActiveLocalChain() ? LOCAL_DEMO_OWNER : null));
       } catch {
-        if (active) setOwnerAddress(IS_LOCAL_CHAIN ? LOCAL_DEMO_OWNER : null);
+        if (active) setOwnerAddress(isActiveLocalChain() ? LOCAL_DEMO_OWNER : null);
       } finally {
         if (active) setLoading(false);
       }

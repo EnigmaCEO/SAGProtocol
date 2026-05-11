@@ -1,0 +1,21 @@
+{
+  "chainKey": "moonbase",
+  "network": "moonbase",
+  "chainId": 1287,
+  "ProtocolDAO": "0xb5e36719506e342B59A1817de8b73D1A1BbA927e",
+  "MockUSDC": "0xEba52Bb267d6ff55D4FFeBA5062F64019Fb188b7",
+  "MockGOLD": "0xE67F30EEEc35ac0F87D1B87bE150d6736494278a",
+  "Vault": "0x0bbdae26FAE15C014ab0F1426DB3a5B03bf72A62",
+  "Treasury": "0xe65ece9e868b136fd591eF1E69Df343af19d51f6",
+  "ReserveController": "0x94a808Cff4F1e392Bc1511d861d305F6C25B5143",
+  "InvestmentEscrow": "0xA8fB851d023556D6c1814D4FB48F39E5371ba98d",
+  "ExecutionRouteRegistry": "0x85C962Cf16f72ee31bcFf576C2952429928292D1",
+  "GoldOracle": "0xF78e5CBC68121f75e2196507C7cd364802729B92",
+  "UsdcOracle": "0x1baE96d6ed80B3A00FeFD39686a832180afc64d5",
+  "ReceiptNFT": "0xE5c61beF356CbB7Af5d40950A60299e094270fFA",
+  "AmmUSDCGOLD": "0x5B9b04B5227b83245fF18078Ada932DD961022B9",
+  "PortfolioRegistry": "0xe812C95ea14Ae363aF3161CA8995fd95f3aa7d12",
+  "SAGToken": null,
+  "SagOracle": null,
+  "AmmSAGUSDC": null
+}

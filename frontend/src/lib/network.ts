@@ -1,33 +1,45 @@
-/**
- * Centralised network configuration.
- *
- * Set these in .env.local (dev) or Vercel environment variables (prod):
- *   NEXT_PUBLIC_RPC_URL   – JSON-RPC endpoint
- *   NEXT_PUBLIC_CHAIN_ID  – numeric chain ID (1337 = localhost, 1287 = Moonbase Alpha)
- *
- * Defaults to localhost when variables are absent.
- */
+import { getChainById, getChainByKeyOrDefault, getDefaultChain, getStoredProtocolChainKey } from './config/chains';
 
-export const RPC_URL: string =
-  process.env.NEXT_PUBLIC_RPC_URL || "http://127.0.0.1:8545";
+export function getActiveChainConfig() {
+  return typeof window === 'undefined'
+    ? getDefaultChain()
+    : getChainByKeyOrDefault(getStoredProtocolChainKey());
+}
 
-export const CHAIN_ID: number = parseInt(
-  process.env.NEXT_PUBLIC_CHAIN_ID || "1337",
-  10
-);
+export function getActiveRpcUrl(): string {
+  return getActiveChainConfig().rpcUrl;
+}
 
-/** True only for local Hardhat/Anvil chains that support evm_mine / evm_increaseTime. */
-export const IS_LOCAL_CHAIN: boolean = CHAIN_ID === 1337 || CHAIN_ID === 31337;
+export function getActiveChainId(): number {
+  return getActiveChainConfig().chainId;
+}
 
-/** viem-compatible chain object derived from env vars. */
-export const ACTIVE_CHAIN = {
-  id: CHAIN_ID,
-  name: IS_LOCAL_CHAIN ? `Localhost ${CHAIN_ID}` : "Moonbase Alpha",
-  nativeCurrency: IS_LOCAL_CHAIN
-    ? { name: "Ether", symbol: "ETH", decimals: 18 }
-    : { name: "DEV", symbol: "DEV", decimals: 18 },
-  rpcUrls: {
-    default: { http: [RPC_URL] },
-    public: { http: [RPC_URL] },
-  },
-} as const;
+export function isLocalChainId(chainId: number): boolean {
+  return !!getChainById(chainId)?.isLocal;
+}
+
+export function isActiveLocalChain(): boolean {
+  return !!getActiveChainConfig().isLocal;
+}
+
+export const RPC_URL: string = getActiveRpcUrl();
+export const CHAIN_ID: number = getActiveChainId();
+export const IS_LOCAL_CHAIN: boolean = isActiveLocalChain();
+
+export function getViemActiveChain() {
+  const chain = getActiveChainConfig();
+  return {
+    id: chain.chainId,
+    name: chain.name,
+    nativeCurrency: chain.nativeCurrency,
+    rpcUrls: {
+      default: { http: [chain.rpcUrl] },
+      public: { http: [chain.rpcUrl] },
+    },
+    blockExplorers: chain.explorerUrl
+      ? { default: { name: `${chain.shortName} Explorer`, url: chain.explorerUrl } }
+      : undefined,
+  } as const;
+}
+
+export const ACTIVE_CHAIN = getViemActiveChain();

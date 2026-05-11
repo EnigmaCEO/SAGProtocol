@@ -2,8 +2,8 @@
 // Non-local deploy: only ProtocolDAO address is stored here.
 // All other addresses are read from ProtocolDAO on-chain at runtime.
 export const CONTRACT_ADDRESSES: Record<string, any> = {
-  "chainKey": "moonbase",
-  "network": "moonbase",
-  "chainId": 1287,
-  "ProtocolDAO": "0xb5e36719506e342B59A1817de8b73D1A1BbA927e"
+  "chainKey": "arc",
+  "network": "arc",
+  "chainId": 5042002,
+  "ProtocolDAO": "0x494A6718df62C7A6eEC2fd2555870D436145B44A"
 };

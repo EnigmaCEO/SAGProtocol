@@ -2998,3 +2998,118 @@ body,
   background: var(--bank-ghost-hover-bg) !important;
   border-color: var(--bank-ghost-hover-border) !important;
 }
+.chain-selector {
+  min-width: 260px;
+  border: 1px solid rgba(180, 140, 20, 0.18);
+  background: rgba(5, 11, 22, 0.76);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text-300);
+}
+
+.chain-selector[data-compact="true"] {
+  min-width: 230px;
+  padding: 6px 8px;
+}
+
+.chain-selector__row,
+.chain-selector__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chain-selector__label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-500);
+  letter-spacing: 0.08em;
+}
+
+.chain-selector__select {
+  width: 100%;
+  max-width: 180px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--gold-300);
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.chain-selector__badge,
+.chain-selector__mismatch {
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.chain-selector__badge[data-status="active"] {
+  color: #8ff0cb;
+  background: rgba(18, 143, 98, 0.14);
+}
+
+.chain-selector__badge[data-status="evaluating"] {
+  color: #f4c86d;
+  background: rgba(180, 136, 26, 0.14);
+}
+
+.chain-selector__badge[data-status="disabled"],
+.chain-selector__mismatch,
+.chain-selector__error {
+  color: #ff9f9f;
+  background: rgba(177, 56, 56, 0.16);
+}
+
+.chain-selector__meta {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-500);
+}
+
+.chain-selector__switch {
+  width: 100%;
+  margin-top: 7px;
+  border: 1px solid rgba(180, 140, 20, 0.25);
+  background: rgba(180, 136, 26, 0.14);
+  color: var(--gold-200);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.chain-selector__error {
+  margin-top: 7px;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.dao-chain-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+}
+
+@media (max-width: 900px) {
+  .dao-chain-control {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .chain-selector,
+  .chain-selector[data-compact="true"] {
+    width: 100%;
+    min-width: 0;
+  }
+}

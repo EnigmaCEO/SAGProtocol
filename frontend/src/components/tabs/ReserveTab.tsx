@@ -16,8 +16,11 @@ import { CONTRACT_ADDRESSES } from '../../lib/addresses';
 import { useWallet } from '../../hooks/useWallet'; // use wallet hook to know if wallet is connected
 import useRoleAccess from '../../hooks/useRoleAccess';
 import { getRuntimeAddress, isValidAddress, setRuntimeAddress } from '../../lib/runtime-addresses';
+import { getActiveRpcUrl } from '../../lib/network';
+import { useProtocolChain } from '../../context/ProtocolChainContext';
 
 export default function ReserveTab() {
+  const { selectedChain } = useProtocolChain();
   // wallet hook: we will only use injected provider/signer if the user connected
   const { provider: injectedProvider, account } = useWallet();
   const { isOperator, role } = useRoleAccess();
@@ -47,7 +50,7 @@ export default function ReserveTab() {
     process.env.NEXT_PUBLIC_GOLD_ADDRESS ||
     ZERO_ADDRESS;
   const GOLD_ORACLE_ADDRESS = goldOracleAddress;
-  const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || 'http://localhost:8545';
+  const rpcUrl = getActiveRpcUrl();
   const configuredTreasuryAddress = treasuryLinkInput.trim();
   const hasConfiguredTreasury = isValidAddress(configuredTreasuryAddress);
 
@@ -102,7 +105,7 @@ export default function ReserveTab() {
       window.removeEventListener('sagitta:addresses-updated', sync);
       window.removeEventListener('storage', sync);
     };
-  }, []);
+  }, [selectedChain.key]);
 
   useEffect(() => {
     setReserveAddressInput(reserveAddress);
@@ -166,7 +169,7 @@ export default function ReserveTab() {
     // Create JSON-RPC provider (works across ethers v5/v6)
     const JsonRpcProviderCtor = (ethers as any).JsonRpcProvider ?? (ethers as any).providers?.JsonRpcProvider;
     if (JsonRpcProviderCtor) {
-      return new JsonRpcProviderCtor(RPC_URL);
+      return new JsonRpcProviderCtor(rpcUrl);
     }
     if ((ethers as any).getDefaultProvider) {
       return (ethers as any).getDefaultProvider();
@@ -191,7 +194,7 @@ export default function ReserveTab() {
 
         const provider: any = await getProvider();
         if (!provider) {
-          setUiError('No JSON-RPC provider available (check NEXT_PUBLIC_RPC_URL or wallet).');
+          setUiError('No JSON-RPC provider available for the selected protocol chain or wallet.');
           return;
         }
         // show some network info for diagnostics
@@ -298,7 +301,7 @@ export default function ReserveTab() {
     };
     loadOnchain();
     return () => { mounted = false; };
-  }, [RESERVE_ADDRESS, GOLD_ORACLE_ADDRESS, account, injectedProvider]); // refresh when wallet connection changes
+  }, [RESERVE_ADDRESS, GOLD_ORACLE_ADDRESS, account, injectedProvider, rpcUrl]); // refresh when wallet connection changes
 
   // When user clicks the operator button:
   return (

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { createPublicClient, createWalletClient, http, custom, parseUnits, formatUnits, type Chain, type Abi } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import MetricCard from '../ui/MetricCard';
@@ -31,9 +31,10 @@ import { emitUiRefresh } from '../../lib/ui-refresh';
 import useProtocolPause from '../../hooks/useProtocolPause';
 import PageHeader from '../ui/PageHeader';
 import QRConnectModal, { type ConnectedWallet } from '../ui/QRConnectModal';
-import { RPC_URL, ACTIVE_CHAIN, CHAIN_ID, IS_LOCAL_CHAIN } from '../../lib/network';
+import { isActiveLocalChain } from '../../lib/network';
 import { useWallet } from '../../hooks/useWallet';
 import { WALLET_MODE_CHANGED_EVENT } from '../../hooks/useRoleAccess';
+import { useProtocolChain } from '../../context/ProtocolChainContext';
 
 // Helper to cast ABI and normalize JSON shape { abi: [...] } vs [...]
 function normalizeAbi(x: any) {
@@ -56,19 +57,6 @@ const DEFAULT_MOCK_ORACLE_ADDRESS = (CONTRACT_ADDRESSES as any).UsdcOracle;
 // Localhost test account (Anvil/Hardhat default account #0)
 const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 const account = privateKeyToAccount(TEST_PRIVATE_KEY);
-
-// Create clients using env-aware chain config from network.ts
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const publicClient = createPublicClient({
-  chain: ACTIVE_CHAIN as Chain,
-  transport: http(RPC_URL),
-}) as any; // viem 2.x added authorizationList to ReadContractParameters; cast avoids spurious TS errors
-
-const walletClient = createWalletClient({
-  account,
-  chain: ACTIVE_CHAIN as Chain,
-  transport: http(RPC_URL),
-});
 
 interface DepositReceipt {
   id: number;
@@ -127,6 +115,28 @@ function formatNullableUsdValue(value: number | null): string {
 }
 
 export default function UserTab() {
+  const { selectedChain, switchWalletToSelectedChain } = useProtocolChain();
+  const viemChain = useMemo(() => ({
+    id: selectedChain.chainId,
+    name: selectedChain.name,
+    nativeCurrency: selectedChain.nativeCurrency,
+    rpcUrls: {
+      default: { http: [selectedChain.rpcUrl] },
+      public: { http: [selectedChain.rpcUrl] },
+    },
+    blockExplorers: selectedChain.explorerUrl
+      ? { default: { name: `${selectedChain.shortName} Explorer`, url: selectedChain.explorerUrl } }
+      : undefined,
+  }) as Chain, [selectedChain]);
+  const publicClient = useMemo(() => createPublicClient({
+    chain: viemChain,
+    transport: http(selectedChain.rpcUrl),
+  }) as any, [selectedChain.rpcUrl, viemChain]);
+  const walletClient = useMemo(() => createWalletClient({
+    account,
+    chain: viemChain,
+    transport: http(selectedChain.rpcUrl),
+  }), [selectedChain.rpcUrl, viemChain]);
   const { isPaused } = useProtocolPause();
   const VAULT_ADDRESS = useRuntimeAddress('Vault') || DEFAULT_VAULT_ADDRESS;
   const MOCK_USDC_ADDRESS = useRuntimeAddress('MockUSDC') || DEFAULT_MOCK_USDC_ADDRESS;
@@ -211,10 +221,21 @@ export default function UserTab() {
   const effectiveAddress: string = address;
   const metrics = useVaultMetrics();
 
+  async function hasContractCode(address: string | null | undefined): Promise<boolean> {
+    if (!address || address === ZERO_ADDRESS) return false;
+    const code = await publicClient.getCode({ address: address as `0x${string}` }).catch(() => null);
+    return !!code && code !== '0x';
+  }
+
   // Use viem publicClient for all balances to ensure consistency
   useEffect(() => {
     async function fetchBalances() {
       try {
+        if (!(await hasContractCode(MOCK_USDC_ADDRESS))) {
+          setUsdcBalance(BigInt(0));
+          return;
+        }
+
         // USDC balance
         const usdcRaw = await publicClient.readContract({
           address: MOCK_USDC_ADDRESS as `0x${string}`,
@@ -228,7 +249,7 @@ export default function UserTab() {
       }
     }
     fetchBalances();
-  }, [effectiveAddress, tokenDecimals]);
+  }, [effectiveAddress, MOCK_USDC_ADDRESS, publicClient, tokenDecimals]);
 
   // helper to compute and set maxDeposit token & usd values (moved to component scope)
   const computeAndSetMax = (capacityUsd6: bigint, priceBn: bigint, aDecimals: number) => {
@@ -273,9 +294,9 @@ export default function UserTab() {
       if (!code || code === '0x') {
         setContractError(
           `No contract found at current Vault address (${VAULT_ADDRESS}). ` +
-          (IS_LOCAL_CHAIN
+          (isActiveLocalChain()
             ? `Open DAO tab, click "Load Generated", then "Refresh On-Chain".`
-            : `Deploy contracts to testnet (npx hardhat run scripts/deploy.ts --network moonbase), regenerate addresses.ts, then rebuild the frontend.`)
+            : `Deploy contracts to ${selectedChain.name} or add the chain's ProtocolDAO address to the deployment registry.`)
         );
         return;
       }
@@ -304,6 +325,21 @@ export default function UserTab() {
       }
 
       setContractError(null);
+
+      const hasTokenContract = await hasContractCode(MOCK_USDC_ADDRESS);
+      if (!hasTokenContract) {
+        setTokenDecimals(6);
+        setAssetDecimals(6);
+        setUsdcBalance(BigInt(0));
+        setAllowance(BigInt(0));
+        setMaxDepositToken(null);
+        setMaxDepositUsd6(null);
+        setContractError(
+          `No ERC-20 contract found at current USDC address (${MOCK_USDC_ADDRESS}) on ${selectedChain.name}. ` +
+          `Update the ${selectedChain.shortName} deployment registry or select a chain with a deployed MockUSDC.`
+        );
+        return;
+      }
 
       // Detect token decimals once and cache
       try {
@@ -639,11 +675,11 @@ export default function UserTab() {
     fetchData();
     const interval = setInterval(fetchData, 10_000);
     return () => clearInterval(interval);
-  }, [effectiveAddress, refreshKey, VAULT_ADDRESS]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [effectiveAddress, refreshKey, VAULT_ADDRESS, selectedChain.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchReceipts();
-  }, [receiptCount, effectiveAddress, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [receiptCount, effectiveAddress, refreshKey, selectedChain.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!toast) return;
@@ -657,24 +693,10 @@ export default function UserTab() {
     if (!ethereum) return;
     const hexChainId = await ethereum.request({ method: 'eth_chainId' });
     const current = Number.parseInt(hexChainId, 16);
-    if (current === CHAIN_ID) return; // already correct
-    try {
-      await ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x507' }] });
-    } catch (err: any) {
-      if (err?.code === 4902 || err?.code === -32603) {
-        await ethereum.request({
-          method: 'wallet_addEthereumChain',
-          params: [{
-            chainId: '0x507',
-            chainName: 'Moonbase Alpha',
-            nativeCurrency: { name: 'DEV', symbol: 'DEV', decimals: 18 },
-            rpcUrls: ['https://rpc.api.moonbase.moonbeam.network'],
-            blockExplorerUrls: ['https://moonbase.moonscan.io'],
-          }],
-        });
-      } else {
-        throw new Error('Please switch MetaMask to Moonbase Alpha before continuing.');
-      }
+    if (current === selectedChain.chainId) return;
+    const ok = await switchWalletToSelectedChain();
+    if (!ok) {
+      throw new Error(`Please switch your wallet to ${selectedChain.name} before continuing.`);
     }
   }
 
@@ -690,39 +712,16 @@ export default function UserTab() {
     return getSigner();
   }
 
-  const handleAddMoonbaseNetwork = async () => {
+  const handleAddSelectedNetwork = async () => {
     const ethereum = (window as any).ethereum;
     if (!ethereum) {
       setToast({ tone: 'danger', message: 'No wallet detected. Install MetaMask first.' });
       return;
     }
-    try {
-      await ethereum.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: '0x507' }],
-      });
-      setToast({ tone: 'success', message: 'Switched to Moonbase Alpha.' });
-    } catch (switchErr: any) {
-      if (switchErr?.code === 4902 || switchErr?.code === -32603) {
-        try {
-          await ethereum.request({
-            method: 'wallet_addEthereumChain',
-            params: [{
-              chainId: '0x507',
-              chainName: 'Moonbase Alpha',
-              nativeCurrency: { name: 'DEV', symbol: 'DEV', decimals: 18 },
-              rpcUrls: ['https://rpc.api.moonbase.moonbeam.network'],
-              blockExplorerUrls: ['https://moonbase.moonscan.io'],
-            }],
-          });
-          setToast({ tone: 'success', message: 'Moonbase Alpha added to MetaMask.' });
-        } catch (addErr: any) {
-          setToast({ tone: 'danger', message: addErr?.message || 'Failed to add network.' });
-        }
-      } else {
-        setToast({ tone: 'danger', message: switchErr?.message || 'Failed to switch network.' });
-      }
-    }
+    const ok = await switchWalletToSelectedChain();
+    setToast(ok
+      ? { tone: 'success', message: `Wallet switched to ${selectedChain.name}.` }
+      : { tone: 'danger', message: `Failed to switch wallet to ${selectedChain.name}.` });
   };
 
   // Wait for a tx hash using the direct RPC publicClient (more reliable than MetaMask polling).
@@ -735,8 +734,8 @@ export default function UserTab() {
 
   async function getWriteSigner() {
     const { ethers } = await import('ethers');
-    if (IS_LOCAL_CHAIN) {
-      return new ethers.Wallet(TEST_PRIVATE_KEY, new ethers.JsonRpcProvider(RPC_URL));
+    if (isActiveLocalChain()) {
+      return new ethers.Wallet(TEST_PRIVATE_KEY, new ethers.JsonRpcProvider(selectedChain.rpcUrl));
     }
     const eth = typeof window !== 'undefined' ? (window as any).ethereum : null;
     if (!eth) throw new Error('No wallet connected');
@@ -955,7 +954,7 @@ export default function UserTab() {
             >
               <WalletIcon size={12} />
               {address.slice(0, 6)}…{address.slice(-4)}
-              <span style={{ opacity: 0.55, fontSize: '0.65rem' }}>{IS_LOCAL_CHAIN ? 'LOCAL' : connectedWallet.mode === 'demo' ? 'DEMO' : 'LIVE'}</span>
+              <span style={{ opacity: 0.55, fontSize: '0.65rem' }}>{isActiveLocalChain() ? 'LOCAL' : connectedWallet.mode === 'demo' ? 'DEMO' : 'LIVE'}</span>
             </button>
             <div className="hero-balance-display">
               <div className="hero-balance-display__primary">
@@ -1010,11 +1009,11 @@ export default function UserTab() {
                   Mint 1000 USDC
                 </button>
                 <button
-                  onClick={handleAddMoonbaseNetwork}
+                  onClick={handleAddSelectedNetwork}
                   className="chip-button"
-                  title="Add Moonbase Alpha to MetaMask"
+                  title={`Add or switch to ${selectedChain.name}`}
                 >
-                  Add Moonbase Alpha
+                  Add {selectedChain.shortName}
                 </button>
                 <a
                   href="https://faucet.moonbeam.network/"

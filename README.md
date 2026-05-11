@@ -202,7 +202,8 @@ A compliance-friendly, batch-based, cross-chain investment interface.
 1. Install dependencies:
 ```bash
 npm install
-cd frontend && npm install
+npm --prefix frontend install
+npm --prefix server install
 ```
 
 2. Compile smart contracts:
@@ -215,13 +216,18 @@ npx hardhat compile
 npx hardhat run scripts/deploy.ts --network localhost
 ```
 
-4. Run the frontend:
+4. Run the banking server:
+```bash
+npm run server
+```
+
+5. Run the frontend:
 ```bash
 cd frontend
 npm run dev
 ```
 
-5. Code Test & Coverage:
+6. Code Test & Coverage:
 ```bash
 npx hardhat test
 npx hardhat coverage
@@ -242,15 +248,20 @@ npx hardhat run scripts/deploy.ts --network localhost
 This will:
 - Deploy all contracts to localhost
 - Fund demo account with 1000 USDC
-- Generate contract addresses
+- Generate `deployments/localhost.json` and local frontend address fallback
 
-### 3. Start Frontend (in a new terminal)
+### 3. Start Banking Server (in a new terminal)
+```bash
+npm run server
+```
+
+### 4. Start Frontend (in a new terminal)
 ```bash
 cd frontend
 pnpm dev
 ```
 
-### 4. Access the App
+### 5. Access the App
 
 Visit `http://localhost:3000`
 
@@ -260,6 +271,39 @@ Visit `http://localhost:3000`
 - Initial Balance: 1000 mDOT
 
 **Note:** Hardhat node is ephemeral. If you restart it, you must redeploy contracts and get new addresses.
+
+## Multi-Chain Frontend
+
+Moonbase Alpha is the default protocol chain. The frontend can switch between supported EVM testnets at runtime from one build.
+
+Registry files:
+```text
+frontend/src/lib/config/chains.ts       # chain metadata, RPC, explorer, wallet-add params
+frontend/src/lib/config/deployments.ts  # chain-aware ProtocolDAO / contract address lookup
+frontend/src/lib/config/features.ts     # per-chain feature gates
+deployments/moonbase.json               # current Moonbase deployment bootstrap
+deployments/localhost.json              # local Hardhat deployment snapshot
+deployments/arc.json                    # Arc Testnet deployment snapshot
+```
+
+Supported chain entries currently include Moonbase Alpha, localhost, Arc Testnet, Base Sepolia, Arbitrum Sepolia, and Optimism Sepolia. Moonbase Alpha appears first and is the default active deployment target.
+
+Chain selection is stored locally in the browser. DAO Administration shows the active protocol chain, wallet chain, and any mismatch, and can trigger wallet `switchEthereumChain` / `addEthereumChain`.
+
+Deployment addresses are chain-aware. Moonbase stores the `ProtocolDAO` bootstrap address and resolves the rest from `ProtocolDAO` at runtime. Localhost stores all addresses because local deployments reset often and support runtime overrides. Future testnets can exist as partial deployments; missing contracts are handled as unavailable.
+
+To add a new EVM testnet:
+1. Add chain metadata to `frontend/src/lib/config/chains.ts`.
+2. Add feature flags to `frontend/src/lib/config/features.ts`.
+3. Deploy with `npx hardhat run scripts/deploy.ts --network <network>`.
+4. Commit or copy the generated `deployments/<chain-key>.json` artifact.
+
+The deployment artifact is the source of truth for `ProtocolDAO`. Use per-chain env overrides only as a temporary escape hatch:
+```bash
+NEXT_PUBLIC_PROTOCOL_DAO_OVERRIDE_MOONBASE=0x...
+NEXT_PUBLIC_PROTOCOL_DAO_OVERRIDE_ARC=0x...
+NEXT_PUBLIC_PROTOCOL_DAO_OVERRIDE_BASE_SEPOLIA=0x...
+```
 
 
 ## 🏆 Built For

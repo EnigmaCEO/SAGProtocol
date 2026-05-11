@@ -1,9 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { Contract, JsonRpcProvider } from "ethers";
-import { CONTRACT_ADDRESSES } from "../../../lib/addresses";
+import { getDefaultChain } from "../../../lib/config/chains";
+import { getDeploymentByChainKey } from "../../../lib/config/deployments";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-const RPC_URL = process.env.METADATA_RPC_URL || process.env.NEXT_PUBLIC_RPC_URL || "http://127.0.0.1:8545";
+const DEFAULT_CHAIN = getDefaultChain();
+const DEFAULT_DEPLOYMENT = getDeploymentByChainKey(DEFAULT_CHAIN.key);
+const RPC_URL = process.env.METADATA_RPC_URL || DEFAULT_CHAIN.rpcUrl;
 const APP_URL = process.env.NFT_APP_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 const RECEIPT_ABI = [
@@ -126,10 +129,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const tokenId = BigInt(tokenIdInput);
   const provider = new JsonRpcProvider(RPC_URL);
 
-  const receiptAddress = (CONTRACT_ADDRESSES as any).ReceiptNFT || ZERO_ADDRESS;
-  const vaultAddress = (CONTRACT_ADDRESSES as any).Vault || ZERO_ADDRESS;
-  const treasuryAddress = (CONTRACT_ADDRESSES as any).Treasury || ZERO_ADDRESS;
-  const escrowAddress = (CONTRACT_ADDRESSES as any).InvestmentEscrow || ZERO_ADDRESS;
+  const receiptAddress = DEFAULT_DEPLOYMENT.contracts.ReceiptNFT || ZERO_ADDRESS;
+  const vaultAddress = DEFAULT_DEPLOYMENT.contracts.Vault || ZERO_ADDRESS;
+  const treasuryAddress = DEFAULT_DEPLOYMENT.contracts.Treasury || ZERO_ADDRESS;
+  const escrowAddress = DEFAULT_DEPLOYMENT.contracts.InvestmentEscrow || ZERO_ADDRESS;
 
   if (receiptAddress === ZERO_ADDRESS || vaultAddress === ZERO_ADDRESS) {
     return res.status(503).json({ error: "Protocol addresses not configured" });

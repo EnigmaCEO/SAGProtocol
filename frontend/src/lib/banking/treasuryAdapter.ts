@@ -2,7 +2,7 @@ import { ethers } from 'ethers';
 
 import { CONTRACT_ADDRESSES } from '../addresses';
 import TreasuryAbi from '../abis/Treasury.json';
-import { RPC_URL } from '../network';
+import { getActiveRpcUrl } from '../network';
 import type { TermPositionRow } from './repository';
 
 const BANK_ORIGIN_TYPE = 2;
@@ -40,12 +40,12 @@ function treasuryMode(): 'onchain' | 'simulated' {
 function writer() {
   const pk = env('BANKING_TREASURY_PRIVATE_KEY') || env('BANKING_OPERATOR_PRIVATE_KEY') || env('PRIVATE_KEY');
   if (!pk) throw new Error('BANKING_TREASURY_PRIVATE_KEY or operator key is required.');
-  const provider = new ethers.JsonRpcProvider(env('BANKING_RPC_URL') || RPC_URL);
+  const provider = new ethers.JsonRpcProvider(env('BANKING_RPC_URL') || getActiveRpcUrl());
   return new ethers.Contract(treasuryAddress(), normalizeAbi(TreasuryAbi), new ethers.Wallet(pk, provider));
 }
 
 function reader() {
-  const provider = new ethers.JsonRpcProvider(env('BANKING_RPC_URL') || RPC_URL);
+  const provider = new ethers.JsonRpcProvider(env('BANKING_RPC_URL') || getActiveRpcUrl());
   return new ethers.Contract(treasuryAddress(), normalizeAbi(TreasuryAbi), provider);
 }
 

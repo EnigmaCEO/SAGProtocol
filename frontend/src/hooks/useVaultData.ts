@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { ethers } from "ethers";
 import { getContracts, getSigner, bpsToPct } from "../lib/ethers";
 import * as addresses from "../lib/addresses";
+import { getActiveChainConfig } from "../lib/network";
 
 export interface VaultState {
   userAddress: string;
@@ -54,7 +55,8 @@ export function useVaultData() {
       }
 
       const network = await provider.getNetwork();
-      const expectedChainId = 1337; // localhost/hardhat
+      const expectedChain = getActiveChainConfig();
+      const expectedChainId = expectedChain.chainId;
       
       console.warn("Connected to network:", {
         chainId: network.chainId.toString(),
@@ -64,7 +66,7 @@ export function useVaultData() {
 
       if (Number(network.chainId) !== expectedChainId) {
         console.warn(`⚠️ Wrong network! Connected to chain ${network.chainId} (${network.name}) but contracts are deployed to localhost (chain ${expectedChainId}). Please switch your wallet to localhost.`);
-        setError(`Wrong network: Connected to ${network.name}. Please switch to localhost.`);
+        setError(`Wrong network: Connected to ${network.name}. Please switch to ${expectedChain.name}.`);
         setLoading(false);
         return;
       }
