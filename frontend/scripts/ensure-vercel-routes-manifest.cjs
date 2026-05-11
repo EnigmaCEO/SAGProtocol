@@ -3,6 +3,8 @@ const path = require('node:path');
 
 const nextDir = path.join(__dirname, '..', '.next');
 const repoRootNextDir = path.join(__dirname, '..', '..', '.next');
+const frontendNextPackageDir = path.join(__dirname, '..', 'node_modules', 'next');
+const repoRootNextPackageDir = path.join(__dirname, '..', '..', 'node_modules', 'next');
 const routesManifest = path.join(nextDir, 'routes-manifest.json');
 
 function copyFileIfExists(source, target) {
@@ -30,6 +32,30 @@ function mirrorFiles(sourceDir, targetDir) {
   return copied;
 }
 
+function ensureRootNextPackage() {
+  if (!fs.existsSync(frontendNextPackageDir)) {
+    console.warn('[postbuild] frontend/node_modules/next not found; skipping root Next package compatibility link.');
+    return;
+  }
+
+  if (!fs.existsSync(repoRootNextPackageDir)) {
+    fs.mkdirSync(path.dirname(repoRootNextPackageDir), { recursive: true });
+    try {
+      fs.symlinkSync(frontendNextPackageDir, repoRootNextPackageDir, process.platform === 'win32' ? 'junction' : 'dir');
+      console.log('[postbuild] Linked ../node_modules/next to frontend/node_modules/next for Vercel Git Integration finalization.');
+      return;
+    } catch (error) {
+      console.warn(`[postbuild] Could not link root Next package; falling back to targeted file copy: ${error.message}`);
+    }
+  }
+
+  const adapterSource = path.join(frontendNextPackageDir, 'dist', 'build', 'adapter', 'setup-node-env.external.js');
+  const adapterTarget = path.join(repoRootNextPackageDir, 'dist', 'build', 'adapter', 'setup-node-env.external.js');
+  if (copyFileIfExists(adapterSource, adapterTarget)) {
+    console.log('[postbuild] Wrote ../node_modules/next/dist/build/adapter/setup-node-env.external.js for Vercel Git Integration finalization.');
+  }
+}
+
 if (!fs.existsSync(routesManifest)) {
   console.warn('[postbuild] .next/routes-manifest.json not found; skipping deterministic manifest copy.');
   process.exit(0);
@@ -45,3 +71,5 @@ copyFileIfExists(routesManifest, path.join(repoRootNextDir, 'routes-manifest-det
 console.log(
   `[postbuild] Mirrored ${copiedRootFiles} root manifest files and ${copiedServerFiles} server manifest files to ../.next for Vercel Git Integration finalization.`
 );
+
+ensureRootNextPackage();
