@@ -6,8 +6,8 @@ import type { BankingDashboardState, BankingDepositRequest } from '../lib/bankin
 const BANKING_STORAGE_KEY = 'sagitta:banking-state';
 const PUBLIC_BANKING_API_URL = process.env.NEXT_PUBLIC_BANKING_API_URL?.replace(/\/$/, '');
 const BANKING_API_PREFIXES = [
-  ...(PUBLIC_BANKING_API_URL ? [`${PUBLIC_BANKING_API_URL}/banking`] : []),
   '/api/banking',
+  ...(PUBLIC_BANKING_API_URL ? [`${PUBLIC_BANKING_API_URL}/banking`] : []),
   '/banking',
 ];
 

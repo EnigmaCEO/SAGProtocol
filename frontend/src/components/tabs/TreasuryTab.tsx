@@ -37,13 +37,9 @@ const ORIGIN_LOT_STATUS: Record<number, string> = {
   3: 'Settled',
   4: 'Cancelled',
 };
-const PUBLIC_BANKING_API_URL = process.env.NEXT_PUBLIC_BANKING_API_URL?.replace(/\/$/, '');
-
 function bankingUrl(path: string) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  return PUBLIC_BANKING_API_URL
-    ? `${PUBLIC_BANKING_API_URL}/banking${normalizedPath}`
-    : `/api/banking${normalizedPath}`;
+  return `/api/banking${normalizedPath}`;
 }
 
 const TREASURY_ENGINE_EVENTS = [
