@@ -37,6 +37,14 @@ const ORIGIN_LOT_STATUS: Record<number, string> = {
   3: 'Settled',
   4: 'Cancelled',
 };
+const PUBLIC_BANKING_API_URL = process.env.NEXT_PUBLIC_BANKING_API_URL?.replace(/\/$/, '');
+
+function bankingUrl(path: string) {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return PUBLIC_BANKING_API_URL
+    ? `${PUBLIC_BANKING_API_URL}/banking${normalizedPath}`
+    : `/api/banking${normalizedPath}`;
+}
 
 const TREASURY_ENGINE_EVENTS = [
   'CollateralizeAttempt',
@@ -648,7 +656,7 @@ export default function TreasuryTab() {
     setBankLotsLoading(true);
     setBankLotsError(null);
     try {
-      const res = await fetch('/api/banking/state');
+      const res = await fetch(bankingUrl('/state'));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const positions = (data.termPositions ?? data.state?.termPositions ?? []) as Array<any>;
@@ -707,7 +715,7 @@ export default function TreasuryTab() {
     try {
       const [idsRaw, ordersRes] = await Promise.allSettled([
         (treasury as any).getOriginLotsByType(ORIGIN_TYPE_VAULT),
-        fetch('/api/banking/escrow/execution-orders'),
+        fetch(bankingUrl('/escrow/execution-orders')),
       ]);
 
       // Collect settled batch IDs from escrow execution orders (for simulated Treasury mode
@@ -780,7 +788,7 @@ export default function TreasuryTab() {
       pushEngineLog(`[TreasuryHandoff:Vault] batch=${batchIdStr} lots=${eligibleLots.map(l => l.id).join(',')}`);
 
       // Register the on-chain batch with the banking tracker (fire-and-forget — non-blocking)
-      fetch('/api/banking/treasury/vault-batches/register', {
+      fetch(bankingUrl('/treasury/vault-batches/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -808,7 +816,7 @@ export default function TreasuryTab() {
     setBankBatchLoading(true);
     setBankBatchStatus(null);
     try {
-      const res = await fetch('/api/banking/treasury/batches', {
+      const res = await fetch(bankingUrl('/treasury/batches'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chainKey: selectedChain.key, chainId: selectedChain.chainId }),

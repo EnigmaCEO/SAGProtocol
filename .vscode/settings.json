@@ -1,0 +1,14 @@
+{
+    "typescript.preferences.includePackageJsonAutoImports": "off",
+    "typescript.suggest.autoImports": false,
+    "python.analysis.memory.keepLibraryAst": false,
+    "files.watcherExclude": {
+      "**/node_modules/**": true,
+      "**/.git/**": true,
+      "**/dist/**": true,
+      "**/build/**": true,
+      "**/cache/**": true,
+      "**/artifacts/**": true
+    }
+  }
+  
