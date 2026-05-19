@@ -114,18 +114,23 @@ export default function BankingTab() {
     () => (state ? state.termPositions.filter((position) => position.status !== 'not_funded') : []),
     [state]
   );
+  const openTerms = useMemo(
+    () => activeTerms.filter((position) => position.status !== 'matured' && !position.returnedAmountUsd),
+    [activeTerms]
+  );
   const activeTermCount = activeTerms.length;
+  const openTermCount = openTerms.length;
   const latestIncomingWire = useMemo(
     () => state?.capitalAccount.transactions.find((transaction) => transaction.category === 'credit') ?? null,
     [state]
   );
   const nextMaturingTerm = useMemo(
     () =>
-      activeTerms
+      openTerms
         .slice()
         .sort((left, right) => new Date(left.maturityDate).getTime() - new Date(right.maturityDate).getTime())[0] ??
       null,
-    [activeTerms]
+    [openTerms]
   );
 
   const parsedAmount = Number(amount);
@@ -146,20 +151,29 @@ export default function BankingTab() {
       return { status: account.statusText };
     }
 
-    if (account.kind === 'term-deposit' && nextMaturingTerm) {
-      const awaitingTreasuryCount = activeTerms.filter((position) => !position.treasuryOriginLotId).length;
-      if (awaitingTreasuryCount === activeTermCount) {
-        const totalPrincipalUsd = activeTerms.reduce((sum, position) => sum + position.principalUsd, 0);
+    if (account.kind === 'term-deposit') {
+      const returnedTotalUsd = activeTerms.reduce((sum, position) => sum + (position.returnedAmountUsd || 0), 0);
+      if (activeTermCount > 0 && openTermCount === 0) {
+        return {
+          status: 'Closed, returned to Checking',
+          detail: returnedTotalUsd > 0 ? `${formatUsd(returnedTotalUsd)} returned` : 'Term deposit completed',
+        };
+      }
+      if (!nextMaturingTerm) return { status: account.statusText };
+
+      const awaitingTreasuryCount = openTerms.filter((position) => !position.treasuryOriginLotId).length;
+      if (awaitingTreasuryCount === openTermCount) {
+        const totalPrincipalUsd = openTerms.reduce((sum, position) => sum + position.principalUsd, 0);
         return {
           status: 'Funded, awaiting Treasury allocation',
           detail: `${formatUsd(totalPrincipalUsd)} funded in product account`,
         };
       }
 
-      if (activeTermCount > 1) {
-        const totalPrincipalUsd = activeTerms.reduce((sum, position) => sum + position.principalUsd, 0);
+      if (openTermCount > 1) {
+        const totalPrincipalUsd = openTerms.reduce((sum, position) => sum + position.principalUsd, 0);
         return {
-          status: `${activeTermCount} active positions`,
+          status: `${openTermCount} active positions`,
           detail: `Next maturity ${formatShortDate(nextMaturingTerm.maturityDate)} - ${formatUsd(totalPrincipalUsd)} total`,
         };
       }
@@ -429,6 +443,9 @@ export default function BankingTab() {
               <div className="banking-account-list">
                 {state.accounts.map((account) => {
                   const accountDetail = getAccountDetail(account);
+                  const displayBalance = account.kind === 'term-deposit'
+                    ? openTerms.reduce((sum, position) => sum + position.principalUsd, 0)
+                    : account.currentBalanceUsd;
 
                   return (
                     <div key={account.id} className="banking-account-row">
@@ -447,7 +464,7 @@ export default function BankingTab() {
                         ) : null}
                       </div>
 
-                      <div className="banking-account-row__balance">{formatUsd(account.currentBalanceUsd)}</div>
+                      <div className="banking-account-row__balance">{formatUsd(displayBalance)}</div>
 
                       <div className="banking-account-row__action">
                         {account.kind === 'term-deposit' ? (

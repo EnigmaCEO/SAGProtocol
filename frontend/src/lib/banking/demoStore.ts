@@ -51,7 +51,7 @@ function nextTransactionId(prefix: string): string {
 }
 
 function rateLabelForTerm(termYears: number): string {
-  return `${(4.15 + termYears * 0.22).toFixed(2)}% fixed`;
+  return `${(4.15 + termYears * 0.22).toFixed(2)}% variable interest`;
 }
 
 function buildAccounts(checkingBalanceUsd: number, termBalanceUsd: number): BankingAccountSummary[] {
