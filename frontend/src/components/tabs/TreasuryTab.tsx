@@ -695,9 +695,32 @@ export default function TreasuryTab() {
       const res = await fetch(bankingUrl('/state'));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      const treasuryLots = (data.treasuryLots ?? data.state?.treasuryLots ?? []) as Array<any>;
       const positions = (data.termPositions ?? data.state?.termPositions ?? []) as Array<any>;
-      setBankLots(
-        positions
+      const sourceLots = treasuryLots.length > 0
+        ? treasuryLots.map((lot: any) => ({
+            id: lot.termPositionId ?? lot.id,
+            treasuryOriginLotId: lot.treasuryOriginLotId,
+            principalUsd: lot.principalUsd ?? 0,
+            maturityDate: lot.maturityDate ?? lot.expirationDate,
+            liabilityUnlockAt: lot.liabilityUnlockAt,
+            treasuryBatchId: lot.treasuryBatchId,
+            protocolStatus: lot.protocolStatus ?? lot.status,
+            durationClass: lot.durationClass,
+            policyProfileId: lot.policyProfileId,
+            policyVersion: lot.policyVersion,
+            originInstitutionId: lot.originInstitutionId,
+            strategyClass: lot.strategyClass,
+            escrowExecutionOrderId: lot.escrowExecutionOrderId,
+            entryDate: lot.entryDate ?? lot.createdAt,
+            expirationDate: lot.expirationDate ?? lot.maturityDate,
+            treasuryBatchExpectedReturnAt: lot.treasuryBatchExpectedReturnAt,
+            treasuryBatchSettlementDeadlineAt: lot.treasuryBatchSettlementDeadlineAt,
+            treasuryLotTxHash: lot.treasuryLotTxHash ?? lot.metadata?.treasuryLotTxHash,
+            treasuryBatchTxHash: lot.treasuryBatchTxHash ?? lot.metadata?.treasuryBatchTxHash,
+            circleTransferTxHash: lot.circleTransferTxHash ?? lot.metadata?.circleTransferTxHash,
+          }))
+        : positions
           .filter((p: any) => p.treasuryOriginLotId && p.status !== 'not_funded')
           .map((p: any) => ({
             id: p.id,
@@ -713,8 +736,15 @@ export default function TreasuryTab() {
             originInstitutionId: p.originInstitutionId,
             strategyClass: p.strategyClass,
             escrowExecutionOrderId: p.escrowExecutionOrderId,
-          }))
-      );
+            entryDate: p.entryDate ?? p.openedAt ?? p.createdAt,
+            expirationDate: p.expirationDate ?? p.maturityDate,
+            treasuryBatchExpectedReturnAt: p.treasuryBatchExpectedReturnAt,
+            treasuryBatchSettlementDeadlineAt: p.treasuryBatchSettlementDeadlineAt,
+            treasuryLotTxHash: p.treasuryLotTxHash ?? p.metadata?.treasuryLotTxHash,
+            treasuryBatchTxHash: p.treasuryBatchTxHash ?? p.metadata?.treasuryBatchTxHash,
+            circleTransferTxHash: p.circleTransferTxHash ?? p.metadata?.circleTransferTxHash,
+          }));
+      setBankLots(sourceLots.filter((lot: any) => lot.treasuryOriginLotId));
     } catch (e: any) {
       setBankLotsError(String(e?.message || e));
     } finally {
