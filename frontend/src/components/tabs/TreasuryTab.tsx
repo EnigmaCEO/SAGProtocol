@@ -203,6 +203,27 @@ export default function TreasuryTab() {
   const [vaultLotsLoading, setVaultLotsLoading] = useState(false);
   const [vaultLotsError, setVaultLotsError] = useState<string | null>(null);
   const [settledVaultBatchIds, setSettledVaultBatchIds] = useState<Set<string>>(new Set());
+
+  function txExplorerUrl(hash?: string | null): string | null {
+    if (!hash || !selectedChain.explorerUrl) return null;
+    return `${selectedChain.explorerUrl.replace(/\/$/, '')}/tx/${hash}`;
+  }
+
+  function renderTxHash(hash?: string | null) {
+    const href = txExplorerUrl(hash);
+    if (!href) return <span>{formatHashShort(hash)}</span>;
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className="text-amber-200 hover:text-amber-100 underline decoration-amber-400/40 underline-offset-2"
+        title={hash || undefined}
+      >
+        {formatHashShort(hash)}
+      </a>
+    );
+  }
   const [vaultBatchLoading, setVaultBatchLoading] = useState(false);
   const [vaultBatchStatus, setVaultBatchStatus] = useState<string | null>(null);
   const [vaultBatchTone, setVaultBatchTone] = useState<'success' | 'warning' | 'danger'>('success');
@@ -1232,11 +1253,11 @@ export default function TreasuryTab() {
                         {lot.treasuryBatchSettlementDeadlineAt ? ` | settlement ${formatDateTime(lot.treasuryBatchSettlementDeadlineAt)}` : ''}
                       </div>
                       <div className="text-[11px] text-slate-500 mt-1 break-all">
-                        Circle tx {formatHashShort(lot.circleTransferTxHash)}
+                        Circle tx {renderTxHash(lot.circleTransferTxHash)}
                         {' | lot tx '}
-                        {formatHashShort(lot.treasuryLotTxHash)}
+                        {renderTxHash(lot.treasuryLotTxHash)}
                         {' | batch tx '}
-                        {formatHashShort(lot.treasuryBatchTxHash)}
+                        {renderTxHash(lot.treasuryBatchTxHash)}
                       </div>
                     </span>
                     <span
