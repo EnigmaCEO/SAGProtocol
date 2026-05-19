@@ -84,6 +84,9 @@ type BackendExecutionOrder = {
   eligibleRouteTypes: string[];
   treasuryBatchTxHash?: string;
   authorizationTxHash?: string;
+  settlementTxHash?: string;
+  treasurySettlementTxHash?: string;
+  bankReturnTxHash?: string;
   executionContextHash?: string;
   policyContextHash?: string;
   allocationPlanHash?: string;
@@ -2046,6 +2049,19 @@ export default function EscrowTab() {
                         {' | context '}
                         {formatHashShort(order.executionContextHash || order.metadata?.executionContextHash)}
                       </div>
+                      {(order.settlementTxHash || order.metadata?.settlement?.onchainSettlement?.txHash || order.treasurySettlementTxHash || order.metadata?.settlement?.treasuryNotification?.txHash || order.bankReturnTxHash) && (
+                        <div className="text-[11px] text-slate-500 mt-1 break-all">
+                          settle tx {renderTxHash(order.settlementTxHash || order.metadata?.settlement?.onchainSettlement?.txHash)}
+                          {' | Treasury settled tx '}
+                          {renderTxHash(order.treasurySettlementTxHash || order.metadata?.settlement?.treasuryNotification?.txHash)}
+                          {order.bankReturnTxHash || order.metadata?.settlement?.postSettlementAction?.transfers?.[0]?.result?.data?.transactionHash ? (
+                            <>
+                              {' | bank return tx '}
+                              {renderTxHash(order.bankReturnTxHash || order.metadata?.settlement?.postSettlementAction?.transfers?.[0]?.result?.data?.transactionHash)}
+                            </>
+                          ) : null}
+                        </div>
+                      )}
                       {legs.length > 0 && (
                         <div className="text-[11px] text-slate-500 mt-1 break-all">
                           Positions: {legs.map((leg, index) => {
@@ -2238,6 +2254,18 @@ export default function EscrowTab() {
                             Treasury tx {renderTxHash(order.treasuryBatchTxHash || order.metadata?.treasuryBatchTxHash)}
                             {' | auth tx '}
                             {renderTxHash(order.authorizationTxHash || order.metadata?.onchainAuthorization?.txHash)}
+                            {(order.settlementTxHash || order.metadata?.settlement?.onchainSettlement?.txHash) ? (
+                              <>
+                                {' | settle tx '}
+                                {renderTxHash(order.settlementTxHash || order.metadata?.settlement?.onchainSettlement?.txHash)}
+                              </>
+                            ) : null}
+                            {(order.treasurySettlementTxHash || order.metadata?.settlement?.treasuryNotification?.txHash) ? (
+                              <>
+                                {' | Treasury settled tx '}
+                                {renderTxHash(order.treasurySettlementTxHash || order.metadata?.settlement?.treasuryNotification?.txHash)}
+                              </>
+                            ) : null}
                           </div>
                         </div>
                         <div className="text-xs text-slate-300 whitespace-nowrap">

@@ -108,6 +108,9 @@ export interface EscrowExecutionOrder {
   assignedVenue?: string;
   treasuryBatchTxHash?: string;
   authorizationTxHash?: string;
+  settlementTxHash?: string;
+  treasurySettlementTxHash?: string;
+  bankReturnTxHash?: string;
   executionContextHash?: string;
   policyContextHash?: string;
   allocationPlanHash?: string;
