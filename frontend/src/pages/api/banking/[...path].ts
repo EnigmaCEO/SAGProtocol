@@ -29,7 +29,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const init: RequestInit = { method: req.method };
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     init.headers = { 'Content-Type': 'application/json' };
-    init.body = JSON.stringify(req.body);
+    const body = req.body;
+    init.body = typeof body === 'string'
+      ? body.trim() && body.trim() !== '""' ? body : '{}'
+      : JSON.stringify(body ?? {});
   }
 
   try {

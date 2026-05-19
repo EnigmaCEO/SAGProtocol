@@ -660,7 +660,11 @@ export default function EscrowTab() {
   async function runBackendAutomation() {
     setAutomationRunning(true);
     try {
-      const response = await fetch(`/api/banking/escrow/run-automation?chainKey=${encodeURIComponent(selectedChain.key)}`, { method: 'POST' });
+      const response = await fetch(`/api/banking/escrow/run-automation?chainKey=${encodeURIComponent(selectedChain.key)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
       const payload = await readJsonResponse(response);
       if (!response.ok) throw new Error(payload?.error || `automation HTTP ${response.status}`);
       setLog(l => [`[escrow worker] ${JSON.stringify(payload?.data ?? payload)}`, ...l]);
@@ -679,7 +683,11 @@ export default function EscrowTab() {
       const path = stage === 'returned'
         ? `/api/banking/escrow/execution-orders/${selectedAllocationOrder.batchId}/advance-return`
         : `/api/banking/escrow/execution-orders/${selectedAllocationOrder.batchId}/advance-settlement`;
-      const response = await fetch(`${path}?chainKey=${encodeURIComponent(selectedChain.key)}`, { method: 'POST' });
+      const response = await fetch(`${path}?chainKey=${encodeURIComponent(selectedChain.key)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
       const payload = await readJsonResponse(response);
       if (!response.ok) throw new Error(payload?.error || `advance ${stage} HTTP ${response.status}`);
       setLog((items) => [`[escrow ${stage}] batch ${selectedAllocationOrder.batchId}`, ...items]);
