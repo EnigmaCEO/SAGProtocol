@@ -37,6 +37,17 @@ function formatDateTime(value: string): string {
   return dateTimeFormatter.format(new Date(value));
 }
 
+function protocolDisplayStatus(position: BankingDashboardState['termPositions'][number]): string {
+  if (position.protocolStatus === 'settled') return 'completed';
+  return String(position.protocolStatus || position.protocolSyncStatus || 'pending').replaceAll('_', ' ');
+}
+
+function bankReturnDisplayStatus(position: BankingDashboardState['termPositions'][number]): string {
+  if (position.bankReturnStatus) return position.bankReturnStatus.replaceAll('_', ' ');
+  if (position.protocolStatus === 'settled') return 'recorded';
+  return 'pending';
+}
+
 function formatPayload(payload: unknown): string {
   return JSON.stringify(payload, null, 2);
 }
@@ -174,6 +185,9 @@ export function BankingTermDepositsView({
                     <div className="banking-detail-row__meta">
                       Product status {position.status.replaceAll('_', ' ')} | Matures {formatDateTime(position.maturityDate)}
                     </div>
+                    <div className="banking-detail-row__meta">
+                      Protocol status {protocolDisplayStatus(position)} | Bank return {bankReturnDisplayStatus(position)}
+                    </div>
                     <div className="banking-chip-row" style={{ marginTop: '0.55rem' }}>
                       <span className="banking-chip">
                         {position.treasuryOriginLotId
@@ -192,6 +206,12 @@ export function BankingTermDepositsView({
                       )}
                       <span className="banking-chip">{position.durationClass || `${position.termYears}Y`}</span>
                       <span className="banking-chip">{position.policyProfileId || 'bank policy'} v{position.policyVersion || 1}</span>
+                      {position.returnedAmountUsd ? (
+                        <span className="banking-chip">Returned {formatUsd(position.returnedAmountUsd)}</span>
+                      ) : null}
+                      {position.bankReturnAttempted ? (
+                        <span className="banking-chip">Bank return {position.bankReturnSucceeded || 0}/{position.bankReturnAttempted}</span>
+                      ) : null}
                     </div>
                     {position.treasuryBatchExpectedReturnAt || position.treasuryBatchSettlementDeadlineAt || position.protocolSyncError ? (
                       <div className="banking-detail-row__meta" style={{ marginTop: '0.45rem' }}>
@@ -206,10 +226,22 @@ export function BankingTermDepositsView({
                             : 'Settlement status pending'}
                       </div>
                     ) : null}
+                    {position.returnedAmountUsd || position.treasurySettlementStatus || position.bankReturnTxHash ? (
+                      <div className="banking-detail-row__meta" style={{ marginTop: '0.45rem' }}>
+                        {position.returnedAmountUsd
+                          ? `Settled amount ${formatUsd(position.returnedAmountUsd)}`
+                          : 'Settled amount pending'}
+                        {position.treasurySettlementStatus ? ` | ${position.treasurySettlementStatus}` : ''}
+                        {position.bankReturnTxHash ? ` | Bank return tx ${position.bankReturnTxHash.slice(0, 10)}...${position.bankReturnTxHash.slice(-8)}` : ''}
+                      </div>
+                    ) : null}
                   </div>
                   <div className="banking-detail-row__value-group">
-                    <div className="banking-detail-row__value">{formatUsd(position.principalUsd)}</div>
+                    <div className="banking-detail-row__value">{formatUsd(position.returnedAmountUsd || position.principalUsd)}</div>
                     <div className="banking-detail-row__meta">{position.rateLabel}</div>
+                    {position.returnedAmountUsd ? (
+                      <div className="banking-detail-row__meta">settled amount</div>
+                    ) : null}
                     {!position.treasuryOriginLotId && onRetryCircleFunding ? (
                       <Button
                         className="banking-primary-btn"

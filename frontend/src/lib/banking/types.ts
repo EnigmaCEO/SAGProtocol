@@ -66,6 +66,12 @@ export interface TreasuryLotSnapshot {
   treasuryBatchId?: string;
   treasuryBatchExpectedReturnAt?: string;
   treasuryBatchSettlementDeadlineAt?: string;
+  treasurySettlementStatus?: string;
+  returnedAmountUsd?: number;
+  bankReturnStatus?: string;
+  bankReturnAttempted?: number;
+  bankReturnSucceeded?: number;
+  bankReturnTxHash?: string;
   treasuryLotTxHash?: string;
   treasuryBatchTxHash?: string;
   circleTransferTxHash?: string;
@@ -247,6 +253,11 @@ export interface TermPosition {
   treasuryBatchExpectedReturnAt?: string;
   treasuryBatchSettlementDeadlineAt?: string;
   treasurySettlementStatus?: string;
+  returnedAmountUsd?: number;
+  bankReturnStatus?: string;
+  bankReturnAttempted?: number;
+  bankReturnSucceeded?: number;
+  bankReturnTxHash?: string;
   treasuryLotTxHash?: string;
   treasuryBatchTxHash?: string;
   originInstitutionId?: string;

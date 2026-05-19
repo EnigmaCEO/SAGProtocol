@@ -185,6 +185,8 @@ export default function TreasuryTab() {
     treasuryLotTxHash?: string;
     treasuryBatchTxHash?: string;
     circleTransferTxHash?: string;
+    treasurySettlementStatus?: string;
+    returnedAmountUsd?: number;
   }>>([]);
   const [bankLotsLoading, setBankLotsLoading] = useState(false);
   const [bankLotsError, setBankLotsError] = useState<string | null>(null);
@@ -697,8 +699,14 @@ export default function TreasuryTab() {
       const data = await res.json();
       const treasuryLots = (data.treasuryLots ?? data.state?.treasuryLots ?? []) as Array<any>;
       const positions = (data.termPositions ?? data.state?.termPositions ?? []) as Array<any>;
+      const escrowOrders = (data.escrowExecutionOrders ?? data.state?.escrowExecutionOrders ?? []) as Array<any>;
+      const orderByBatch = new Map(
+        escrowOrders.map((order: any) => [String(order.batchId), order])
+      );
       const sourceLots = treasuryLots.length > 0
-        ? treasuryLots.map((lot: any) => ({
+        ? treasuryLots.map((lot: any) => {
+            const order = lot.treasuryBatchId ? orderByBatch.get(String(lot.treasuryBatchId)) : null;
+            return ({
             id: lot.termPositionId ?? lot.id,
             treasuryOriginLotId: lot.treasuryOriginLotId,
             principalUsd: lot.principalUsd ?? 0,
@@ -719,10 +727,15 @@ export default function TreasuryTab() {
             treasuryLotTxHash: lot.treasuryLotTxHash ?? lot.metadata?.treasuryLotTxHash,
             treasuryBatchTxHash: lot.treasuryBatchTxHash ?? lot.metadata?.treasuryBatchTxHash,
             circleTransferTxHash: lot.circleTransferTxHash ?? lot.metadata?.circleTransferTxHash,
-          }))
+            treasurySettlementStatus: lot.treasurySettlementStatus ?? lot.metadata?.treasurySettlementStatus,
+            returnedAmountUsd: Number(order?.metadata?.settlement?.returnedAmountUsd ?? order?.metadata?.returnedAmountUsd ?? 0) || undefined,
+          });
+          })
         : positions
           .filter((p: any) => p.treasuryOriginLotId && p.status !== 'not_funded')
-          .map((p: any) => ({
+          .map((p: any) => {
+            const order = p.treasuryBatchId ? orderByBatch.get(String(p.treasuryBatchId)) : null;
+            return ({
             id: p.id,
             treasuryOriginLotId: p.treasuryOriginLotId,
             principalUsd: p.principalUsd ?? 0,
@@ -743,7 +756,10 @@ export default function TreasuryTab() {
             treasuryLotTxHash: p.treasuryLotTxHash ?? p.metadata?.treasuryLotTxHash,
             treasuryBatchTxHash: p.treasuryBatchTxHash ?? p.metadata?.treasuryBatchTxHash,
             circleTransferTxHash: p.circleTransferTxHash ?? p.metadata?.circleTransferTxHash,
-          }));
+            treasurySettlementStatus: p.treasurySettlementStatus ?? p.metadata?.treasurySettlementStatus,
+            returnedAmountUsd: Number(order?.metadata?.settlement?.returnedAmountUsd ?? order?.metadata?.returnedAmountUsd ?? 0) || undefined,
+          });
+          });
       setBankLots(sourceLots.filter((lot: any) => lot.treasuryOriginLotId));
     } catch (e: any) {
       setBankLotsError(String(e?.message || e));
@@ -1289,6 +1305,12 @@ export default function TreasuryTab() {
                         {' | batch tx '}
                         {renderTxHash(lot.treasuryBatchTxHash)}
                       </div>
+                      {(lot.returnedAmountUsd || lot.treasurySettlementStatus) && (
+                        <div className="text-[11px] text-slate-400 mt-1">
+                          {lot.returnedAmountUsd ? `settled amount ${formatUsd(lot.returnedAmountUsd * 1_000_000)}` : 'settlement recorded'}
+                          {lot.treasurySettlementStatus ? ` | ${lot.treasurySettlementStatus}` : ''}
+                        </div>
+                      )}
                     </span>
                     <span
                       className="panel-row__value"

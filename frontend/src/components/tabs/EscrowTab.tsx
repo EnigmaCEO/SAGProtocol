@@ -230,7 +230,7 @@ export default function EscrowTab() {
   const [backendAllocationPlans, setBackendAllocationPlans] = useState<BackendAllocationPlan[]>([]);
   const [backendQueueError, setBackendQueueError] = useState<string | null>(null);
   const [automationRunning, setAutomationRunning] = useState(false);
-  const [manualStageAction, setManualStageAction] = useState<'returned' | 'settled' | null>(null);
+  const [manualStageAction, setManualStageAction] = useState<'returned' | 'settled' | 'bank-return' | null>(null);
 
   // Keep address states in sync whenever loadGeneratedRuntimeAddresses() or setRuntimeAddress() fires.
   useEffect(() => {
@@ -691,6 +691,27 @@ export default function EscrowTab() {
       const payload = await readJsonResponse(response);
       if (!response.ok) throw new Error(payload?.error || `advance ${stage} HTTP ${response.status}`);
       setLog((items) => [`[escrow ${stage}] batch ${selectedAllocationOrder.batchId}`, ...items]);
+      await Promise.allSettled([refreshBackendExecutionQueue(), refreshBatchSummary(), refresh()]);
+    } catch (e: any) {
+      setBackendQueueError(String(e?.message || e));
+    } finally {
+      setManualStageAction(null);
+    }
+  }
+
+  async function manuallyReturnSelectedBatchToBank() {
+    if (!selectedAllocationOrder?.batchId) return;
+    setManualStageAction('bank-return');
+    try {
+      const response = await fetch(`/api/banking/escrow/execution-orders/${selectedAllocationOrder.batchId}/return-to-bank?chainKey=${encodeURIComponent(selectedChain.key)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const payload = await readJsonResponse(response);
+      if (!response.ok) throw new Error(payload?.error || `return-to-bank HTTP ${response.status}`);
+      const returnedAmount = Number(payload?.data?.returnedAmountUsd || 0);
+      setLog((items) => [`[bank return] batch ${selectedAllocationOrder.batchId} ${formatUsd6Value(returnedAmount * 1_000_000)}`, ...items]);
       await Promise.allSettled([refreshBackendExecutionQueue(), refreshBatchSummary(), refresh()]);
     } catch (e: any) {
       setBackendQueueError(String(e?.message || e));
@@ -1531,6 +1552,34 @@ export default function EscrowTab() {
     return `$${(raw / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
+  function orderReturnedAmountUsd(order: BackendExecutionOrder, legs = backendAllocationLegs) {
+    const explicit = Number(order.metadata?.settlement?.returnedAmountUsd ?? order.metadata?.returnedAmountUsd ?? 0);
+    if (Number.isFinite(explicit) && explicit > 0) return explicit;
+    return legs
+      .filter((leg) => leg.batchId === order.batchId)
+      .reduce((sum, leg) => sum + Number(leg.returnedAmountUsd || 0), 0);
+  }
+
+  function orderPrincipalAmountUsd(order: BackendExecutionOrder, legs = backendAllocationLegs) {
+    const allocated = legs
+      .filter((leg) => leg.batchId === order.batchId)
+      .reduce((sum, leg) => sum + Number(leg.principalAllocatedUsd || 0), 0);
+    return allocated || Number(order.principalReceivedUsd || 0);
+  }
+
+  function orderReturnLabel(order: BackendExecutionOrder, legs = backendAllocationLegs) {
+    const principal = orderPrincipalAmountUsd(order, legs);
+    const returned = orderReturnedAmountUsd(order, legs);
+    if (!returned) return null;
+    const pnl = returned - principal;
+    return {
+      principal,
+      returned,
+      pnl,
+      pnlPct: principal > 0 ? pnl / principal : 0,
+    };
+  }
+
   function matchBatchFilter(batchId: number, filter: string) {
     const query = filter.trim();
     if (!query) return true;
@@ -1846,6 +1895,12 @@ export default function EscrowTab() {
     (selectedAllocationOrder.executionStatus === 'returned' || selectedAllocationOrder.settlementStatus === 'return_recorded') &&
     selectedAllocationOrder.settlementStatus !== 'settled'
   );
+  const canReturnSelectedToBank = Boolean(
+    selectedAllocationOrder &&
+    String(selectedAllocationOrder.sourceType || '').toUpperCase() === 'BANK' &&
+    (selectedAllocationOrder.executionStatus === 'settled' || selectedAllocationOrder.settlementStatus === 'settled') &&
+    orderReturnedAmountUsd(selectedAllocationOrder) > 0
+  );
 
   function txExplorerUrl(hash?: string | null): string | null {
     if (!hash || !selectedChain.explorerUrl) return null;
@@ -1942,6 +1997,7 @@ export default function EscrowTab() {
                 const stage = orderStageIndex(order);
                 const eligibleCount = Number(plan?.universeSnapshot?.summary?.eligibleCandidates ?? 0);
                 const excludedCount = Number(plan?.universeSnapshot?.summary?.excludedCandidates ?? 0);
+                const returnSummary = orderReturnLabel(order, legs);
                 return (
                   <div key={order.id} className="panel-row" style={{ alignItems: 'flex-start', gap: '1rem' }}>
                     <span className="panel-row__label" style={{ minWidth: 120 }}>
@@ -1960,6 +2016,19 @@ export default function EscrowTab() {
                         {' | '}
                         {order.strategyClass}
                       </div>
+                      {returnSummary && (
+                        <div className="mt-1 text-xs text-slate-300">
+                          settled amount {formatUsd6Value(returnSummary.returned * 1_000_000)}
+                          {' | principal '}
+                          {formatUsd6Value(returnSummary.principal * 1_000_000)}
+                          {' | P/L '}
+                          <span className={returnSummary.pnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}>
+                            {returnSummary.pnl >= 0 ? '+' : ''}{formatUsd6Value(returnSummary.pnl * 1_000_000)}
+                            {' '}
+                            ({returnSummary.pnlPct >= 0 ? '+' : ''}{(returnSummary.pnlPct * 100).toFixed(2)}%)
+                          </span>
+                        </div>
+                      )}
                       <div className="text-[11px] text-slate-500 mt-1">
                         entry {formatDateTime(order.deploymentStartAt || order.createdAt)}
                         {' | target '}
@@ -1969,7 +2038,6 @@ export default function EscrowTab() {
                         {plan ? ` | AAA plan ${plan.status}` : ' | no AAA plan yet'}
                         {plan ? ` | universe ${eligibleCount} eligible / ${excludedCount} excluded` : ''}
                         {legs.length ? ` | ${legs.length} leg${legs.length === 1 ? '' : 's'}` : ' | no legs yet'}
-                        {legs.some((leg) => leg.returnedAmountUsd) ? ` | returned ${formatUsd6Value(legs.reduce((sum, leg) => sum + (leg.returnedAmountUsd || 0), 0) * 1_000_000)}` : ''}
                       </div>
                       <div className="text-[11px] text-slate-500 mt-1 break-all">
                         Treasury tx {renderTxHash(order.treasuryBatchTxHash || order.metadata?.treasuryBatchTxHash)}
@@ -2257,6 +2325,14 @@ export default function EscrowTab() {
               <div className="mt-1 text-xs text-slate-500">
                 {selectedAllocationOrder.sourceType || 'BANK'} / {selectedAllocationOrder.executionStatus.replaceAll('_', ' ')}
               </div>
+              {orderReturnLabel(selectedAllocationOrder) && (
+                <div className="mt-2 text-xs text-slate-400">
+                  Settled amount{' '}
+                  <span className="text-slate-100 font-mono">
+                    {formatUsd6Value(orderReturnedAmountUsd(selectedAllocationOrder) * 1_000_000)}
+                  </span>
+                </div>
+              )}
               <div className="mt-3 grid grid-cols-1 gap-2">
                 <button
                   className="action-button action-button--secondary w-full"
@@ -2272,9 +2348,16 @@ export default function EscrowTab() {
                 >
                   {manualStageAction === 'settled' ? 'Advancing...' : 'Advance To Settled'}
                 </button>
+                <button
+                  className="action-button action-button--secondary w-full"
+                  onClick={manuallyReturnSelectedBatchToBank}
+                  disabled={!canReturnSelectedToBank || manualStageAction !== null}
+                >
+                  {manualStageAction === 'bank-return' ? 'Returning...' : 'Return Batch To Bank'}
+                </button>
               </div>
               <div className="mt-2 text-[11px] text-slate-500">
-                Returned closes deployed legs and records returned USDC. Settled finalizes the batch and records Treasury unwind / wire readiness.
+                Returned closes deployed legs and records returned USDC. Settled finalizes the batch and records Treasury unwind / wire readiness. Return Batch To Bank retries the BANK payout step for an already settled batch.
               </div>
             </div>
           )}
