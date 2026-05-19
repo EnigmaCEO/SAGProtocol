@@ -1,8 +1,21 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+const PUBLIC_BANKING_API_URL = 'https://sag-banking-server.fly.dev';
+
+function resolveBankingApiUrl(): string {
+  const configured = (process.env.BANKING_API_URL || process.env.BANKING_PUBLIC_API_URL || '').trim().replace(/\/$/, '');
+  if (configured) {
+    const isFlyInternal = /\.internal(?::\d+)?$/i.test(configured) || /\.internal[:/]/i.test(configured);
+    if (!isFlyInternal || process.env.FLY_APP_NAME) return configured;
+  }
+
+  if (process.env.NODE_ENV === 'development') return 'http://localhost:4000';
+  return PUBLIC_BANKING_API_URL;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const segments = Array.isArray(req.query.path) ? req.query.path : [req.query.path ?? ''];
-  const baseUrl = process.env.BANKING_API_URL || 'http://localhost:4000';
+  const baseUrl = resolveBankingApiUrl();
   const url = new URL(`${baseUrl}/banking/${segments.join('/')}`);
   for (const [key, value] of Object.entries(req.query)) {
     if (key === 'path') continue;

@@ -70,6 +70,7 @@ type BackendExecutionOrder = {
   durationClass: string;
   productDuration?: string;
   executionHorizon?: string;
+  deploymentStartAt?: string;
   targetReturnAt: string;
   hardCloseAt: string;
   policyProfileId: string;
@@ -81,6 +82,12 @@ type BackendExecutionOrder = {
   executionStatus: string;
   routeStatus: string;
   eligibleRouteTypes: string[];
+  treasuryBatchTxHash?: string;
+  authorizationTxHash?: string;
+  executionContextHash?: string;
+  policyContextHash?: string;
+  allocationPlanHash?: string;
+  metadata?: Record<string, any>;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -98,6 +105,10 @@ type BackendAllocationLeg = {
   returnedAt?: string;
   returnedAmountUsd?: number;
   status: string;
+  openTxHash?: string;
+  closeTxHash?: string;
+  positionId?: string;
+  metadata?: Record<string, any>;
 };
 type BackendAllocationPlan = {
   planId: string;
@@ -1496,6 +1507,18 @@ export default function EscrowTab() {
     return `${addr.slice(0, 10)}...${addr.slice(-6)}`;
   }
 
+  function formatHashShort(value?: string | null) {
+    if (!value) return 'n/a';
+    if (value.length < 18) return value;
+    return `${value.slice(0, 10)}...${value.slice(-8)}`;
+  }
+
+  function formatDateTime(value?: string | null) {
+    if (!value) return 'n/a';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'n/a' : date.toLocaleString();
+  }
+
   function formatUsd6Value(raw: number) {
     return `$${(raw / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
@@ -1909,14 +1932,33 @@ export default function EscrowTab() {
                         {order.strategyClass}
                       </div>
                       <div className="text-[11px] text-slate-500 mt-1">
-                        target {new Date(order.targetReturnAt).toLocaleDateString()}
-                        {' | hard close '}
-                        {new Date(order.hardCloseAt).toLocaleDateString()}
+                        entry {formatDateTime(order.deploymentStartAt || order.createdAt)}
+                        {' | target '}
+                        {formatDateTime(order.targetReturnAt)}
+                        {' | expires '}
+                        {formatDateTime(order.hardCloseAt)}
                         {plan ? ` | AAA plan ${plan.status}` : ' | no AAA plan yet'}
                         {plan ? ` | universe ${eligibleCount} eligible / ${excludedCount} excluded` : ''}
                         {legs.length ? ` | ${legs.length} leg${legs.length === 1 ? '' : 's'}` : ' | no legs yet'}
                         {legs.some((leg) => leg.returnedAmountUsd) ? ` | returned ${formatUsd6Value(legs.reduce((sum, leg) => sum + (leg.returnedAmountUsd || 0), 0) * 1_000_000)}` : ''}
                       </div>
+                      <div className="text-[11px] text-slate-500 mt-1 break-all">
+                        Treasury tx {formatHashShort(order.treasuryBatchTxHash || order.metadata?.treasuryBatchTxHash)}
+                        {' | auth tx '}
+                        {formatHashShort(order.authorizationTxHash || order.metadata?.onchainAuthorization?.txHash)}
+                        {' | context '}
+                        {formatHashShort(order.executionContextHash || order.metadata?.executionContextHash)}
+                      </div>
+                      {legs.length > 0 && (
+                        <div className="text-[11px] text-slate-500 mt-1 break-all">
+                          Positions: {legs.map((leg) => {
+                            const positionId = leg.positionId || leg.metadata?.positionId || leg.metadata?.onchainPosition?.positionId || 'n/a';
+                            const openTx = leg.openTxHash || leg.metadata?.onchainPosition?.txHash;
+                            const closeTx = leg.closeTxHash || leg.metadata?.onchainClose?.txHash;
+                            return `#${positionId} open ${formatHashShort(openTx)}${closeTx ? ` close ${formatHashShort(closeTx)}` : ''}`;
+                          }).join(' | ')}
+                        </div>
+                      )}
                       {plan?.validationResult?.errors && plan.validationResult.errors.length > 0 && (
                         <div className="text-[11px] text-amber-400 mt-1">
                           {plan.validationResult.errors.join(' | ')}
@@ -2083,9 +2125,16 @@ export default function EscrowTab() {
                             {legs.length} asset leg{legs.length === 1 ? '' : 's'}
                             {' | '}
                             {fmtUsd6(totalPrincipalUsd6)}
-                            {' | target '}
-                            {new Date(order.targetReturnAt).toLocaleString()}
+                            {' | entry '}
+                            {formatDateTime(order.deploymentStartAt || order.createdAt)}
+                            {' | expires '}
+                            {formatDateTime(order.hardCloseAt)}
                             {plan ? ` | plan ${plan.status}` : ''}
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-500 break-all">
+                            Treasury tx {formatHashShort(order.treasuryBatchTxHash || order.metadata?.treasuryBatchTxHash)}
+                            {' | auth tx '}
+                            {formatHashShort(order.authorizationTxHash || order.metadata?.onchainAuthorization?.txHash)}
                           </div>
                         </div>
                         <div className="text-xs text-slate-300 whitespace-nowrap">
@@ -2103,6 +2152,7 @@ export default function EscrowTab() {
                               <th className="text-right px-3 py-2">Weight</th>
                               <th className="text-right px-3 py-2">Principal</th>
                               <th className="text-left px-3 py-2">Expected close</th>
+                              <th className="text-left px-3 py-2">Tx</th>
                               <th className="text-left px-3 py-2">Source</th>
                             </tr>
                           </thead>
@@ -2120,6 +2170,12 @@ export default function EscrowTab() {
                                 <td className="px-3 py-2 text-right font-mono">{leg.weightPct}</td>
                                 <td className="px-3 py-2 text-right">{fmtUsd6(leg.principalUsd6)}</td>
                                 <td className="px-3 py-2">{new Date(leg.expectedCloseAt).toLocaleString()}</td>
+                                <td className="px-3 py-2 font-mono">
+                                  {formatHashShort(backendAllocationLegs.find((item) =>
+                                    item.batchId === order.batchId &&
+                                    String(item.portfolio || item.routeId || item.routeType || '').toLowerCase() === leg.symbol.toLowerCase()
+                                  )?.openTxHash)}
+                                </td>
                                 <td className="px-3 py-2">
                                   <span className={`data-chip ${leg.source === 'aaa' ? '' : 'text-amber-400'}`}>
                                     {leg.source === 'aaa' ? 'AAA' : 'Local AAA Fallback'}

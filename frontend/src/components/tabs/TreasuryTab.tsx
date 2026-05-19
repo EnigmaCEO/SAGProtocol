@@ -88,6 +88,18 @@ function formatAddressShort(addr: string | null) {
   return `${addr.slice(0, 10)}...${addr.slice(-6)}`;
 }
 
+function formatHashShort(value?: string | null) {
+  if (!value) return 'n/a';
+  if (value.length < 18) return value;
+  return `${value.slice(0, 10)}...${value.slice(-8)}`;
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return 'n/a';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'n/a' : date.toLocaleString();
+}
+
 function formatChainTime(seconds: number | null): string {
   if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return 'N/A';
   return new Date(seconds * 1000).toLocaleString();
@@ -166,6 +178,13 @@ export default function TreasuryTab() {
     originInstitutionId?: string;
     strategyClass?: string;
     escrowExecutionOrderId?: string;
+    entryDate?: string;
+    expirationDate?: string;
+    treasuryBatchExpectedReturnAt?: string;
+    treasuryBatchSettlementDeadlineAt?: string;
+    treasuryLotTxHash?: string;
+    treasuryBatchTxHash?: string;
+    circleTransferTxHash?: string;
   }>>([]);
   const [bankLotsLoading, setBankLotsLoading] = useState(false);
   const [bankLotsError, setBankLotsError] = useState<string | null>(null);
@@ -1205,6 +1224,20 @@ export default function TreasuryTab() {
                       {' | '}
                       {lot.strategyClass || 'sleeve n/a'}
                       {lot.maturityDate ? ` | matures ${new Date(lot.maturityDate).toLocaleDateString()}` : ''}
+                      <div className="text-[11px] text-slate-500 mt-1">
+                        entry {formatDateTime(lot.entryDate)}
+                        {' | expires '}
+                        {formatDateTime(lot.expirationDate || lot.maturityDate)}
+                        {lot.treasuryBatchExpectedReturnAt ? ` | target ${formatDateTime(lot.treasuryBatchExpectedReturnAt)}` : ''}
+                        {lot.treasuryBatchSettlementDeadlineAt ? ` | settlement ${formatDateTime(lot.treasuryBatchSettlementDeadlineAt)}` : ''}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-1 break-all">
+                        Circle tx {formatHashShort(lot.circleTransferTxHash)}
+                        {' | lot tx '}
+                        {formatHashShort(lot.treasuryLotTxHash)}
+                        {' | batch tx '}
+                        {formatHashShort(lot.treasuryBatchTxHash)}
+                      </div>
                     </span>
                     <span
                       className="panel-row__value"

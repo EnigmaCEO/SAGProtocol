@@ -61,7 +61,17 @@ export interface TreasuryLotSnapshot {
   originType?: OriginType;
   strategyClass?: StrategyClass;
   maturityDate: string;
+  entryDate?: string;
+  expirationDate?: string;
   treasuryBatchId?: string;
+  treasuryBatchExpectedReturnAt?: string;
+  treasuryBatchSettlementDeadlineAt?: string;
+  treasuryLotTxHash?: string;
+  treasuryBatchTxHash?: string;
+  circleTransferTxHash?: string;
+  metadata?: Record<string, unknown>;
+  createdAt?: string;
+  updatedAt?: string;
   status: BankingProtocolStatus;
 }
 
@@ -90,6 +100,12 @@ export interface EscrowExecutionOrder {
   assignedPortfolio?: string;
   assignedInvestor?: string;
   assignedVenue?: string;
+  treasuryBatchTxHash?: string;
+  authorizationTxHash?: string;
+  executionContextHash?: string;
+  policyContextHash?: string;
+  allocationPlanHash?: string;
+  metadata?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -110,6 +126,10 @@ export interface EscrowAllocationLeg {
   returnedAt?: string;
   returnedAmountUsd?: number;
   status: AllocationLegStatus;
+  openTxHash?: string;
+  closeTxHash?: string;
+  positionId?: string;
+  metadata?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
