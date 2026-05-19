@@ -1926,6 +1926,19 @@ export default function EscrowTab() {
     );
   }
 
+  function renderTreasurySettlement(order: BackendExecutionOrder) {
+    const txHash = order.treasurySettlementTxHash || order.metadata?.settlement?.treasuryNotification?.txHash;
+    if (txHash) return renderTxHash(txHash);
+    const notification = order.metadata?.settlement?.treasuryNotification;
+    if (notification?.skippedReason === 'treasury_batch_already_closed') {
+      return <span>Treasury already closed</span>;
+    }
+    if (notification?.error) {
+      return <span className="text-amber-400">notification failed</span>;
+    }
+    return <span>not required</span>;
+  }
+
   return (
     <div className="tab-screen">
       <PageHeader
@@ -2049,11 +2062,11 @@ export default function EscrowTab() {
                         {' | context '}
                         {formatHashShort(order.executionContextHash || order.metadata?.executionContextHash)}
                       </div>
-                      {(order.settlementTxHash || order.metadata?.settlement?.onchainSettlement?.txHash || order.treasurySettlementTxHash || order.metadata?.settlement?.treasuryNotification?.txHash || order.bankReturnTxHash) && (
+                      {(order.settlementTxHash || order.metadata?.settlement?.onchainSettlement?.txHash || order.metadata?.settlement?.treasuryNotification || order.bankReturnTxHash) && (
                         <div className="text-[11px] text-slate-500 mt-1 break-all">
                           settle tx {renderTxHash(order.settlementTxHash || order.metadata?.settlement?.onchainSettlement?.txHash)}
-                          {' | Treasury settled tx '}
-                          {renderTxHash(order.treasurySettlementTxHash || order.metadata?.settlement?.treasuryNotification?.txHash)}
+                          {' | Treasury settlement '}
+                          {renderTreasurySettlement(order)}
                           {order.bankReturnTxHash || order.metadata?.settlement?.postSettlementAction?.transfers?.[0]?.result?.data?.transactionHash ? (
                             <>
                               {' | bank return tx '}
@@ -2108,7 +2121,7 @@ export default function EscrowTab() {
                     <span className="panel-row__value" data-tone={orderTone(order)} style={{ minWidth: 200, textAlign: 'right' }}>
                       {order.executionStatus.replaceAll('_', ' ')}
                       <div className="text-[11px] text-slate-500">
-                        AAA {order.aaaRequestStatus || 'n/a'} / deploy {order.deploymentStatus || 'n/a'} / settle {order.settlementStatus || 'n/a'}
+                        AAA {order.aaaRequestStatus || 'n/a'} / deploy {order.deploymentStatus || 'n/a'} / batch {order.settlementStatus || 'n/a'}
                       </div>
                     </span>
                   </div>
@@ -2260,10 +2273,10 @@ export default function EscrowTab() {
                                 {renderTxHash(order.settlementTxHash || order.metadata?.settlement?.onchainSettlement?.txHash)}
                               </>
                             ) : null}
-                            {(order.treasurySettlementTxHash || order.metadata?.settlement?.treasuryNotification?.txHash) ? (
+                            {order.metadata?.settlement?.treasuryNotification ? (
                               <>
-                                {' | Treasury settled tx '}
-                                {renderTxHash(order.treasurySettlementTxHash || order.metadata?.settlement?.treasuryNotification?.txHash)}
+                                {' | Treasury settlement '}
+                                {renderTreasurySettlement(order)}
                               </>
                             ) : null}
                           </div>
