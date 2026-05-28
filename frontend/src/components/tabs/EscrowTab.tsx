@@ -233,7 +233,7 @@ export default function EscrowTab() {
   const [backendAllocationPlans, setBackendAllocationPlans] = useState<BackendAllocationPlan[]>([]);
   const [backendQueueError, setBackendQueueError] = useState<string | null>(null);
   const [automationRunning, setAutomationRunning] = useState(false);
-  const [manualStageAction, setManualStageAction] = useState<'returned' | 'settled' | 'bank-return' | null>(null);
+  const [manualStageAction, setManualStageAction] = useState<'deployed' | 'returned' | 'settled' | 'bank-return' | null>(null);
 
   // Keep address states in sync whenever loadGeneratedRuntimeAddresses() or setRuntimeAddress() fires.
   useEffect(() => {
