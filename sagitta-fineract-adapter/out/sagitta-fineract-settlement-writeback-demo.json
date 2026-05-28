@@ -1,0 +1,91 @@
+{
+  "writebackRunAt": "2026-05-27T05:04:46.637Z",
+  "fineractBaseUrl": "https://localhost:8443/fineract-provider/api/v1",
+  "fineractTenantId": "default",
+  "fineractAccountId": 1,
+  "demoRunAt": "2026-05-27T03:58:02.872Z",
+  "fineractClientId": 1,
+  "fineractClientName": "SAGITTA_TEST CLIENT",
+  "clientCreated": false,
+  "fineractProductId": 2,
+  "fineractProductName": "SAGITTA_TEST_FD_PRODUCT",
+  "productCreated": false,
+  "accountCreated": false,
+  "accountStatusBeforeApproval": "active",
+  "accountStatusAfterApproval": "active",
+  "accountStatusAfterActivation": "active",
+  "reserveGate": {
+    "reserveAmountUsd": 100,
+    "fixedYieldApy": 0.06,
+    "termMonths": 12,
+    "coverageRatio": 1.25,
+    "requestedDepositAmountUsd": 1000,
+    "promisedYield": 60,
+    "requiredReserve": 75,
+    "maxSupportedDepositAmountUsd": 1333.33,
+    "approved": true
+  },
+  "sagittaTermDeposit": {
+    "externalCore": "fineract",
+    "fineractAccountId": 1,
+    "clientId": 1,
+    "productId": 2,
+    "currency": "USD",
+    "principalAmount": 1000,
+    "depositTerm": {
+      "value": 12,
+      "unit": "Months"
+    },
+    "interestRate": 6,
+    "status": "Active",
+    "submittedOnDate": "2026-05-26",
+    "approvedOnDate": "2026-05-26",
+    "activatedOnDate": "2026-05-26",
+    "maturityDate": "2027-05-26",
+    "closedOnDate": null,
+    "sagittaStatus": "active"
+  },
+  "settlementEvidence": {
+    "sagittaTermDepositId": "SAGITTA_TD_1_2026-05-27T050445443Z",
+    "fineractAccountId": 1,
+    "externalCore": "fineract",
+    "circleTransferId": "DEMO_CIRCLE_TRANSFER_00000000-0000-0000-0000-000000000000",
+    "arcTxHash": "DEMO_ARC_TX_0x0000000000000000000000000000000000000000000000000000000000000000",
+    "treasuryBatchId": "DEMO_TREASURY_BATCH_00000000",
+    "escrowExecutionOrderId": "DEMO_ESCROW_ORDER_00000000",
+    "allocationPlanHash": "DEMO_ALLOC_HASH_0000000000000000000000000000000000000000000000000000000000000000",
+    "reserveGateHash": "DEMO_RESERVE_GATE_HASH_0000000000000000000000000000000000000000000000000000000000000000",
+    "settlementStatus": "pending",
+    "evidenceVersion": "sagitta-evidence-v1",
+    "recordedAt": "2026-05-27T05:04:45.443Z",
+    "_demoOnly": true
+  },
+  "writebackResults": {
+    "externalId": {
+      "attempted": false,
+      "supported": false,
+      "reason": "PUT /fixeddepositaccounts/{id} with externalId returns HTTP 400 (empty body). Fineract does not support externalId updates on FD accounts in this build."
+    },
+    "datatable": {
+      "attempted": true,
+      "tableName": "SAGITTA_SETTLEMENT_EVIDENCE",
+      "apptable": "m_savings_account",
+      "method": "datatable",
+      "success": true,
+      "fineractResourceId": 1
+    },
+    "note": {
+      "attempted": true,
+      "entityPath": "/savings/1/notes",
+      "method": "note",
+      "success": true,
+      "fineractResourceId": 2
+    }
+  },
+  "writebackMethodUsed": "datatable",
+  "recommendedProductionApproach": "datatable (structured, queryable) + note (human audit trail)",
+  "warnings": [
+    "DEMO evidence — synthetic values only; not real settlement data",
+    "local_only writeback failed: externalId writeback is not supported on Fineract FD accounts (PUT returns 400). sagittaTermDepositId recorded in datatable and note."
+  ]
+}

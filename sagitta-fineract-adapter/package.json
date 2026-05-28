@@ -1,0 +1,35 @@
+{
+  "name": "sagitta-fineract-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Small Sagitta Banking client adapter for Apache Fineract fixed deposit accounts.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "health": "tsx src/health.ts",
+    "offices": "tsx src/offices.ts",
+    "clients": "tsx src/clients.ts",
+    "fd:products": "tsx src/fixedDepositProducts.ts",
+    "fd:accounts": "tsx src/fixedDepositAccounts.ts",
+    "smoke": "tsx src/smokeTest.ts",
+    "demo:fd-lifecycle": "cross-env CREATE_TEST_DATA=true tsx src/fdLifecycle.ts",
+    "demo:reserve-check": "tsx src/demoReserveCheck.ts",
+    "demo:reserve-onchain": "tsx src/demoReserveOnchain.ts",
+    "demo:reserve-available": "tsx src/demoReserveAvailable.ts",
+    "demo:settlement-writeback": "cross-env SAGITTA_EVIDENCE_WRITE=true SAGITTA_DEMO_EVIDENCE=true tsx src/demoSettlementWriteback.ts",
+    "demo:evidence-only": "cross-env SAGITTA_DEMO_EVIDENCE=true EVIDENCE_DEMO_MODE=evidence-only tsx src/demoSettlementWriteback.ts",
+    "clean:out": "node -e \"const fs=require('fs');if(fs.existsSync('out')){fs.rmSync('out',{recursive:true,force:true});console.log('out/ removed');}else{console.log('out/ does not exist');}\" || true"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "ethers": "^6.14.0",
+    "undici": "^8.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "cross-env": "^7.0.3",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  }
+}

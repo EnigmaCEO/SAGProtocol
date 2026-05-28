@@ -312,6 +312,10 @@ export interface BankingDepositRequest {
   settlementMode: SettlementMode;
   txHash?: string;
   note?: string;
+  /** Opaque customer reference supplied by the partner bank. Never contains PII. */
+  customerRef?: string;
+  /** Institution that owns this deposit — routes to the correct Fineract client. */
+  institutionId?: string;
 }
 
 export interface BankingWireRequest {

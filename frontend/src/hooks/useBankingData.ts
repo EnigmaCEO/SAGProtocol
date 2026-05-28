@@ -141,7 +141,77 @@ function jsonPost(body?: unknown): RequestInit {
   };
 }
 
-export default function useBankingData() {
+// ── Banking account record (localStorage) ────────────────────────────────────
+
+export const BANKING_ACCOUNT_KEY = 'sagitta:banking-account';
+
+export interface BankingAccountRecord {
+  institutionId: string;
+  customerRef: string;
+  fineractClientId: number | null;
+  savingsAccountId: number | null;
+  fineractOnboarded: boolean;
+  openedAt: string;
+}
+
+export function readBankingAccount(): BankingAccountRecord | null {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(BANKING_ACCOUNT_KEY);
+  if (!raw) return null;
+  try { return JSON.parse(raw) as BankingAccountRecord; } catch { return null; }
+}
+
+export function saveBankingAccount(record: BankingAccountRecord): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(BANKING_ACCOUNT_KEY, JSON.stringify(record));
+}
+
+export function clearBankingAccount(): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(BANKING_ACCOUNT_KEY);
+}
+
+export async function openCustomerAccount(
+  institutionId: string,
+  customerRef: string,
+  accountTypes: string[]
+): Promise<BankingAccountRecord> {
+  const response = await bankingFetch('/customers/open-account', jsonPost({ institutionId, customerRef, accountTypes }));
+  const envelope = await readJsonResponse<{ data?: BankingAccountRecord } | BankingAccountRecord>(response);
+  const record = ((envelope as any).data ?? envelope) as BankingAccountRecord;
+  saveBankingAccount(record);
+  return record;
+}
+
+// ── Institution types ─────────────────────────────────────────────────────────
+
+export interface BankInstitution {
+  institutionId: string;
+  displayName: string;
+  fineractClientId: number | null;
+  fineractSavingsAccountId: number | null;
+  fineractOnboarded: boolean;
+}
+
+/** Fetch the list of onboarded institutions from the banking server. */
+export async function fetchInstitutions(): Promise<BankInstitution[]> {
+  try {
+    const response = await bankingFetch('/institutions');
+    const payload = await readJsonResponse<{ data?: BankInstitution[]; items?: BankInstitution[] } | BankInstitution[]>(response);
+    if (Array.isArray(payload)) return payload;
+    return (payload as any).data ?? (payload as any).items ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** POST to /banking/institutions/onboard to register a new bank in Fineract. */
+export async function onboardInstitution(institutionId: string, displayName: string): Promise<BankInstitution> {
+  const response = await bankingFetch('/institutions/onboard', jsonPost({ institutionId, displayName }));
+  return readJsonResponse<BankInstitution>(response);
+}
+
+export default function useBankingData(institutionId?: string, customerRef?: string) {
   const [state, setState] = useState<BankingState | null>(() => readStoredState());
   const [loading, setLoading] = useState(!state);
   const [error, setError] = useState<string | null>(null);
@@ -152,12 +222,20 @@ export default function useBankingData() {
     persistState(normalizedState);
   }, []);
 
+  const stateUrl = (() => {
+    const params = new URLSearchParams();
+    if (institutionId) params.set('institutionId', institutionId);
+    if (customerRef) params.set('customerRef', customerRef);
+    const qs = params.toString();
+    return qs ? `/state?${qs}` : '/state';
+  })();
+
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const response = await bankingFetch('/state');
+      const response = await bankingFetch(stateUrl);
       const nextState = await readJsonResponse<BankingState>(response);
       setAndPersistState(nextState);
       return nextState;
@@ -168,7 +246,7 @@ export default function useBankingData() {
     } finally {
       setLoading(false);
     }
-  }, [setAndPersistState]);
+  }, [setAndPersistState, stateUrl]);
 
   useEffect(() => {
     refresh().catch(() => undefined);
@@ -176,13 +254,17 @@ export default function useBankingData() {
 
   const createDeposit = useCallback(
     async (request: BankingDepositRequest) => {
-      const response = await bankingFetch('/deposit', jsonPost(request));
+      const body = {
+        ...request,
+        ...(customerRef ? { customerRef } : {}),
+        ...(institutionId ? { institutionId } : {}),
+      };
+      const response = await bankingFetch('/deposit', jsonPost(body));
       const result = await readJsonResponse<BankingDepositResult>(response);
-      const nextState = result.state || result.dashboardState;
-      if (nextState) setAndPersistState(nextState);
+      await refresh();
       return result;
     },
-    [setAndPersistState]
+    [refresh, customerRef, institutionId]
   );
 
   const receiveWire = useCallback(async () => {
@@ -192,12 +274,13 @@ export default function useBankingData() {
 
   const simulateCheckingWire = useCallback(
     async (amountUsd: number) => {
-      const response = await bankingFetch('/wires/simulate', jsonPost({ amountUsd }));
-      const nextState = await readJsonResponse<BankingState>(response);
-      setAndPersistState(nextState);
-      return nextState;
+      const body: Record<string, unknown> = { amountUsd };
+      if (customerRef) body.customer_ref = customerRef;
+      if (institutionId) body.institutionId = institutionId;
+      await bankingFetch('/wires/simulate', jsonPost(body));
+      return refresh();
     },
-    [setAndPersistState]
+    [refresh, customerRef, institutionId]
   );
 
   const createTreasuryBatch = useCallback(async (request: unknown) => {
@@ -207,12 +290,19 @@ export default function useBankingData() {
 
   const retryCircleFunding = useCallback(
     async (termPositionId: string) => {
-      const response = await bankingFetch(`/term-positions/${termPositionId}/register-funding`, jsonPost());
-      const nextState = await readJsonResponse<BankingState>(response);
-      setAndPersistState(nextState);
-      return nextState;
+      await bankingFetch(`/term-positions/${termPositionId}/register-funding`, jsonPost());
+      return refresh();
     },
-    [setAndPersistState]
+    [refresh]
+  );
+
+  const reconcileFineract = useCallback(
+    async () => {
+      const body = institutionId ? { institutionId } : {};
+      await bankingFetch('/fineract/reconcile', jsonPost(body));
+      return refresh();
+    },
+    [refresh, institutionId]
   );
 
   return {
@@ -225,5 +315,6 @@ export default function useBankingData() {
     simulateCheckingWire,
     createTreasuryBatch,
     retryCircleFunding,
+    reconcileFineract,
   };
 }

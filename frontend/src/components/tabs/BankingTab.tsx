@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import useBankingData from '../../hooks/useBankingData';
+import useBankingData, {
+  fetchInstitutions,
+  onboardInstitution,
+  openCustomerAccount,
+  readBankingAccount,
+  clearBankingAccount,
+  type BankInstitution,
+  type BankingAccountRecord,
+} from '../../hooks/useBankingData';
 import type { BankingViewId } from '../../lib/banking/integrationContent';
 import type { BankingTheme } from '../../lib/banking/themes';
 import { BANKING_THEMES } from '../../lib/banking/themes';
@@ -90,7 +98,92 @@ function accountIcon(account: BankingAccountSummary) {
 }
 
 export default function BankingTab() {
-  const { state, loading, error, refresh, createDeposit, receiveWire, simulateCheckingWire, retryCircleFunding } = useBankingData();
+  // ── Account record (persisted in localStorage) ─────────────────────────────
+  const [bankingAccount, setBankingAccount] = useState<BankingAccountRecord | null>(() => readBankingAccount());
+
+  // ── Open-account flow ──────────────────────────────────────────────────────
+  const [openAccountInstitutionId, setOpenAccountInstitutionId] = useState<string>('');
+  const [openAccountTypes, setOpenAccountTypes] = useState<string[]>(['checking', 'term-deposit']);
+  const [isOpeningAccount, setIsOpeningAccount] = useState(false);
+  const [openAccountError, setOpenAccountError] = useState<string | null>(null);
+
+  const toggleOpenAccountType = (type: string) => {
+    setOpenAccountTypes((prev) =>
+      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
+    );
+  };
+
+  const handleOpenAccount = async () => {
+    if (!openAccountInstitutionId) { setOpenAccountError('Please select a bank to open your account.'); return; }
+    setIsOpeningAccount(true);
+    setOpenAccountError(null);
+    try {
+      const customerRef = `cust-${Date.now().toString(36).toUpperCase()}`;
+      const record = await openCustomerAccount(openAccountInstitutionId, customerRef, openAccountTypes);
+      setBankingAccount(record);
+      setSelectedInstitutionId(record.institutionId);
+      setCustomerRef(record.customerRef);
+      setCustomerRefInput(record.customerRef);
+    } catch (err: any) {
+      setOpenAccountError(err?.message ?? 'Failed to open account. Please try again.');
+    } finally {
+      setIsOpeningAccount(false);
+    }
+  };
+
+  // ── Institution / bank selector ────────────────────────────────────────────
+  const [institutions, setInstitutions] = useState<BankInstitution[]>([]);
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState<string | undefined>(
+    () => readBankingAccount()?.institutionId
+  );
+  const [isOnboarding, setIsOnboarding] = useState(false);
+  const [onboardName, setOnboardName] = useState('');
+  const [onboardId, setOnboardId] = useState('');
+  const [showOnboardForm, setShowOnboardForm] = useState(false);
+
+  useEffect(() => {
+    fetchInstitutions().then((list) => {
+      setInstitutions(list);
+      if (!selectedInstitutionId && list.length > 0) {
+        const onboarded = list.find((i) => i.fineractOnboarded);
+        const first = onboarded?.institutionId ?? list[0].institutionId;
+        setSelectedInstitutionId(first);
+        // Pre-select in the open-account flow if nothing chosen yet
+        if (!openAccountInstitutionId) setOpenAccountInstitutionId(first);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleOnboard = async () => {
+    if (!onboardId.trim()) return;
+    setIsOnboarding(true);
+    try {
+      const result = await onboardInstitution(onboardId.trim(), onboardName.trim() || onboardId.trim());
+      const updated = await fetchInstitutions();
+      setInstitutions(updated);
+      setSelectedInstitutionId(result.institutionId);
+      setShowOnboardForm(false);
+      setOnboardId('');
+      setOnboardName('');
+    } catch (err: any) {
+      alert(`Onboarding failed: ${err?.message ?? err}`);
+    } finally {
+      setIsOnboarding(false);
+    }
+  };
+
+  // ── Customer reference (opaque ID supplied by the bank, never PII) ──────────
+  const [customerRef, setCustomerRef] = useState(() => readBankingAccount()?.customerRef ?? 'demo-customer-001');
+  const [customerRefInput, setCustomerRefInput] = useState(() => readBankingAccount()?.customerRef ?? 'demo-customer-001');
+
+  const handleCustomerRefChange = () => {
+    const trimmed = customerRefInput.trim();
+    if (trimmed) setCustomerRef(trimmed);
+  };
+
+  // ── Banking data (filtered by selected institution + customer ref) ──────────
+  const { state, loading, error, refresh, createDeposit, receiveWire, simulateCheckingWire, retryCircleFunding } = useBankingData(selectedInstitutionId, customerRef);
   const [activeView, setActiveView] = useState<BankingViewId>(() => readBankingViewFromLocation());
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [selectedTerm, setSelectedTerm] = useState(3);
@@ -318,6 +411,126 @@ export default function BankingTab() {
     }
   };
 
+  // ── No account yet — show bank-selection onboarding ───────────────────────
+  if (!bankingAccount) {
+    return (
+      <div className="tab-screen" data-banking-theme={theme}>
+        <PageHeader
+          eyebrow="Banking"
+          title="Open a New Bank Account"
+          description="Choose your bank and account services to get started."
+        />
+        <div className="sagitta-hero" style={{ maxWidth: 680, margin: '0 auto', padding: '2rem 1rem' }}>
+
+          {/* Bank picker */}
+          <div className="sagitta-cell" style={{ marginBottom: '1rem', padding: '1.25rem 1.5rem' }}>
+            <div style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.5, marginBottom: '0.875rem' }}>
+              Choose Your Bank
+            </div>
+            {institutions.length === 0 ? (
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  placeholder="Institution ID (e.g. first-national-bank)"
+                  value={openAccountInstitutionId}
+                  onChange={(e) => setOpenAccountInstitutionId(e.target.value)}
+                  style={{ fontSize: '0.85rem', padding: '0.4rem 0.75rem', borderRadius: '6px', border: '1px solid var(--border-color, #ccc)', background: 'transparent', color: 'inherit', flex: '1 1 260px' }}
+                />
+                <span style={{ fontSize: '0.75rem', opacity: 0.5 }}>No banks onboarded yet — enter an institution ID</span>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.625rem' }}>
+                {institutions.map((inst) => {
+                  const selected = openAccountInstitutionId === inst.institutionId;
+                  return (
+                    <button
+                      key={inst.institutionId}
+                      onClick={() => setOpenAccountInstitutionId(inst.institutionId)}
+                      style={{
+                        textAlign: 'left',
+                        padding: '0.875rem 1rem',
+                        borderRadius: '8px',
+                        border: selected ? '2px solid var(--accent-color, #4f8ef7)' : '1px solid var(--border-color, rgba(128,128,128,0.25))',
+                        background: selected ? 'var(--accent-subtle, rgba(79,142,247,0.08))' : 'transparent',
+                        cursor: 'pointer',
+                        color: 'inherit',
+                        transition: 'border 0.15s, background 0.15s',
+                      }}
+                    >
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>
+                        {inst.displayName}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', opacity: 0.55 }}>
+                        {inst.fineractOnboarded ? '✓ Fineract Connected' : 'Demo Bank'}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Account types */}
+          <div className="sagitta-cell" style={{ marginBottom: '1rem', padding: '1.25rem 1.5rem' }}>
+            <div style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.5, marginBottom: '0.875rem' }}>
+              Account Services
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {[
+                { id: 'checking', label: 'Checking Account', description: 'Your primary account for wire deposits and outgoing transfers' },
+                { id: 'term-deposit', label: 'Term Deposit', description: 'Lock in competitive fixed rates for 1–5 years' },
+              ].map((acct) => {
+                const checked = openAccountTypes.includes(acct.id);
+                return (
+                  <label
+                    key={acct.id}
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', cursor: 'pointer' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleOpenAccountType(acct.id)}
+                      style={{ marginTop: '2px', accentColor: 'var(--accent-color, #4f8ef7)', width: 15, height: 15, cursor: 'pointer', flexShrink: 0 }}
+                    />
+                    <div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{acct.label}</div>
+                      <div style={{ fontSize: '0.75rem', opacity: 0.55, marginTop: '1px' }}>{acct.description}</div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Error */}
+          {openAccountError && (
+            <div className="sagitta-cell status-banner status-banner--danger" style={{ marginBottom: '1rem' }}>
+              {openAccountError}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.75rem', opacity: 0.45 }}>
+              {institutions.length > 0 && openAccountInstitutionId
+                ? `Opening at ${institutions.find((i) => i.institutionId === openAccountInstitutionId)?.displayName ?? openAccountInstitutionId}`
+                : 'Select a bank above'}
+            </span>
+            <Button
+              variant="primary"
+              className="banking-primary-btn"
+              onClick={handleOpenAccount}
+              loading={isOpeningAccount}
+              disabled={!openAccountInstitutionId || openAccountTypes.length === 0}
+            >
+              Open Account
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (loading && !state) {
     return (
       <div className="tab-screen">
@@ -347,14 +560,44 @@ export default function BankingTab() {
     );
   }
 
+  const selectedInstitution = institutions.find((i) => i.institutionId === selectedInstitutionId);
+  const institutionLabel = selectedInstitution?.displayName ?? selectedInstitutionId ?? 'All Accounts';
+
   return (
     <div className="tab-screen" data-banking-theme={theme}>
       <PageHeader
-        eyebrow="Banking"
-        title="Sagitta Term Deposit Account (White Label)"
+        eyebrow={selectedInstitution ? `${institutionLabel} / Customer Account` : bankingAccount ? `${bankingAccount.institutionId} / Customer Account` : 'Banking'}
+        title="Sagitta Term Deposit Account"
         description={bankingViewDescriptions[activeView]}
         meta={
           <>
+            {/* Bank selector */}
+            {institutions.length > 0 && (
+              <span className="data-chip" style={{ padding: 0, overflow: 'hidden' }}>
+                <select
+                  value={selectedInstitutionId ?? ''}
+                  onChange={(e) => setSelectedInstitutionId(e.target.value || undefined)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'inherit',
+                    font: 'inherit',
+                    fontSize: '0.75rem',
+                    padding: '0.2rem 0.5rem',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    maxWidth: '220px',
+                  }}
+                  title="Select bank"
+                >
+                  {institutions.map((inst) => (
+                    <option key={inst.institutionId} value={inst.institutionId}>
+                      {inst.displayName}{inst.fineractOnboarded ? ' ✓' : ' (not onboarded)'}
+                    </option>
+                  ))}
+                </select>
+              </span>
+            )}
             <span className="data-chip">
               <BankingIcon size={12} /> Retail Banking
             </span>
@@ -368,6 +611,13 @@ export default function BankingTab() {
         actions={
           <div className="flex flex-wrap items-center gap-3">
             <BankingThemeSwitcher themes={BANKING_THEMES} active={theme} onChange={handleThemeChange} />
+            <Button
+              variant="ghost"
+              className="banking-ghost-btn"
+              onClick={() => setShowOnboardForm((v) => !v)}
+            >
+              + Onboard Bank
+            </Button>
             <Button
               variant="ghost"
               className="banking-ghost-btn"
@@ -397,7 +647,88 @@ export default function BankingTab() {
         }
       />
 
-      <section className="sagitta-hero banking-entry" style={{ marginTop: '6px' }}>
+      {/* Onboard form — shown inline below header when toggled */}
+      {showOnboardForm && (
+        <section className="sagitta-hero" style={{ marginTop: '4px' }}>
+          <div className="sagitta-cell" style={{ padding: '0.75rem 1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 600, opacity: 0.8 }}>Onboard bank into Fineract:</span>
+              <input
+                type="text"
+                placeholder="Institution ID (e.g. first-national-bank)"
+                value={onboardId}
+                onChange={(e) => setOnboardId(e.target.value)}
+                style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem', borderRadius: '4px', border: '1px solid var(--border-color, #ccc)', background: 'transparent', color: 'inherit', width: '220px' }}
+              />
+              <input
+                type="text"
+                placeholder="Display name (e.g. First National Bank)"
+                value={onboardName}
+                onChange={(e) => setOnboardName(e.target.value)}
+                style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem', borderRadius: '4px', border: '1px solid var(--border-color, #ccc)', background: 'transparent', color: 'inherit', width: '220px' }}
+              />
+              <Button
+                className="banking-primary-btn"
+                onClick={handleOnboard}
+                loading={isOnboarding}
+                disabled={!onboardId.trim()}
+              >
+                Onboard
+              </Button>
+              <Button variant="ghost" className="banking-ghost-btn" onClick={() => setShowOnboardForm(false)}>
+                Cancel
+              </Button>
+            </div>
+            <p style={{ fontSize: '0.72rem', opacity: 0.55, marginTop: '0.35rem', marginBottom: 0 }}>
+              Creates a Fineract client + checking account for this bank. The bank selector will update automatically.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {/* Customer account context bar */}
+      <section className="sagitta-hero banking-entry" style={{ marginTop: '4px' }}>
+        <div className="sagitta-cell" style={{ padding: '0.6rem 1rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', borderLeft: '2px solid rgba(212,168,48,0.35)' }}>
+          <span style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', opacity: 0.5, textTransform: 'uppercase' }}>
+            Account holder
+          </span>
+          <span style={{ fontSize: '0.85rem', fontFamily: '"IBM Plex Mono", monospace', fontWeight: 600, color: 'var(--gold-300, #f0c040)' }}>
+            {customerRef}
+          </span>
+          <span style={{ fontSize: '0.7rem', opacity: 0.4 }}>
+            — customer reference managed by {selectedInstitution?.displayName ?? 'the bank'}, not stored as PII
+          </span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+            <input
+              type="text"
+              value={customerRefInput}
+              onChange={(e) => setCustomerRefInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleCustomerRefChange()}
+              placeholder="customer ref"
+              style={{
+                fontSize: '0.75rem',
+                fontFamily: '"IBM Plex Mono", monospace',
+                padding: '0.2rem 0.5rem',
+                borderRadius: '4px',
+                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'rgba(255,255,255,0.04)',
+                color: 'inherit',
+                width: '160px',
+              }}
+            />
+            <Button
+              variant="ghost"
+              className="banking-ghost-btn"
+              onClick={handleCustomerRefChange}
+              style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem' }}
+            >
+              Switch
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <section className="sagitta-hero banking-entry" style={{ marginTop: '4px' }}>
         <div className="sagitta-cell banking-entry__surface" style={{ padding: '0.45rem 0.6rem' }}>
           <BankingSubnav activeView={activeView} onChange={handleViewChange} />
         </div>

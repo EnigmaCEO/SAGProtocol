@@ -1,0 +1,95 @@
+@providerUrl = https://localhost:8443/fineract-provider
+@baseUrl = {{providerUrl}}/api/v1
+@tenant = default
+@basicAuth = Basic bWlmb3M6cGFzc3dvcmQ=
+@clientId = 1
+@fixedDepositProductId = 1
+@fixedDepositAccountId = 1
+
+### Health check
+GET {{providerUrl}}/actuator/health
+Authorization: {{basicAuth}}
+Fineract-Platform-TenantId: {{tenant}}
+Accept: application/json
+
+### Offices list
+GET {{baseUrl}}/offices
+Authorization: {{basicAuth}}
+Fineract-Platform-TenantId: {{tenant}}
+Accept: application/json
+
+### Clients list
+GET {{baseUrl}}/clients
+Authorization: {{basicAuth}}
+Fineract-Platform-TenantId: {{tenant}}
+Accept: application/json
+
+### Fixed deposit products list
+GET {{baseUrl}}/fixeddepositproducts
+Authorization: {{basicAuth}}
+Fineract-Platform-TenantId: {{tenant}}
+Accept: application/json
+
+### Fixed deposit accounts list
+GET {{baseUrl}}/fixeddepositaccounts
+Authorization: {{basicAuth}}
+Fineract-Platform-TenantId: {{tenant}}
+Accept: application/json
+
+### Create fixed deposit account application - write request; update placeholder ids first
+POST {{baseUrl}}/fixeddepositaccounts
+Authorization: {{basicAuth}}
+Fineract-Platform-TenantId: {{tenant}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "clientId": {{clientId}},
+  "productId": {{fixedDepositProductId}},
+  "submittedOnDate": "26 May 2026",
+  "depositAmount": 1000,
+  "depositPeriod": 12,
+  "depositPeriodFrequencyId": 2,
+  "dateFormat": "dd MMMM yyyy",
+  "locale": "en"
+}
+
+### Approve fixed deposit account application - write request
+POST {{baseUrl}}/fixeddepositaccounts/{{fixedDepositAccountId}}?command=approve
+Authorization: {{basicAuth}}
+Fineract-Platform-TenantId: {{tenant}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "approvedOnDate": "26 May 2026",
+  "dateFormat": "dd MMMM yyyy",
+  "locale": "en"
+}
+
+### Activate fixed deposit account - write request
+POST {{baseUrl}}/fixeddepositaccounts/{{fixedDepositAccountId}}?command=activate
+Authorization: {{basicAuth}}
+Fineract-Platform-TenantId: {{tenant}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "activatedOnDate": "26 May 2026",
+  "dateFormat": "dd MMMM yyyy",
+  "locale": "en"
+}
+
+### Close matured fixed deposit account - write request; 100 withdraws deposit balance
+POST {{baseUrl}}/fixeddepositaccounts/{{fixedDepositAccountId}}?command=close
+Authorization: {{basicAuth}}
+Fineract-Platform-TenantId: {{tenant}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "closedOnDate": "26 May 2027",
+  "onAccountClosureId": 100,
+  "dateFormat": "dd MMMM yyyy",
+  "locale": "en"
+}

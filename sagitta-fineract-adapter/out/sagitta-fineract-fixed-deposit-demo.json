@@ -1,0 +1,58 @@
+{
+  "demoRunAt": "2026-05-27T10:08:39.404Z",
+  "fineractBaseUrl": "https://localhost:8443/fineract-provider/api/v1",
+  "fineractTenantId": "default",
+  "fineractClientId": 1,
+  "fineractClientName": "SAGITTA_TEST CLIENT",
+  "clientCreated": false,
+  "fineractProductId": 2,
+  "fineractProductName": "SAGITTA_TEST_FD_PRODUCT",
+  "productCreated": false,
+  "fineractAccountId": 1,
+  "accountCreated": false,
+  "accountStatusBeforeApproval": "active",
+  "accountStatusAfterApproval": "active",
+  "accountStatusAfterActivation": "active",
+  "reserveGate": {
+    "source": "env",
+    "contract": null,
+    "readAt": null,
+    "reserveAmountUsd": 100,
+    "requestedDepositAmountUsd": 1000,
+    "fixedYieldApy": 0.06,
+    "termMonths": 12,
+    "promisedYield": 60,
+    "requiredReserve": 75,
+    "coverageRatio": 1.25,
+    "maxSupportedDepositAmountUsd": 1333.33,
+    "approved": true
+  },
+  "sagittaTermDeposit": {
+    "externalCore": "fineract",
+    "fineractAccountId": 1,
+    "clientId": 1,
+    "productId": 2,
+    "currency": "USD",
+    "principalAmount": 1000,
+    "depositTerm": {
+      "value": 12,
+      "unit": "Months"
+    },
+    "interestRate": 6,
+    "status": "Active",
+    "submittedOnDate": "2026-05-26",
+    "approvedOnDate": "2026-05-26",
+    "activatedOnDate": "2026-05-26",
+    "maturityDate": "2027-05-26",
+    "closedOnDate": null,
+    "sagittaStatus": "active"
+  },
+  "settlementEvidence": {
+    "circleTransferId": null,
+    "arcTxHash": null,
+    "treasuryBatchId": null,
+    "escrowExecutionOrderId": null,
+    "allocationPlanHash": null,
+    "settlementStatus": "not_started"
+  }
+}

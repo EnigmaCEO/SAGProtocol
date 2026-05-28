@@ -1,0 +1,38 @@
+{
+  "demoRunAt": "2026-05-27T10:17:15.343Z",
+  "reserveGateSource": "env",
+  "onchainRead": null,
+  "reserveAccounting": {
+    "navReserveUsd": 500000,
+    "committedReserveUsd": 75,
+    "availableReserveUsd": 499925,
+    "activeDepositCount": 1,
+    "commitments": [
+      {
+        "sagittaTermDepositId": "sagitta-fd-1",
+        "fineractAccountId": 1,
+        "principalAmountUsd": 1000,
+        "fixedYieldApy": 0.06,
+        "termMonths": 12,
+        "coverageRatio": 1.25,
+        "requiredReserveUsd": 75,
+        "status": "active"
+      }
+    ]
+  },
+  "reserveGate": {
+    "navReserveUsd": 500000,
+    "committedReserveUsd": 75,
+    "availableReserveUsd": 499925,
+    "requestedDepositAmountUsd": 1000,
+    "requiredReserveUsd": 75,
+    "approved": true
+  },
+  "reserveGateDetail": {
+    "fixedYieldApy": 0.06,
+    "termMonths": 12,
+    "coverageRatio": 1.25,
+    "promisedYield": 60,
+    "maxSupportedDepositAmountUsd": 6665666.67
+  }
+}

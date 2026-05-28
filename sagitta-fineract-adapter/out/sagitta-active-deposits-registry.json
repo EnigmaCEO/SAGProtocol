@@ -1,0 +1,11 @@
+[
+  {
+    "sagittaTermDepositId": "sagitta-fd-1",
+    "fineractAccountId": 1,
+    "principalAmountUsd": 1000,
+    "fixedYieldApy": 0.06,
+    "termMonths": 12,
+    "coverageRatio": 1.25,
+    "status": "active"
+  }
+]
