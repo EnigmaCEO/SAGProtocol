@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { CSSProperties, ReactNode } from 'react';
 
 interface ButtonProps {
   children: ReactNode;
@@ -7,6 +7,7 @@ interface ButtonProps {
   variant?: 'primary' | 'ghost' | 'danger';
   disabled?: boolean;
   className?: string;
+  style?: CSSProperties;
 }
 
 const variantClasses = {
@@ -22,11 +23,13 @@ export default function Button({
   variant = 'primary',
   disabled,
   className,
+  style,
 }: ButtonProps) {
   return (
     <button
       onClick={onClick}
       disabled={loading || disabled}
+      style={style}
       className={`
         px-4 py-2 rounded-lg font-semibold transition-all duration-200
         hover:translate-y-[-1px]
