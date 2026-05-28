@@ -679,11 +679,13 @@ export default function EscrowTab() {
     }
   }
 
-  async function manuallyAdvanceSelectedBatch(stage: 'returned' | 'settled') {
+  async function manuallyAdvanceSelectedBatch(stage: 'deployed' | 'returned' | 'settled') {
     if (!selectedAllocationOrder?.batchId) return;
     setManualStageAction(stage);
     try {
-      const path = stage === 'returned'
+      const path = stage === 'deployed'
+        ? `/api/banking/escrow/execution-orders/${selectedAllocationOrder.batchId}/advance-deployment`
+        : stage === 'returned'
         ? `/api/banking/escrow/execution-orders/${selectedAllocationOrder.batchId}/advance-return`
         : `/api/banking/escrow/execution-orders/${selectedAllocationOrder.batchId}/advance-settlement`;
       const response = await fetch(`${path}?chainKey=${encodeURIComponent(selectedChain.key)}`, {
@@ -1888,6 +1890,11 @@ export default function EscrowTab() {
     closing: backendExecutionOrders.filter(o => ['closing', 'returned'].includes(o.executionStatus)).length,
     settled: backendExecutionOrders.filter(o => o.settlementStatus === 'settled' || o.executionStatus === 'settled').length,
   };
+  const canAdvanceSelectedToDeployed = Boolean(
+    selectedAllocationOrder &&
+    ['allocation_validated', 'authorized_allocation'].includes(selectedAllocationOrder.executionStatus) &&
+    ['not_started', 'failed'].includes(selectedAllocationOrder.deploymentStatus ?? 'not_started')
+  );
   const canAdvanceSelectedToReturned = Boolean(
     selectedAllocationOrder &&
     ['deployed', 'closing'].includes(selectedAllocationOrder.executionStatus) &&
@@ -2377,6 +2384,13 @@ export default function EscrowTab() {
               <div className="mt-3 grid grid-cols-1 gap-2">
                 <button
                   className="action-button action-button--secondary w-full"
+                  onClick={() => manuallyAdvanceSelectedBatch('deployed')}
+                  disabled={!canAdvanceSelectedToDeployed || manualStageAction !== null}
+                >
+                  {manualStageAction === 'deployed' ? 'Deploying...' : 'Advance To Deployed'}
+                </button>
+                <button
+                  className="action-button action-button--secondary w-full"
                   onClick={() => manuallyAdvanceSelectedBatch('returned')}
                   disabled={!canAdvanceSelectedToReturned || manualStageAction !== null}
                 >
@@ -2398,7 +2412,7 @@ export default function EscrowTab() {
                 </button>
               </div>
               <div className="mt-2 text-[11px] text-slate-500">
-                Returned closes deployed legs and records returned USDC. Settled finalizes the batch and records Treasury unwind / wire readiness. Return Batch To Bank retries the BANK payout step for an already settled batch.
+                Deployed forces deployment of a validated batch that the worker skipped (e.g. on-chain auth failed). Returned closes deployed legs and records returned USDC. Settled finalizes the batch and records Treasury unwind / wire readiness. Return Batch To Bank retries the BANK payout step for an already settled batch.
               </div>
             </div>
           )}
