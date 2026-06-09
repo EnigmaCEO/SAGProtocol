@@ -6,6 +6,10 @@ artifacts/
 .env.*.local
 frontend/.env.local
 frontend/.env.*.local
+# Signer service env files contain private keys — never commit
+services/signer-treasury/.env
+services/signer-escrow/.env
+services/**/.env.local
 cache/
 .next/
 frontend/.next/

@@ -2,57 +2,69 @@
 pragma solidity ^0.8.24;
 
 /// @title PortfolioRegistry
-/// @notice On-chain registry of assets accepted in the Escrow allocation portfolio.
-///         Assets are keyed by their symbol (unique). The token address is optional —
-///         external assets such as fund units or off-chain instruments set it to
-///         address(0). Allocation weights are supplied per-batch by the AAA off-chain.
+/// @notice On-chain registry of accepted portfolio assets and DAO-approved destinations.
 contract PortfolioRegistry {
-    // ── Enums ──────────────────────────────────────────────────────────────
-
     enum RiskClass {
-        WealthManagement,  // 0 – managed wealth / SPC
-        Stablecoin,        // 1 – USD-pegged stables
-        DefiBluechip,      // 2 – established DeFi protocols
-        FundOfFunds,       // 3 – on-chain fund aggregators
-        LargeCap,          // 4 – large-cap L1/L2 tokens
-        PrivateCreditFund, // 5 – tokenized private credit (Maple, Goldfinch, Centrifuge)
-        RealWorldAsset,    // 6 – tokenized RWA / T-bills / bonds (Ondo, Backed, etc.)
-        ExternalProtocol   // 7 – cross-chain or external-platform positions
+        WealthManagement,
+        Stablecoin,
+        DefiBluechip,
+        FundOfFunds,
+        LargeCap,
+        PrivateCreditFund,
+        RealWorldAsset,
+        ExternalProtocol
     }
 
     enum AssetRole {
-        Core,        // 0 – primary return driver
-        Liquidity,   // 1 – liquidity buffer
-        Satellite,   // 2 – tactical / thematic
-        Defensive,   // 3 – capital preservation / low-vol
-        Speculative, // 4 – high-risk / high-reward
-        YieldFund,   // 5 – fund allocations generating yield
-        External     // 6 – off-chain or cross-chain position
+        Core,
+        Liquidity,
+        Satellite,
+        Defensive,
+        Speculative,
+        YieldFund,
+        External
     }
 
-    // ── Structs ────────────────────────────────────────────────────────────
+    enum DestinationType {
+        BatchWalletHold,
+        StakingContract,
+        InvestmentHandoff,
+        Purchase
+    }
 
     struct PortfolioAsset {
-        string    symbol;                // unique ticker, e.g. "SPC"
-        string    name;                  // display name, e.g. "Sagitta SPC"
-        address   token;                 // ERC-20 address; address(0) for external/off-chain assets
-        address   oracle;                // price oracle; address(0) if not yet wired
+        string symbol;
+        string name;
+        address token;
+        address oracle;
         RiskClass riskClass;
         AssetRole role;
-        uint256   minimumInvestmentUsd6; // minimum investment in USD, scaled to 6 decimals
-        uint256   addedAt;               // block.timestamp when added
+        uint256 minimumInvestmentUsd6;
+        uint256 defaultDestinationId;
+        address destination;
+        DestinationType destinationType;
+        uint256 addedAt;
     }
 
-    // ── State ──────────────────────────────────────────────────────────────
+    struct ApprovedDestination {
+        uint256 destinationId;
+        string name;
+        string assetSymbol;
+        address assetAddress;
+        DestinationType destinationType;
+        address destinationAddress;
+        bool active;
+    }
 
     address public owner;
+    uint256 public nextDestinationId = 1;
 
-    // Internal key = keccak256(abi.encodePacked(symbol))
-    string[]                           private _symbolList; // ordered active symbols
-    mapping(bytes32 => PortfolioAsset) private _assets;     // symbolKey => asset data
-    mapping(bytes32 => bool)           private _active;     // symbolKey => in portfolio
+    string[] private _symbolList;
+    mapping(bytes32 => PortfolioAsset) private _assets;
+    mapping(bytes32 => bool) private _active;
 
-    // ── Events ────────────────────────────────────────────────────────────
+    uint256[] private _destinationIds;
+    mapping(uint256 => ApprovedDestination) private _destinations;
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event AssetAdded(
@@ -60,7 +72,10 @@ contract PortfolioRegistry {
         address token,
         RiskClass riskClass,
         AssetRole role,
-        uint256 minimumInvestmentUsd6
+        uint256 minimumInvestmentUsd6,
+        uint256 defaultDestinationId,
+        address destination,
+        DestinationType destinationType
     );
     event AssetRemoved(string symbol);
     event AssetUpdated(
@@ -70,24 +85,40 @@ contract PortfolioRegistry {
         address oracle,
         RiskClass riskClass,
         AssetRole role,
-        uint256 minimumInvestmentUsd6
+        uint256 minimumInvestmentUsd6,
+        uint256 defaultDestinationId,
+        address destination,
+        DestinationType destinationType
     );
-
-    // ── Modifier ──────────────────────────────────────────────────────────
+    event DestinationAdded(
+        uint256 indexed destinationId,
+        string name,
+        string assetSymbol,
+        address assetAddress,
+        DestinationType destinationType,
+        address destinationAddress,
+        bool active
+    );
+    event DestinationUpdated(
+        uint256 indexed destinationId,
+        string name,
+        string assetSymbol,
+        address assetAddress,
+        DestinationType destinationType,
+        address destinationAddress,
+        bool active
+    );
+    event DestinationActiveSet(uint256 indexed destinationId, bool active);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "PortfolioRegistry: not owner");
         _;
     }
 
-    // ── Constructor ───────────────────────────────────────────────────────
-
     constructor() {
         owner = msg.sender;
         emit OwnershipTransferred(address(0), msg.sender);
     }
-
-    // ── Ownership ─────────────────────────────────────────────────────────
 
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "PortfolioRegistry: zero address");
@@ -95,59 +126,198 @@ contract PortfolioRegistry {
         owner = newOwner;
     }
 
-    // ── Internal helpers ──────────────────────────────────────────────────
-
     function _key(string memory symbol) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(symbol));
     }
 
-    // ── Portfolio mutations ───────────────────────────────────────────────
+    function _destinationExists(uint256 destinationId) internal view returns (bool) {
+        return destinationId != 0 && _destinations[destinationId].destinationId == destinationId;
+    }
 
-    /// @notice Add an asset to the accepted allocation portfolio.
-    /// @param symbol     Unique ticker (e.g. "SPC"). Used as the primary key.
-    /// @param name       Display name (e.g. "Sagitta SPC").
-    /// @param token      ERC-20 address. Pass address(0) for external / off-chain assets.
-    /// @param oracle     Price oracle address. Pass address(0) if not yet available.
-    /// @param riskClass  Risk classification enum value.
-    /// @param assetRole  Portfolio role enum value.
-    /// @param minimumInvestmentUsd6 Minimum investment in USD, scaled to 6 decimals.
-    function addAsset(
-        string   calldata symbol,
-        string   calldata name,
-        address           token,
-        address           oracle,
-        RiskClass         riskClass,
-        AssetRole         assetRole,
-        uint256           minimumInvestmentUsd6
+    function _validateDestination(
+        string memory name,
+        string memory assetSymbol,
+        address assetAddress,
+        DestinationType destinationType,
+        address destinationAddress
+    ) internal pure {
+        require(bytes(name).length > 0, "PortfolioRegistry: empty destination name");
+        require(
+            bytes(assetSymbol).length > 0 || assetAddress != address(0),
+            "PortfolioRegistry: destination asset required"
+        );
+        if (destinationType == DestinationType.StakingContract || destinationType == DestinationType.InvestmentHandoff) {
+            require(destinationAddress != address(0), "PortfolioRegistry: destination address required");
+        }
+    }
+
+    function _destinationMatchesAsset(
+        ApprovedDestination storage approved,
+        string memory symbol,
+        address token
+    ) internal view returns (bool) {
+        bool symbolMatches = bytes(approved.assetSymbol).length > 0 && _key(approved.assetSymbol) == _key(symbol);
+        bool addressMatches = approved.assetAddress != address(0) && token != address(0) && approved.assetAddress == token;
+        return symbolMatches || addressMatches;
+    }
+
+    function _setAssetDestination(PortfolioAsset storage asset, uint256 destinationId) internal {
+        if (destinationId == 0) {
+            asset.defaultDestinationId = 0;
+            asset.destination = address(0);
+            asset.destinationType = DestinationType.BatchWalletHold;
+            return;
+        }
+
+        require(_destinationExists(destinationId), "PortfolioRegistry: destination not found");
+        ApprovedDestination storage approved = _destinations[destinationId];
+        require(approved.active, "PortfolioRegistry: destination inactive");
+        require(_destinationMatchesAsset(approved, asset.symbol, asset.token), "PortfolioRegistry: destination asset mismatch");
+
+        asset.defaultDestinationId = destinationId;
+        asset.destination = approved.destinationAddress;
+        asset.destinationType = approved.destinationType;
+    }
+
+    function addDestination(
+        string calldata name,
+        string calldata assetSymbol,
+        address assetAddress,
+        DestinationType destinationType,
+        address destinationAddress,
+        bool active
+    ) external onlyOwner returns (uint256 destinationId) {
+        _validateDestination(name, assetSymbol, assetAddress, destinationType, destinationAddress);
+
+        destinationId = nextDestinationId++;
+        _destinations[destinationId] = ApprovedDestination({
+            destinationId: destinationId,
+            name: name,
+            assetSymbol: assetSymbol,
+            assetAddress: assetAddress,
+            destinationType: destinationType,
+            destinationAddress: destinationAddress,
+            active: active
+        });
+        _destinationIds.push(destinationId);
+
+        emit DestinationAdded(destinationId, name, assetSymbol, assetAddress, destinationType, destinationAddress, active);
+    }
+
+    function updateDestination(
+        uint256 destinationId,
+        string calldata name,
+        string calldata assetSymbol,
+        address assetAddress,
+        DestinationType destinationType,
+        address destinationAddress,
+        bool active
     ) external onlyOwner {
+        require(_destinationExists(destinationId), "PortfolioRegistry: destination not found");
+        _validateDestination(name, assetSymbol, assetAddress, destinationType, destinationAddress);
+
+        ApprovedDestination storage approved = _destinations[destinationId];
+        approved.name = name;
+        approved.assetSymbol = assetSymbol;
+        approved.assetAddress = assetAddress;
+        approved.destinationType = destinationType;
+        approved.destinationAddress = destinationAddress;
+        approved.active = active;
+
+        uint256 len = _symbolList.length;
+        for (uint256 i = 0; i < len; i++) {
+            PortfolioAsset storage asset = _assets[_key(_symbolList[i])];
+            if (asset.defaultDestinationId != destinationId) continue;
+            require(_destinationMatchesAsset(approved, asset.symbol, asset.token), "PortfolioRegistry: assigned asset mismatch");
+            asset.destination = destinationAddress;
+            asset.destinationType = destinationType;
+        }
+
+        emit DestinationUpdated(destinationId, name, assetSymbol, assetAddress, destinationType, destinationAddress, active);
+    }
+
+    function setDestinationActive(uint256 destinationId, bool active) external onlyOwner {
+        require(_destinationExists(destinationId), "PortfolioRegistry: destination not found");
+        _destinations[destinationId].active = active;
+        emit DestinationActiveSet(destinationId, active);
+    }
+
+    function addAsset(
+        string calldata symbol,
+        string calldata name,
+        address token,
+        address oracle,
+        RiskClass riskClass,
+        AssetRole assetRole,
+        uint256 minimumInvestmentUsd6,
+        uint256 defaultDestinationId
+    ) external onlyOwner {
+        _addAsset(symbol, name, token, oracle, riskClass, assetRole, minimumInvestmentUsd6, defaultDestinationId);
+    }
+
+    /// @notice Backward-compatible add without a configured destination.
+    function addAsset(
+        string calldata symbol,
+        string calldata name,
+        address token,
+        address oracle,
+        RiskClass riskClass,
+        AssetRole assetRole,
+        uint256 minimumInvestmentUsd6
+    ) external onlyOwner {
+        _addAsset(symbol, name, token, oracle, riskClass, assetRole, minimumInvestmentUsd6, 0);
+    }
+
+    function _addAsset(
+        string memory symbol,
+        string memory name,
+        address token,
+        address oracle,
+        RiskClass riskClass,
+        AssetRole assetRole,
+        uint256 minimumInvestmentUsd6,
+        uint256 defaultDestinationId
+    ) internal {
         require(bytes(symbol).length > 0, "PortfolioRegistry: empty symbol");
         bytes32 k = _key(symbol);
         require(!_active[k], "PortfolioRegistry: symbol already in portfolio");
 
         _assets[k] = PortfolioAsset({
-            symbol:    symbol,
-            name:      name,
-            token:     token,
-            oracle:    oracle,
+            symbol: symbol,
+            name: name,
+            token: token,
+            oracle: oracle,
             riskClass: riskClass,
-            role:      assetRole,
+            role: assetRole,
             minimumInvestmentUsd6: minimumInvestmentUsd6,
-            addedAt:   block.timestamp
+            defaultDestinationId: 0,
+            destination: address(0),
+            destinationType: DestinationType.BatchWalletHold,
+            addedAt: block.timestamp
         });
+        _setAssetDestination(_assets[k], defaultDestinationId);
         _active[k] = true;
         _symbolList.push(symbol);
 
-        emit AssetAdded(symbol, token, riskClass, assetRole, minimumInvestmentUsd6);
+        PortfolioAsset storage asset = _assets[k];
+        emit AssetAdded(
+            symbol,
+            token,
+            riskClass,
+            assetRole,
+            minimumInvestmentUsd6,
+            defaultDestinationId,
+            asset.destination,
+            asset.destinationType
+        );
     }
 
-    /// @notice Remove an asset from the portfolio by its symbol.
     function removeAsset(string calldata symbol) external onlyOwner {
         bytes32 k = _key(symbol);
         require(_active[k], "PortfolioRegistry: symbol not in portfolio");
 
         _active[k] = false;
 
-        // Swap-and-pop removal from the symbol list.
         uint256 len = _symbolList.length;
         for (uint256 i = 0; i < len; i++) {
             if (_key(_symbolList[i]) == k) {
@@ -160,56 +330,101 @@ contract PortfolioRegistry {
         emit AssetRemoved(symbol);
     }
 
-    /// @notice Update the token address, oracle, or classification of an existing asset.
     function updateAsset(
-        string    calldata symbol,
-        string    calldata name,
-        address            token,
-        address            oracle,
-        RiskClass          riskClass,
-        AssetRole          assetRole,
-        uint256            minimumInvestmentUsd6
+        string calldata symbol,
+        string calldata name,
+        address token,
+        address oracle,
+        RiskClass riskClass,
+        AssetRole assetRole,
+        uint256 minimumInvestmentUsd6,
+        uint256 defaultDestinationId
     ) external onlyOwner {
-        bytes32 k = _key(symbol);
-        require(_active[k], "PortfolioRegistry: symbol not in portfolio");
-        PortfolioAsset storage a = _assets[k];
-        a.name = name;
-        a.token = token;
-        a.oracle = oracle;
-        a.riskClass = riskClass;
-        a.role = assetRole;
-        a.minimumInvestmentUsd6 = minimumInvestmentUsd6;
-        emit AssetUpdated(symbol, name, token, oracle, riskClass, assetRole, minimumInvestmentUsd6);
+        _updateAsset(symbol, name, token, oracle, riskClass, assetRole, minimumInvestmentUsd6, defaultDestinationId);
     }
 
-    // ── Views ─────────────────────────────────────────────────────────────
+    /// @notice Backward-compatible update that clears the configured destination.
+    function updateAsset(
+        string calldata symbol,
+        string calldata name,
+        address token,
+        address oracle,
+        RiskClass riskClass,
+        AssetRole assetRole,
+        uint256 minimumInvestmentUsd6
+    ) external onlyOwner {
+        _updateAsset(symbol, name, token, oracle, riskClass, assetRole, minimumInvestmentUsd6, 0);
+    }
 
-    /// @notice Returns all active symbol tickers in insertion order.
+    function _updateAsset(
+        string memory symbol,
+        string memory name,
+        address token,
+        address oracle,
+        RiskClass riskClass,
+        AssetRole assetRole,
+        uint256 minimumInvestmentUsd6,
+        uint256 defaultDestinationId
+    ) internal {
+        bytes32 k = _key(symbol);
+        require(_active[k], "PortfolioRegistry: symbol not in portfolio");
+        PortfolioAsset storage asset = _assets[k];
+        asset.name = name;
+        asset.token = token;
+        asset.oracle = oracle;
+        asset.riskClass = riskClass;
+        asset.role = assetRole;
+        asset.minimumInvestmentUsd6 = minimumInvestmentUsd6;
+        _setAssetDestination(asset, defaultDestinationId);
+
+        emit AssetUpdated(
+            symbol,
+            name,
+            token,
+            oracle,
+            riskClass,
+            assetRole,
+            minimumInvestmentUsd6,
+            defaultDestinationId,
+            asset.destination,
+            asset.destinationType
+        );
+    }
+
     function getActiveSymbols() external view returns (string[] memory) {
         return _symbolList;
     }
 
-    /// @notice Returns full asset data for a symbol.
     function getAsset(string calldata symbol) external view returns (PortfolioAsset memory) {
         return _assets[_key(symbol)];
     }
 
-    /// @notice Returns true if the symbol is currently in the active portfolio.
     function isInPortfolio(string calldata symbol) external view returns (bool) {
         return _active[_key(symbol)];
     }
 
-    /// @notice Total number of active portfolio assets.
     function assetCount() external view returns (uint256) {
         return _symbolList.length;
     }
 
-    /// @notice Batch-read all active assets with their full data in insertion order.
     function getAllAssets() external view returns (PortfolioAsset[] memory result) {
         uint256 len = _symbolList.length;
         result = new PortfolioAsset[](len);
         for (uint256 i = 0; i < len; i++) {
             result[i] = _assets[_key(_symbolList[i])];
+        }
+    }
+
+    function getDestination(uint256 destinationId) external view returns (ApprovedDestination memory) {
+        require(_destinationExists(destinationId), "PortfolioRegistry: destination not found");
+        return _destinations[destinationId];
+    }
+
+    function getAllDestinations() external view returns (ApprovedDestination[] memory result) {
+        uint256 len = _destinationIds.length;
+        result = new ApprovedDestination[](len);
+        for (uint256 i = 0; i < len; i++) {
+            result[i] = _destinations[_destinationIds[i]];
         }
     }
 }

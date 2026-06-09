@@ -1,0 +1,24 @@
+{
+  "name": "sagitta-wallet-factory",
+  "version": "1.0.0",
+  "description": "Keeper service that deploys a real 2-of-3 BatchMultisigWallet after Batch Authority Binding anchor and records the on-chain BatchWalletBinding.",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.15.0",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  }
+}

@@ -18,6 +18,183 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "existingHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "newHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "AllocationHashMismatch",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "existingHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "AlreadyAnchored",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      }
+    ],
+    "name": "AlreadyFunded",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "existingHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "newHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "AnchorHashMismatch",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      }
+    ],
+    "name": "AnchorNotFound",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      }
+    ],
+    "name": "BatchNotFunded",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      }
+    ],
+    "name": "BatchPositionNotFound",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ECDSAInvalidSignature",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "length",
+        "type": "uint256"
+      }
+    ],
+    "name": "ECDSAInvalidSignatureLength",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "s",
+        "type": "bytes32"
+      }
+    ],
+    "name": "ECDSAInvalidSignatureS",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "required",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "available",
+        "type": "uint256"
+      }
+    ],
+    "name": "InsufficientEscrowBalance",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "recovered",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "expected",
+        "type": "address"
+      }
+    ],
+    "name": "InvalidEscrowSigner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "recovered",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "expected",
+        "type": "address"
+      }
+    ],
+    "name": "InvalidTreasurySigner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "owner",
         "type": "address"
@@ -40,6 +217,33 @@
   {
     "inputs": [
       {
+        "internalType": "uint8",
+        "name": "roleId",
+        "type": "uint8"
+      },
+      {
+        "internalType": "enum InvestmentEscrow.RoleStatus",
+        "name": "status",
+        "type": "uint8"
+      }
+    ],
+    "name": "RoleNotActive",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "roleId",
+        "type": "uint8"
+      }
+    ],
+    "name": "RoleSignerNotSet",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "token",
         "type": "address"
@@ -47,6 +251,128 @@
     ],
     "name": "SafeERC20FailedOperation",
     "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "existingWallet",
+        "type": "address"
+      }
+    ],
+    "name": "WalletAlreadyBound",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "anchorId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "providedId",
+        "type": "bytes32"
+      }
+    ],
+    "name": "WalletBindingEscrowIdMismatch",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "anchorHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "providedHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "WalletBindingHashMismatch",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      }
+    ],
+    "name": "WalletNotBound",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "WalletOwnersMissing",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "walletThreshold",
+        "type": "uint8"
+      }
+    ],
+    "name": "WalletThresholdInvalid",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroAllocationHash",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroWalletAddress",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "allocationPlanHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "policyContextHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "portfolioRegistryVersion",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "attachedBy",
+        "type": "address"
+      }
+    ],
+    "name": "BatchAllocationAttached",
+    "type": "event"
   },
   {
     "anonymous": false,
@@ -72,6 +398,67 @@
       }
     ],
     "name": "BatchAllocationPending",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "batchAuthorityBindingHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "escrowBatchIdHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "systemMapHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "sourceContractAddress",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "activeEscrowAddress",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "treasurySignerAddress",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "escrowSignerAddress",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "anchoredBy",
+        "type": "address"
+      }
+    ],
+    "name": "BatchAuthorityBindingAnchored",
     "type": "event"
   },
   {
@@ -278,6 +665,116 @@
       }
     ],
     "name": "BatchSettlementFinalized",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "walletAddress",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "batchAuthorityBindingHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "escrowBatchIdHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "ownerTreasury",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "ownerEscrow",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "ownerContinuity",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "factory",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "creationTxHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "boundBy",
+        "type": "address"
+      }
+    ],
+    "name": "BatchWalletBound",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "walletAddress",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "asset",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "authorityBindingHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "walletBindingHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "BatchWalletFunded",
     "type": "event"
   },
   {
@@ -509,6 +1006,50 @@
       {
         "indexed": true,
         "internalType": "address",
+        "name": "protocolDAO",
+        "type": "address"
+      }
+    ],
+    "name": "ProtocolDAOSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint8",
+        "name": "roleId",
+        "type": "uint8"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "signer",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "enum InvestmentEscrow.RoleStatus",
+        "name": "status",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "updatedBy",
+        "type": "address"
+      }
+    ],
+    "name": "RoleAuthorityUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
         "name": "routeRegistry",
         "type": "address"
       }
@@ -542,6 +1083,12 @@
         "internalType": "uint64",
         "name": "settlementDeadlineAt",
         "type": "uint64"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "executionContextHash",
+        "type": "bytes32"
       }
     ],
     "name": "TreasuryBatchReceived",
@@ -613,6 +1160,45 @@
   },
   {
     "inputs": [],
+    "name": "ROLE_CONTINUITY_SCE",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "ROLE_ESCROW",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "ROLE_TREASURY_VAULT",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "USER_PROFIT_BPS",
     "outputs": [
       {
@@ -641,6 +1227,82 @@
     "inputs": [
       {
         "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "escrowBatchIdHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "batchAuthorityBindingHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "systemMapHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "sourceContractAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "activeEscrowAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes",
+        "name": "treasurySignature",
+        "type": "bytes"
+      },
+      {
+        "internalType": "bytes",
+        "name": "escrowSignature",
+        "type": "bytes"
+      }
+    ],
+    "name": "anchorBatchAuthorityBinding",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "allocationPlanHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "policyContextHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "string",
+        "name": "portfolioRegistryVersion",
+        "type": "string"
+      }
+    ],
+    "name": "attachAllocation",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
         "name": "batchId",
         "type": "uint256"
       },
@@ -652,6 +1314,16 @@
       {
         "internalType": "bytes32",
         "name": "settlementUnit",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "policyContextHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "allocationPlanHash",
         "type": "bytes32"
       },
       {
@@ -678,6 +1350,114 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "batchAllocationAttachments",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "allocationPlanHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "policyContextHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "string",
+        "name": "portfolioRegistryVersion",
+        "type": "string"
+      },
+      {
+        "internalType": "address",
+        "name": "attachedBy",
+        "type": "address"
+      },
+      {
+        "internalType": "uint64",
+        "name": "attachedAt",
+        "type": "uint64"
+      },
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "batchAuthorityAnchors",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "escrowBatchIdHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "batchAuthorityBindingHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "systemMapHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "sourceContractAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "activeEscrowAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "treasurySignerAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "escrowSignerAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "anchoredBy",
+        "type": "address"
+      },
+      {
+        "internalType": "uint64",
+        "name": "anchoredAt",
+        "type": "uint64"
+      },
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "batchAwaitingAllocationId",
     "outputs": [
@@ -685,6 +1465,99 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "batchWalletBindings",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "escrowBatchIdHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "batchAuthorityBindingHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "walletAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "ownerTreasury",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "ownerEscrow",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "ownerContinuity",
+        "type": "address"
+      },
+      {
+        "internalType": "uint8",
+        "name": "threshold",
+        "type": "uint8"
+      },
+      {
+        "internalType": "address",
+        "name": "factory",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "creationTxHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint64",
+        "name": "boundAt",
+        "type": "uint64"
+      },
+      {
+        "internalType": "address",
+        "name": "boundBy",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "batchWalletFunded",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",
@@ -742,6 +1615,44 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "escrowBatchIdHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "batchAuthorityBindingHash_",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "walletAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "factory",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "creationTxHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "bindBatchWallet",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -878,6 +1789,11 @@
         "type": "uint64"
       },
       {
+        "internalType": "bytes32",
+        "name": "executionContextHash",
+        "type": "bytes32"
+      },
+      {
         "internalType": "uint64",
         "name": "actualReturnedAt",
         "type": "uint64"
@@ -948,6 +1864,70 @@
     "name": "freezeBatch",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      }
+    ],
+    "name": "fundBatchWallet",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getAllocationAttachment",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "allocationPlanHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "policyContextHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "string",
+            "name": "portfolioRegistryVersion",
+            "type": "string"
+          },
+          {
+            "internalType": "address",
+            "name": "attachedBy",
+            "type": "address"
+          },
+          {
+            "internalType": "uint64",
+            "name": "attachedAt",
+            "type": "uint64"
+          },
+          {
+            "internalType": "bool",
+            "name": "exists",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct InvestmentEscrow.AllocationAttachment",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -1081,6 +2061,77 @@
     "inputs": [
       {
         "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getBatchAuthorityAnchor",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "escrowBatchIdHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "batchAuthorityBindingHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "systemMapHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "address",
+            "name": "sourceContractAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "activeEscrowAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "treasurySignerAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "escrowSignerAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "anchoredBy",
+            "type": "address"
+          },
+          {
+            "internalType": "uint64",
+            "name": "anchoredAt",
+            "type": "uint64"
+          },
+          {
+            "internalType": "bool",
+            "name": "exists",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct InvestmentEscrow.BatchAuthorityAnchorRecord",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
         "name": "batchId",
         "type": "uint256"
       }
@@ -1103,6 +2154,16 @@
             "internalType": "uint256",
             "name": "principalAuthorizedUsd6",
             "type": "uint256"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "policyContextHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "allocationPlanHash",
+            "type": "bytes32"
           },
           {
             "internalType": "bool",
@@ -1225,6 +2286,87 @@
           }
         ],
         "internalType": "struct InvestmentEscrow.BatchSettlement",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "sourceBatchId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getBatchWalletBinding",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "escrowBatchIdHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "batchAuthorityBindingHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "address",
+            "name": "walletAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "ownerTreasury",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "ownerEscrow",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "ownerContinuity",
+            "type": "address"
+          },
+          {
+            "internalType": "uint8",
+            "name": "threshold",
+            "type": "uint8"
+          },
+          {
+            "internalType": "address",
+            "name": "factory",
+            "type": "address"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "creationTxHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint64",
+            "name": "boundAt",
+            "type": "uint64"
+          },
+          {
+            "internalType": "address",
+            "name": "boundBy",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "exists",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct InvestmentEscrow.BatchWalletBinding",
         "name": "",
         "type": "tuple"
       }
@@ -1372,6 +2514,52 @@
           }
         ],
         "internalType": "struct InvestmentEscrow.Position",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "roleId",
+        "type": "uint8"
+      }
+    ],
+    "name": "getRoleAuthority",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "signer",
+            "type": "address"
+          },
+          {
+            "internalType": "enum InvestmentEscrow.RoleStatus",
+            "name": "status",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint64",
+            "name": "updatedAt",
+            "type": "uint64"
+          },
+          {
+            "internalType": "address",
+            "name": "updatedBy",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "exists",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct InvestmentEscrow.OnChainRoleRecord",
         "name": "",
         "type": "tuple"
       }
@@ -1576,6 +2764,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "protocolDAO",
+    "outputs": [
+      {
+        "internalType": "contract IProtocolDAOForEscrow",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint256",
@@ -1615,6 +2816,11 @@
         "internalType": "uint256",
         "name": "settlementDeadlineAt",
         "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "executionContextHash",
+        "type": "bytes32"
       }
     ],
     "name": "receiveTreasuryBatch",
@@ -1678,6 +2884,45 @@
     "name": "renounceOwnership",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "name": "roleAuthorities",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "signer",
+        "type": "address"
+      },
+      {
+        "internalType": "enum InvestmentEscrow.RoleStatus",
+        "name": "status",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint64",
+        "name": "updatedAt",
+        "type": "uint64"
+      },
+      {
+        "internalType": "address",
+        "name": "updatedBy",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -1756,6 +3001,42 @@
     "inputs": [
       {
         "internalType": "address",
+        "name": "_protocolDAO",
+        "type": "address"
+      }
+    ],
+    "name": "setProtocolDAO",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "roleId",
+        "type": "uint8"
+      },
+      {
+        "internalType": "address",
+        "name": "signer",
+        "type": "address"
+      },
+      {
+        "internalType": "enum InvestmentEscrow.RoleStatus",
+        "name": "status",
+        "type": "uint8"
+      }
+    ],
+    "name": "setRoleAuthority",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
         "name": "_routeRegistry",
         "type": "address"
       }
@@ -1774,6 +3055,13 @@
       }
     ],
     "name": "setVault",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "syncRouteRegistryFromDAO",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

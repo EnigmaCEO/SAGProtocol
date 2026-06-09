@@ -75,22 +75,40 @@ export class TreasuryAdapter {
     return { lotId: lotId.toString(), txHash: receipt?.hash || tx.hash };
   }
 
-  async createBankBatch(terms: TermPositionRow[], expectedReturnAt: string, settlementDeadlineAt: string): Promise<{ batchId: string; txHash: string }> {
+  async createBankBatch(terms: TermPositionRow[], expectedReturnAt: string, settlementDeadlineAt: string): Promise<{ batchId: string; txHash: string; executionContextHash: string }> {
     if (treasuryMode() === 'simulated') {
       const seed = terms.map((term) => term.treasury_origin_lot_id || term.id).join(':');
       const digest = ethers.id(`bank-batch:${seed}:${expectedReturnAt}:${settlementDeadlineAt}`);
       const batchId = (BigInt(digest) % 1_000_000_000_000n).toString();
-      return { batchId, txHash: digest };
+      return { batchId, txHash: digest, executionContextHash: digest };
     }
 
     const treasury = writer();
     const lotIds = terms.map((term) => BigInt(term.treasury_origin_lot_id!));
     const expected = seconds(expectedReturnAt);
     const deadline = seconds(settlementDeadlineAt);
-    const batchId = await treasury.createAndFundBatch.staticCall(BANK_ORIGIN_TYPE, lotIds, expected, deadline);
-    const tx = await treasury.createAndFundBatch(BANK_ORIGIN_TYPE, lotIds, expected, deadline);
+
+    // Predict batchId via staticCall so we can bind it into the execution context hash.
+    const batchId = await treasury['createAndFundBatch(uint8,uint256[],uint64,uint64)'].staticCall(BANK_ORIGIN_TYPE, lotIds, expected, deadline);
+
+    // Compute execution context hash from canonical batch parameters.
+    // This hash is stored on-chain in escrowBatchPositions.executionContextHash and verified by Phase 1.
+    const provider = new ethers.JsonRpcProvider(env('BANKING_RPC_URL') || getActiveRpcUrl());
+    const { chainId } = await provider.getNetwork();
+    const treasuryAddr = treasuryAddress();
+    const lotIdsHash = ethers.keccak256(
+      ethers.AbiCoder.defaultAbiCoder().encode(['uint256[]'], [lotIds])
+    );
+    const executionContextHash = ethers.keccak256(
+      ethers.AbiCoder.defaultAbiCoder().encode(
+        ['uint256', 'address', 'uint256', 'uint64', 'uint64', 'uint8', 'bytes32'],
+        [chainId, treasuryAddr, batchId, expected, deadline, BANK_ORIGIN_TYPE, lotIdsHash]
+      )
+    );
+
+    const tx = await treasury['createAndFundBatch(uint8,uint256[],uint64,uint64,bytes32)'](BANK_ORIGIN_TYPE, lotIds, expected, deadline, executionContextHash);
     const receipt = await tx.wait();
-    return { batchId: batchId.toString(), txHash: receipt?.hash || tx.hash };
+    return { batchId: batchId.toString(), txHash: receipt?.hash || tx.hash, executionContextHash };
   }
 
   async getTreasuryBatch(batchId: string) {

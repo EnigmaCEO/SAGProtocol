@@ -18,6 +18,7 @@ import PageHeader from '../ui/PageHeader';
 import { isActiveLocalChain } from '../../lib/network';
 import { useProtocolChain } from '../../context/ProtocolChainContext';
 import ChainSelector from '../chain/ChainSelector';
+import { getEscrowAuthority } from '../../lib/escrow/roleAuthorityRegistry';
 
 const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 const DAO_PROPOSALS_KEY = 'sagitta.daoProposals.v1';
@@ -78,6 +79,10 @@ function formatSecondsLabel(seconds: number): string {
 function formatAddressShort(addr: string | null): string {
   if (!addr || !isValidAddress(addr)) return 'N/A';
   return `${addr.slice(0, 10)}...${addr.slice(-6)}`;
+}
+
+function isNonZeroAddress(addr: string | null | undefined): addr is string {
+  return Boolean(addr && isValidAddress(addr) && addr.toLowerCase() !== ethers.ZeroAddress.toLowerCase());
 }
 
 function formatUsd(value: number | bigint | string, decimals = 6): string {
@@ -184,7 +189,20 @@ type PortfolioAsset = {
   riskClass: number;
   role: number;
   minimumInvestmentUsd6: bigint;
+  defaultDestinationId: number;
+  destination: string;
+  destinationType: number;
   addedAt: number;
+};
+
+type ApprovedDestination = {
+  destinationId: number;
+  name: string;
+  assetSymbol: string;
+  assetAddress: string;
+  destinationType: number;
+  destinationAddress: string;
+  active: boolean;
 };
 
 type PortfolioAssetHistory = {
@@ -237,12 +255,23 @@ const ASSET_ROLE_LABELS = [
   'Yield Fund', // 5
   'External',   // 6
 ];
+const DESTINATION_TYPE_LABELS = [
+  'Batch Wallet Hold',   // 0 – held directly in batch wallet, no external send
+  'Staking Contract',    // 1 – sent to staking contract (e.g. BlockDaemon)
+  'Investment Handoff',  // 2 – deposited into investment protocol (Goldfinch, Maple, Ondo)
+  'Purchase',            // 3 – USDC converted into asset via DEX / OTC then held
+];
 
 const PORTFOLIO_REGISTRY_ABI = [
-  'function addAsset(string symbol, string name, address token, address oracle, uint8 riskClass, uint8 role, uint256 minimumInvestmentUsd6) external',
+  'function addAsset(string symbol, string name, address token, address oracle, uint8 riskClass, uint8 role, uint256 minimumInvestmentUsd6, uint256 defaultDestinationId) external',
   'function removeAsset(string symbol) external',
-  'function updateAsset(string symbol, string name, address token, address oracle, uint8 riskClass, uint8 role, uint256 minimumInvestmentUsd6) external',
-  'function getAllAssets() external view returns (tuple(string symbol, string name, address token, address oracle, uint8 riskClass, uint8 role, uint256 minimumInvestmentUsd6, uint256 addedAt)[])',
+  'function updateAsset(string symbol, string name, address token, address oracle, uint8 riskClass, uint8 role, uint256 minimumInvestmentUsd6, uint256 defaultDestinationId) external',
+  'function getAllAssets() external view returns (tuple(string symbol, string name, address token, address oracle, uint8 riskClass, uint8 role, uint256 minimumInvestmentUsd6, uint256 defaultDestinationId, address destination, uint8 destinationType, uint256 addedAt)[])',
+  'function addDestination(string name, string assetSymbol, address assetAddress, uint8 destinationType, address destinationAddress, bool active) external returns (uint256)',
+  'function updateDestination(uint256 destinationId, string name, string assetSymbol, address assetAddress, uint8 destinationType, address destinationAddress, bool active) external',
+  'function setDestinationActive(uint256 destinationId, bool active) external',
+  'function getDestination(uint256 destinationId) external view returns (tuple(uint256 destinationId, string name, string assetSymbol, address assetAddress, uint8 destinationType, address destinationAddress, bool active))',
+  'function getAllDestinations() external view returns (tuple(uint256 destinationId, string name, string assetSymbol, address assetAddress, uint8 destinationType, address destinationAddress, bool active)[])',
   'function isInPortfolio(string symbol) external view returns (bool)',
   'function assetCount() external view returns (uint256)',
   'function owner() external view returns (address)',
@@ -286,6 +315,10 @@ export default function DAOTab() {
   const address = connectedAddress ?? '';
   const ownerAddress = connectedOwnerAddress ?? '';
   const canExecuteAsActualSigner = actualRole === 'owner' || actualRole === 'operator';
+  const configuredEscrowSignerAddress = getEscrowAuthority().expectedSignerAddress;
+  const defaultEscrowKeeperAddress = isNonZeroAddress(configuredEscrowSignerAddress)
+    ? configuredEscrowSignerAddress
+    : getRuntimeAddress('Treasury');
   const [adminAddresses, setAdminAddresses] = useState<string[]>([]);
   const [councilMemberInput, setCouncilMemberInput] = useState('');
   const [councilStatus, setCouncilStatus] = useState<string | null>(null);
@@ -315,7 +348,7 @@ export default function DAOTab() {
   const [vaultTreasuryInput, setVaultTreasuryInput] = useState<string>(treasuryAddress);
   const [vaultEscrowInput, setVaultEscrowInput] = useState<string>(escrowAddress);
   const [escrowVaultInput, setEscrowVaultInput] = useState<string>(vaultAddress);
-  const [escrowKeeperInput, setEscrowKeeperInput] = useState<string>(treasuryAddress);
+  const [escrowKeeperInput, setEscrowKeeperInput] = useState<string>(defaultEscrowKeeperAddress);
   const [reserveTreasuryInput, setReserveTreasuryInput] = useState<string>(treasuryAddress);
 
   const [treasuryOnChainVault, setTreasuryOnChainVault] = useState<string | null>(null);
@@ -325,6 +358,8 @@ export default function DAOTab() {
   const [vaultOnChainEscrow, setVaultOnChainEscrow] = useState<string | null>(null);
   const [escrowOnChainVault, setEscrowOnChainVault] = useState<string | null>(null);
   const [escrowOnChainKeeper, setEscrowOnChainKeeper] = useState<string | null>(null);
+  const [escrowOnChainRoleSigner, setEscrowOnChainRoleSigner] = useState<string | null>(null);
+  const [escrowOnChainRoleExists, setEscrowOnChainRoleExists] = useState(false);
   const [reserveOnChainTreasury, setReserveOnChainTreasury] = useState<string | null>(null);
 
   const [lockDurationSeconds, setLockDurationSeconds] = useState<number>(365 * 24 * 60 * 60);
@@ -407,7 +442,43 @@ export default function DAOTab() {
   const [newAssetRiskClass, setNewAssetRiskClass] = useState(0);
   const [newAssetRole, setNewAssetRole] = useState(0);
   const [newAssetMinimumAmount, setNewAssetMinimumAmount] = useState('');
+  const [newAssetDefaultDestinationId, setNewAssetDefaultDestinationId] = useState(0);
   const [editingPortfolioAssetSymbol, setEditingPortfolioAssetSymbol] = useState<string | null>(null);
+
+  const [approvedDestinations, setApprovedDestinations] = useState<ApprovedDestination[]>([]);
+  const [approvedDestinationsLoading, setApprovedDestinationsLoading] = useState(false);
+  const [approvedDestinationsStatus, setApprovedDestinationsStatus] = useState<string | null>(null);
+  const [editingDestinationId, setEditingDestinationId] = useState<number | null>(null);
+  const [destinationNameInput, setDestinationNameInput] = useState('');
+  const [destinationAssetSymbolInput, setDestinationAssetSymbolInput] = useState('');
+  const [destinationAssetAddressInput, setDestinationAssetAddressInput] = useState('');
+  const [destinationTypeInput, setDestinationTypeInput] = useState(0);
+  const [destinationAddressInput, setDestinationAddressInput] = useState('');
+  const [destinationActiveInput, setDestinationActiveInput] = useState(true);
+
+  const matchingApprovedDestinations = useMemo(() => {
+    const symbol = newAssetSymbol.trim();
+    const token = isValidAddress(newAssetToken) ? newAssetToken.toLowerCase() : '';
+    return approvedDestinations.filter(destination => {
+      if (!destination.active) return false;
+      const symbolMatches = !!symbol && destination.assetSymbol.trim() === symbol;
+      const addressMatches =
+        !!token &&
+        isValidAddress(destination.assetAddress) &&
+        destination.assetAddress !== ethers.ZeroAddress &&
+        destination.assetAddress.toLowerCase() === token;
+      return symbolMatches || addressMatches;
+    });
+  }, [approvedDestinations, newAssetSymbol, newAssetToken]);
+
+  useEffect(() => {
+    if (
+      newAssetDefaultDestinationId !== 0 &&
+      !matchingApprovedDestinations.some(destination => destination.destinationId === newAssetDefaultDestinationId)
+    ) {
+      setNewAssetDefaultDestinationId(0);
+    }
+  }, [matchingApprovedDestinations, newAssetDefaultDestinationId]);
 
   const [routeRegistryAddress, setRouteRegistryAddress] = useState<string>(() => getRuntimeAddress('ExecutionRouteRegistry'));
   const [executionRoutes, setExecutionRoutes] = useState<ExecutionRoute[]>([]);
@@ -584,6 +655,7 @@ export default function DAOTab() {
   useEffect(() => {
     if (!provider) return;
     refreshPortfolioState();
+    refreshApprovedDestinations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, portfolioRegistryAddress]);
 
@@ -745,31 +817,52 @@ export default function DAOTab() {
       if (!hasCode) {
         setEscrowOnChainVault(null);
         setEscrowOnChainKeeper(null);
+        setEscrowOnChainRoleSigner(null);
+        setEscrowOnChainRoleExists(false);
         setEscrowLastRollTime(null);
         diagnostics.escrow = `No contract bytecode at Escrow (${escrowAddr})`;
       } else {
       try {
         const escrowRead = new ethers.Contract(
           escrowAddr,
-          ['function vault() view returns (address)', 'function keeper() view returns (address)', 'function lastBatchRollTime() view returns (uint256)'],
+          [
+            'function vault() view returns (address)',
+            'function keeper() view returns (address)',
+            'function lastBatchRollTime() view returns (uint256)',
+            'function getRoleAuthority(uint8 roleId) view returns (tuple(address signer, uint8 status, uint64 updatedAt, address updatedBy, bool exists))',
+          ],
           provider
         );
-        const [v, k, lastRollRaw] = await Promise.all([
+        const [v, k, lastRollRaw, escrowRoleRaw] = await Promise.all([
           escrowRead.vault(),
           escrowRead.keeper(),
           escrowRead.lastBatchRollTime(),
+          escrowRead.getRoleAuthority(1).catch(() => null),
         ]);
         const linkedVault = typeof v === 'string' && v !== ZERO_ADDRESS ? v : null;
         const linkedKeeper = typeof k === 'string' && k !== ZERO_ADDRESS ? k : null;
+        const roleSignerRaw = String(escrowRoleRaw?.signer ?? escrowRoleRaw?.[0] ?? '');
+        const roleSigner = isNonZeroAddress(roleSignerRaw) ? roleSignerRaw : null;
+        const roleExists = Boolean(escrowRoleRaw?.exists ?? escrowRoleRaw?.[4] ?? false);
         setEscrowOnChainVault(linkedVault);
         setEscrowOnChainKeeper(linkedKeeper);
+        setEscrowOnChainRoleSigner(roleSigner);
+        setEscrowOnChainRoleExists(roleExists);
         if (linkedVault) setEscrowVaultInput(linkedVault);
-        if (linkedKeeper) setEscrowKeeperInput(linkedKeeper);
+        if (roleSigner) {
+          setEscrowKeeperInput(roleSigner);
+        } else if (isNonZeroAddress(configuredEscrowSignerAddress)) {
+          setEscrowKeeperInput(configuredEscrowSignerAddress);
+        } else if (linkedKeeper) {
+          setEscrowKeeperInput(linkedKeeper);
+        }
         const lastRollSec = Number(lastRollRaw ?? 0);
         setEscrowLastRollTime(Number.isFinite(lastRollSec) && lastRollSec > 0 ? lastRollSec : null);
       } catch (error: any) {
         setEscrowOnChainVault(null);
         setEscrowOnChainKeeper(null);
+        setEscrowOnChainRoleSigner(null);
+        setEscrowOnChainRoleExists(false);
         setEscrowLastRollTime(null);
         diagnostics.escrow = formatError(error);
       }
@@ -777,6 +870,8 @@ export default function DAOTab() {
     } else {
       setEscrowOnChainVault(null);
       setEscrowOnChainKeeper(null);
+      setEscrowOnChainRoleSigner(null);
+      setEscrowOnChainRoleExists(false);
       setEscrowLastRollTime(null);
       diagnostics.escrow = 'Invalid Escrow address';
     }
@@ -863,7 +958,7 @@ export default function DAOTab() {
     setEscrowAddressInput(nextEscrow);
     setReserveAddressInput(nextReserve);
     setGoldOracleAddressInput(nextGoldOracle);
-    setEscrowKeeperInput(nextTreasury);
+    setEscrowKeeperInput(isNonZeroAddress(configuredEscrowSignerAddress) ? configuredEscrowSignerAddress : nextTreasury);
 
     setConfigStatus('Loaded generated addresses from addresses.ts and updated runtime address book');
     refreshConfigState({
@@ -1156,7 +1251,7 @@ export default function DAOTab() {
             nextVault = generatedVault;
             nextEscrow = generatedEscrow;
             nextReserve = generatedReserve;
-            nextKeeper = generatedTreasury;
+            nextKeeper = isNonZeroAddress(configuredEscrowSignerAddress) ? configuredEscrowSignerAddress : generatedTreasury;
 
             setTreasuryAddress(nextTreasury);
             setVaultAddress(nextVault);
@@ -1884,13 +1979,153 @@ export default function DAOTab() {
           riskClass: Number(a.riskClass ?? a[4] ?? 0),
           role:      Number(a.role      ?? a[5] ?? 0),
           minimumInvestmentUsd6: BigInt(a.minimumInvestmentUsd6 ?? a[6] ?? 0),
-          addedAt:   Number(a.addedAt   ?? a[7] ?? 0),
+          defaultDestinationId: Number(a.defaultDestinationId ?? a[7] ?? 0),
+          destination: String(a.destination ?? a[8] ?? ethers.ZeroAddress),
+          destinationType: Number(a.destinationType ?? a[9] ?? 0),
+          addedAt:   Number(a.addedAt   ?? a[10] ?? 0),
         }))
       );
     } catch {
       setPortfolioAssets([]);
     } finally {
       setPortfolioLoading(false);
+    }
+  };
+
+  const refreshApprovedDestinations = async () => {
+    if (!provider || !isValidAddress(portfolioRegistryAddress)) {
+      setApprovedDestinations([]);
+      return;
+    }
+    setApprovedDestinationsLoading(true);
+    try {
+      const registry = new ethers.Contract(portfolioRegistryAddress, PORTFOLIO_REGISTRY_ABI, provider);
+      const raw = await registry.getAllDestinations();
+      setApprovedDestinations(
+        raw.map((destination: any) => ({
+          destinationId: Number(destination.destinationId ?? destination[0] ?? 0),
+          name: String(destination.name ?? destination[1] ?? ''),
+          assetSymbol: String(destination.assetSymbol ?? destination[2] ?? ''),
+          assetAddress: String(destination.assetAddress ?? destination[3] ?? ethers.ZeroAddress),
+          destinationType: Number(destination.destinationType ?? destination[4] ?? 0),
+          destinationAddress: String(destination.destinationAddress ?? destination[5] ?? ethers.ZeroAddress),
+          active: Boolean(destination.active ?? destination[6] ?? false),
+        }))
+      );
+    } catch (error: any) {
+      setApprovedDestinations([]);
+      setApprovedDestinationsStatus(`Failed to load approved destinations: ${formatError(error)}`);
+    } finally {
+      setApprovedDestinationsLoading(false);
+    }
+  };
+
+  function resetApprovedDestinationForm(): void {
+    setEditingDestinationId(null);
+    setDestinationNameInput('');
+    setDestinationAssetSymbolInput('');
+    setDestinationAssetAddressInput('');
+    setDestinationTypeInput(0);
+    setDestinationAddressInput('');
+    setDestinationActiveInput(true);
+  }
+
+  function beginApprovedDestinationEdit(destination: ApprovedDestination): void {
+    setEditingDestinationId(destination.destinationId);
+    setDestinationNameInput(destination.name);
+    setDestinationAssetSymbolInput(destination.assetSymbol);
+    setDestinationAssetAddressInput(
+      isValidAddress(destination.assetAddress) && destination.assetAddress !== ethers.ZeroAddress
+        ? destination.assetAddress
+        : ''
+    );
+    setDestinationTypeInput(destination.destinationType);
+    setDestinationAddressInput(
+      isValidAddress(destination.destinationAddress) && destination.destinationAddress !== ethers.ZeroAddress
+        ? destination.destinationAddress
+        : ''
+    );
+    setDestinationActiveInput(destination.active);
+    setApprovedDestinationsStatus(`Editing approved destination #${destination.destinationId}.`);
+  }
+
+  const handleSaveApprovedDestination = async (): Promise<void> => {
+    const name = destinationNameInput.trim();
+    const assetSymbol = destinationAssetSymbolInput.trim();
+    const assetAddress = destinationAssetAddressInput.trim();
+    const destinationAddress = destinationAddressInput.trim();
+
+    if (!name) {
+      setApprovedDestinationsStatus('Destination name is required');
+      return;
+    }
+    if (!assetSymbol && !assetAddress) {
+      setApprovedDestinationsStatus('Asset symbol or asset address is required');
+      return;
+    }
+    if (assetAddress && !isValidAddress(assetAddress)) {
+      setApprovedDestinationsStatus('Asset address must be a valid 0x address or left blank');
+      return;
+    }
+    if (destinationAddress && !isValidAddress(destinationAddress)) {
+      setApprovedDestinationsStatus('Destination address must be a valid 0x address or left blank');
+      return;
+    }
+    if ((destinationTypeInput === 1 || destinationTypeInput === 2) && !isValidAddress(destinationAddress)) {
+      setApprovedDestinationsStatus('This destination type requires a destination address');
+      return;
+    }
+    if (!isOp) {
+      setApprovedDestinationsStatus('Only operators can edit approved destinations');
+      return;
+    }
+
+    setConfigBusy(true);
+    try {
+      const registry = new ethers.Contract(portfolioRegistryAddress, PORTFOLIO_REGISTRY_ABI, await getWriteSigner());
+      const args = [
+        name,
+        assetSymbol,
+        isValidAddress(assetAddress) ? assetAddress : ethers.ZeroAddress,
+        destinationTypeInput,
+        isValidAddress(destinationAddress) ? destinationAddress : ethers.ZeroAddress,
+        destinationActiveInput,
+      ] as const;
+      const tx = editingDestinationId
+        ? await registry.updateDestination(editingDestinationId, ...args)
+        : await registry.addDestination(...args);
+      await tx.wait();
+      setApprovedDestinationsStatus(
+        `${editingDestinationId ? 'Updated' : 'Added'} approved destination${editingDestinationId ? ` #${editingDestinationId}` : ''} (tx=${tx.hash})`
+      );
+      resetApprovedDestinationForm();
+      await Promise.all([refreshApprovedDestinations(), refreshPortfolioState()]);
+    } catch (error: any) {
+      setApprovedDestinationsStatus(`Destination write failed: ${formatError(error)}`);
+    } finally {
+      setConfigBusy(false);
+    }
+  };
+
+  const handleSetApprovedDestinationActive = async (destination: ApprovedDestination, active: boolean): Promise<void> => {
+    if (!isOp) {
+      setApprovedDestinationsStatus('Only operators can edit approved destinations');
+      return;
+    }
+    setConfigBusy(true);
+    try {
+      const registry = new ethers.Contract(portfolioRegistryAddress, PORTFOLIO_REGISTRY_ABI, await getWriteSigner());
+      const tx = await registry.setDestinationActive(destination.destinationId, active);
+      await tx.wait();
+      setApprovedDestinationsStatus(
+        `${active ? 'Enabled' : 'Disabled'} approved destination #${destination.destinationId} (tx=${tx.hash})`
+      );
+      if (editingDestinationId === destination.destinationId) resetApprovedDestinationForm();
+      await refreshApprovedDestinations();
+    } catch (error: any) {
+      setApprovedDestinationsStatus(`Destination status update failed: ${formatError(error)}`);
+    } finally {
+      setConfigBusy(false);
     }
   };
 
@@ -1915,14 +2150,16 @@ export default function DAOTab() {
       riskClass?: number;
       role?: number;
       minimumInvestmentUsd6?: string | number;
+      defaultDestinationId?: string | number;
     }
   ): Promise<boolean> => {
-    const symbol    = (payload?.symbol ?? newAssetSymbol).trim();
-    const name      = (payload?.name   ?? newAssetName).trim();
-    const token     = (payload?.token  ?? newAssetToken).trim();
-    const oracle    = (payload?.oracle ?? newAssetOracle).trim();
+    const symbol = (payload?.symbol ?? newAssetSymbol).trim();
+    const name = (payload?.name ?? newAssetName).trim();
+    const token = (payload?.token ?? newAssetToken).trim();
+    const oracle = (payload?.oracle ?? newAssetOracle).trim();
     const riskClass = payload?.riskClass ?? newAssetRiskClass;
-    const role      = payload?.role      ?? newAssetRole;
+    const role = payload?.role ?? newAssetRole;
+    const defaultDestinationId = Number(payload?.defaultDestinationId ?? newAssetDefaultDestinationId);
     const minimumInvestmentUsd6 =
       payload?.minimumInvestmentUsd6 !== undefined
         ? BigInt(String(payload.minimumInvestmentUsd6))
@@ -1948,6 +2185,7 @@ export default function DAOTab() {
 
     const tokenAddr = isValidAddress(token) ? token : ethers.ZeroAddress;
     const oracleAddr = isValidAddress(oracle) ? oracle : ethers.ZeroAddress;
+    const approvedDestination = approvedDestinations.find(destination => destination.destinationId === defaultDestinationId);
 
     if (!bypassProposal) {
       if (!isOp) {
@@ -1957,7 +2195,7 @@ export default function DAOTab() {
       const proposal = queueProposal(
         'ADD_PORTFOLIO_ASSET',
         `Add ${symbol} to Portfolio`,
-        `Add asset ${symbol} (${name || 'unnamed'}) to the accepted allocation portfolio as ${ASSET_ROLE_LABELS[role]} / ${RISK_CLASS_LABELS[riskClass]} with a minimum amount of ${minimumInvestmentUsd6 > 0 ? formatUsd(minimumInvestmentUsd6) : 'none'}.`,
+        `Add asset ${symbol} (${name || 'unnamed'}) to the accepted allocation portfolio as ${ASSET_ROLE_LABELS[role]} / ${RISK_CLASS_LABELS[riskClass]}, default destination: ${approvedDestination?.name ?? 'Not configured'}, minimum: ${minimumInvestmentUsd6 > 0 ? formatUsd(minimumInvestmentUsd6) : 'none'}.`,
         {
           symbol,
           name,
@@ -1966,6 +2204,7 @@ export default function DAOTab() {
           riskClass,
           role,
           minimumInvestmentUsd6: minimumInvestmentUsd6.toString(),
+          defaultDestinationId,
         }
       );
       setPortfolioStatus(`Proposal queued (${proposal.id})`);
@@ -1981,7 +2220,7 @@ export default function DAOTab() {
     try {
       const signer = await getWriteSigner();
       const registry = new ethers.Contract(portfolioRegistryAddress, PORTFOLIO_REGISTRY_ABI, signer);
-      const tx = await registry.addAsset(symbol, name, tokenAddr, oracleAddr, riskClass, role, minimumInvestmentUsd6);
+      const tx = await registry.addAsset(symbol, name, tokenAddr, oracleAddr, riskClass, role, minimumInvestmentUsd6, defaultDestinationId);
       await tx.wait();
       resetPortfolioAssetForm();
       setPortfolioStatus(`Asset ${symbol} added to portfolio (tx=${tx.hash})`);
@@ -2003,6 +2242,7 @@ export default function DAOTab() {
     setNewAssetRiskClass(0);
     setNewAssetRole(0);
     setNewAssetMinimumAmount('');
+    setNewAssetDefaultDestinationId(0);
     setEditingPortfolioAssetSymbol(null);
   }
 
@@ -2015,6 +2255,10 @@ export default function DAOTab() {
     setNewAssetRiskClass(asset.riskClass);
     setNewAssetRole(asset.role);
     setNewAssetMinimumAmount(formatUsd6Input(asset.minimumInvestmentUsd6));
+    const destinationIsSelectable = approvedDestinations.some(
+      destination => destination.active && destination.destinationId === asset.defaultDestinationId
+    );
+    setNewAssetDefaultDestinationId(destinationIsSelectable ? asset.defaultDestinationId : 0);
     setPortfolioStatus(`Editing asset ${asset.symbol}.`);
   }
 
@@ -2028,6 +2272,7 @@ export default function DAOTab() {
       riskClass?: number;
       role?: number;
       minimumInvestmentUsd6?: string | number;
+      defaultDestinationId?: string | number;
     }
   ): Promise<boolean> => {
     const symbol = (payload?.symbol ?? editingPortfolioAssetSymbol ?? newAssetSymbol).trim();
@@ -2036,6 +2281,7 @@ export default function DAOTab() {
     const oracle = (payload?.oracle ?? newAssetOracle).trim();
     const riskClass = payload?.riskClass ?? newAssetRiskClass;
     const role = payload?.role ?? newAssetRole;
+    const defaultDestinationId = Number(payload?.defaultDestinationId ?? newAssetDefaultDestinationId);
     const minimumInvestmentUsd6 =
       payload?.minimumInvestmentUsd6 !== undefined
         ? BigInt(String(payload.minimumInvestmentUsd6))
@@ -2064,6 +2310,7 @@ export default function DAOTab() {
 
     const tokenAddr = isValidAddress(token) ? token : ethers.ZeroAddress;
     const oracleAddr = isValidAddress(oracle) ? oracle : ethers.ZeroAddress;
+    const approvedDestination = approvedDestinations.find(destination => destination.destinationId === defaultDestinationId);
 
     if (!bypassProposal) {
       if (!isOp) {
@@ -2073,7 +2320,7 @@ export default function DAOTab() {
       const proposal = queueProposal(
         'UPDATE_PORTFOLIO_ASSET',
         `Update ${symbol} in Portfolio`,
-        `Update asset ${symbol} to ${ASSET_ROLE_LABELS[role]} / ${RISK_CLASS_LABELS[riskClass]} with a minimum amount of ${minimumInvestmentUsd6 > 0 ? formatUsd(minimumInvestmentUsd6) : 'none'}.`,
+        `Update asset ${symbol} to ${ASSET_ROLE_LABELS[role]} / ${RISK_CLASS_LABELS[riskClass]}, default destination: ${approvedDestination?.name ?? 'Not configured'}, minimum: ${minimumInvestmentUsd6 > 0 ? formatUsd(minimumInvestmentUsd6) : 'none'}.`,
         {
           symbol,
           name,
@@ -2082,6 +2329,7 @@ export default function DAOTab() {
           riskClass,
           role,
           minimumInvestmentUsd6: minimumInvestmentUsd6.toString(),
+          defaultDestinationId,
         }
       );
       setPortfolioStatus(`Edit proposal queued (${proposal.id})`);
@@ -2096,7 +2344,7 @@ export default function DAOTab() {
     try {
       const signer = await getWriteSigner();
       const registry = new ethers.Contract(portfolioRegistryAddress, PORTFOLIO_REGISTRY_ABI, signer);
-      const tx = await registry.updateAsset(symbol, name, tokenAddr, oracleAddr, riskClass, role, minimumInvestmentUsd6);
+      const tx = await registry.updateAsset(symbol, name, tokenAddr, oracleAddr, riskClass, role, minimumInvestmentUsd6, defaultDestinationId);
       await tx.wait();
       resetPortfolioAssetForm();
       setPortfolioStatus(`Asset ${symbol} updated in portfolio (tx=${tx.hash})`);
@@ -2438,6 +2686,26 @@ export default function DAOTab() {
       && route.ndaSigned
       && route.pnlEndpoint.trim().length > 0;
   };
+  const expectedEscrowKeeperAddress = isNonZeroAddress(escrowOnChainRoleSigner)
+    ? escrowOnChainRoleSigner
+    : configuredEscrowSignerAddress;
+  const escrowKeeperReadable = isNonZeroAddress(escrowOnChainKeeper);
+  const expectedEscrowKeeperReadable = isNonZeroAddress(expectedEscrowKeeperAddress);
+  const escrowKeeperMatchesExpected = escrowKeeperReadable
+    && expectedEscrowKeeperReadable
+    && escrowOnChainKeeper.toLowerCase() === expectedEscrowKeeperAddress.toLowerCase();
+  const escrowKeeperStatusLabel = !escrowKeeperReadable
+    ? 'Keeper Not Read'
+    : !expectedEscrowKeeperReadable
+      ? 'Expected Signer Missing'
+      : escrowKeeperMatchesExpected
+        ? 'Keeper OK'
+        : 'Keeper Mismatch';
+  const escrowKeeperStatusTone = escrowKeeperMatchesExpected
+    ? 'success'
+    : escrowKeeperReadable && expectedEscrowKeeperReadable
+      ? 'danger'
+      : 'warning';
 
   return (
     <div className="tab-screen">
@@ -2618,6 +2886,46 @@ export default function DAOTab() {
               <div>Escrow -&gt; Vault: {formatAddressShort(escrowOnChainVault)} | Keeper: {formatAddressShort(escrowOnChainKeeper)} | Reserve -&gt; Treasury: {formatAddressShort(reserveOnChainTreasury)}</div>
             </div>
 
+            <div className={`mt-3 rounded-xl border p-3 ${
+              escrowKeeperMatchesExpected
+                ? 'border-emerald-700/50 bg-emerald-950/20'
+                : escrowKeeperReadable && expectedEscrowKeeperReadable
+                  ? 'border-rose-700/50 bg-rose-950/20'
+                  : 'border-amber-700/50 bg-amber-950/20'
+            }`}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs uppercase tracking-[0.16em] text-slate-400">Escrow Keeper Authorization</div>
+                <span className="data-chip" data-tone={escrowKeeperStatusTone}>{escrowKeeperStatusLabel}</span>
+              </div>
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div>
+                  <div className="uppercase tracking-[0.16em] text-slate-500">InvestmentEscrow keeper()</div>
+                  <div className="mt-1 break-all font-mono text-slate-200">{escrowKeeperReadable ? escrowOnChainKeeper : 'N/A'}</div>
+                </div>
+                <div>
+                  <div className="uppercase tracking-[0.16em] text-slate-500">ROLE_ESCROW signer</div>
+                  <div className="mt-1 break-all font-mono text-slate-200">
+                    {isNonZeroAddress(escrowOnChainRoleSigner)
+                      ? escrowOnChainRoleSigner
+                      : isNonZeroAddress(configuredEscrowSignerAddress)
+                        ? configuredEscrowSignerAddress
+                        : 'N/A'}
+                  </div>
+                  <div className="mt-1 text-slate-500">
+                    {escrowOnChainRoleExists ? 'Read from InvestmentEscrow role registry' : 'Using configured escrow signer fallback'}
+                  </div>
+                </div>
+                <div>
+                  <div className="uppercase tracking-[0.16em] text-slate-500">Attach AAA requirement</div>
+                  <div className={escrowKeeperMatchesExpected ? 'mt-1 text-emerald-300' : 'mt-1 text-rose-300'}>
+                    {escrowKeeperMatchesExpected
+                      ? 'signer-escrow can call attachAllocation.'
+                      : 'keeper() must equal the escrow signer used by signer-escrow.'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {[configStatus, treasuryStatus, vaultStatus, escrowStatus, reserveStatus].filter(Boolean).map((msg, idx) => (
               <div key={idx} className="mt-2 text-xs text-slate-300">{msg}</div>
             ))}
@@ -2745,6 +3053,173 @@ export default function DAOTab() {
       <section className="grid grid-cols-12 gap-5">
         <div className="sagitta-cell col-span-12">
           <h3 className="section-title flex items-center gap-2">
+            <ShieldAlert size={18} /> Approved Destinations
+          </h3>
+          <p className="section-subtitle">
+            Maintain the DAO-approved destinations that portfolio assets may select as their default destination.
+          </p>
+
+          {isOp && (
+            <div className="mt-5 rounded-xl border border-slate-700/50 bg-slate-900/35 p-4">
+              <div className="mb-3 text-xs uppercase tracking-[0.16em] text-slate-400">
+                {editingDestinationId ? `Edit Destination #${editingDestinationId}` : 'Add Approved Destination'}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <input
+                  className="px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
+                  value={destinationNameInput}
+                  onChange={event => setDestinationNameInput(event.target.value)}
+                  placeholder="Destination name"
+                  disabled={vaultPaused || configBusy}
+                />
+                <select
+                  className="px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
+                  value={destinationTypeInput}
+                  onChange={event => setDestinationTypeInput(Number(event.target.value))}
+                  disabled={vaultPaused || configBusy}
+                >
+                  {DESTINATION_TYPE_LABELS.map((label, index) => (
+                    <option key={label} value={index}>{label}</option>
+                  ))}
+                </select>
+                <input
+                  className="px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
+                  value={destinationAssetSymbolInput}
+                  onChange={event => setDestinationAssetSymbolInput(event.target.value)}
+                  placeholder="Asset symbol, e.g. OUSG"
+                  disabled={vaultPaused || configBusy}
+                />
+                <input
+                  className="px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs"
+                  value={destinationAssetAddressInput}
+                  onChange={event => setDestinationAssetAddressInput(event.target.value)}
+                  placeholder="Asset address, optional"
+                  disabled={vaultPaused || configBusy}
+                />
+                <input
+                  className="px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs sm:col-span-2"
+                  value={destinationAddressInput}
+                  onChange={event => setDestinationAddressInput(event.target.value)}
+                  placeholder="Destination address; blank allowed for hold or purchase"
+                  disabled={vaultPaused || configBusy}
+                />
+                <label className="flex items-center gap-2 text-sm text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={destinationActiveInput}
+                    onChange={event => setDestinationActiveInput(event.target.checked)}
+                    disabled={vaultPaused || configBusy}
+                  />
+                  Active
+                </label>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button
+                    className="action-button action-button--primary"
+                    onClick={handleSaveApprovedDestination}
+                    disabled={vaultPaused || configBusy || !destinationNameInput.trim()}
+                  >
+                    {editingDestinationId ? 'Save Destination' : 'Add Destination'}
+                  </button>
+                  {editingDestinationId && (
+                    <button
+                      className="action-button action-button--ghost"
+                      onClick={resetApprovedDestinationForm}
+                      disabled={configBusy}
+                    >
+                      Cancel Edit
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {approvedDestinationsStatus && (
+            <div className="mt-3 rounded-xl border border-slate-700/50 bg-slate-900/35 p-3 text-xs text-slate-300">
+              {approvedDestinationsStatus}
+            </div>
+          )}
+
+          <div className="mt-5 flex items-center justify-between gap-3">
+            <div className="text-xs uppercase tracking-[0.16em] text-slate-400">
+              Approved Destinations ({approvedDestinations.length})
+            </div>
+            <button
+              className="action-button action-button--ghost"
+              onClick={refreshApprovedDestinations}
+              disabled={approvedDestinationsLoading || configBusy}
+            >
+              {approvedDestinationsLoading ? 'Loading...' : 'Refresh'}
+            </button>
+          </div>
+
+          {approvedDestinations.length === 0 ? (
+            <div className="mt-3 rounded-xl border border-slate-700/50 bg-slate-900/35 p-4 text-sm text-slate-400">
+              {approvedDestinationsLoading ? 'Loading approved destinations...' : 'No approved destinations configured.'}
+            </div>
+          ) : (
+            <div className="mt-3 overflow-x-auto rounded-xl border border-slate-700/50">
+              <table className="w-full text-xs text-slate-300">
+                <thead>
+                  <tr className="border-b border-slate-700/50 bg-slate-900/50">
+                    <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Destination Name</th>
+                    <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Asset</th>
+                    <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Type</th>
+                    <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Address</th>
+                    <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Status</th>
+                    {isOp && <th className="px-3 py-2">Edit / Disable</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {approvedDestinations.map(destination => (
+                    <tr key={destination.destinationId} className="border-b border-slate-700/30 hover:bg-slate-800/30">
+                      <td className="px-3 py-2 font-semibold text-slate-100">{destination.name}</td>
+                      <td className="px-3 py-2">
+                        {destination.assetSymbol || formatAddressShort(destination.assetAddress)}
+                      </td>
+                      <td className="px-3 py-2">{DESTINATION_TYPE_LABELS[destination.destinationType] ?? destination.destinationType}</td>
+                      <td className="px-3 py-2 font-mono">
+                        {isValidAddress(destination.destinationAddress) && destination.destinationAddress !== ethers.ZeroAddress
+                          ? formatAddressShort(destination.destinationAddress)
+                          : <span className="text-slate-500">Not configured</span>}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] ${destination.active ? 'bg-emerald-700/40 text-emerald-200' : 'bg-slate-700/60 text-slate-300'}`}>
+                          {destination.active ? 'Active' : 'Disabled'}
+                        </span>
+                      </td>
+                      {isOp && (
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              className="px-2 py-1 rounded bg-sky-900/50 hover:bg-sky-800/70 text-sky-200 text-[10px] font-semibold border border-sky-700/40 disabled:opacity-40"
+                              onClick={() => beginApprovedDestinationEdit(destination)}
+                              disabled={vaultPaused || configBusy}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="px-2 py-1 rounded bg-slate-800/70 hover:bg-slate-700 text-slate-200 text-[10px] font-semibold border border-slate-600/40 disabled:opacity-40"
+                              onClick={() => handleSetApprovedDestinationActive(destination, !destination.active)}
+                              disabled={vaultPaused || configBusy}
+                            >
+                              {destination.active ? 'Disable' : 'Enable'}
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="grid grid-cols-12 gap-5">
+        <div className="sagitta-cell col-span-12">
+          <h3 className="section-title flex items-center gap-2">
             <ArrowRightLeft size={18} /> Portfolio Registry
           </h3>
             <p className="section-subtitle">
@@ -2868,6 +3343,25 @@ export default function DAOTab() {
                       ))}
                     </select>
                   </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="text-xs uppercase tracking-[0.12em] text-slate-400">Default Approved Destination</label>
+                    <select
+                      className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100"
+                      value={newAssetDefaultDestinationId}
+                      onChange={e => setNewAssetDefaultDestinationId(Number(e.target.value))}
+                      disabled={vaultPaused || !isOp || configBusy || !!proposalExecId}
+                    >
+                      <option value={0}>Destination: Not configured</option>
+                      {matchingApprovedDestinations.map(destination => (
+                        <option key={destination.destinationId} value={destination.destinationId}>
+                          {destination.name} · {DESTINATION_TYPE_LABELS[destination.destinationType] ?? destination.destinationType}
+                        </option>
+                      ))}
+                    </select>
+                    {matchingApprovedDestinations.length === 0 && (
+                      <div className="text-xs text-slate-500">Destination: Not configured</div>
+                    )}
+                  </div>
                 </div>
                 <div className="mt-1 flex flex-wrap gap-3">
                   <button
@@ -2919,6 +3413,8 @@ export default function DAOTab() {
                         <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Min. Amount</th>
                         <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Token</th>
                         <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Oracle</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Deployment</th>
+                        <th className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">Destination</th>
                         {isOp && <th className="px-3 py-2">Actions</th>}
                       </tr>
                     </thead>
@@ -2948,6 +3444,36 @@ export default function DAOTab() {
                           </td>
                           <td className="px-3 py-2 font-mono">{formatAddressShort(asset.token)}</td>
                           <td className="px-3 py-2 font-mono">{isValidAddress(asset.oracle) && asset.oracle !== ethers.ZeroAddress ? formatAddressShort(asset.oracle) : <span className="text-slate-500">none</span>}</td>
+                          <td className="px-3 py-2">
+                            {approvedDestinations.some(destination => destination.active && destination.destinationId === asset.defaultDestinationId)
+                              ? (
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] ${
+                                  asset.destinationType === 0 ? 'bg-slate-700/60 text-slate-300' :
+                                  asset.destinationType === 1 ? 'bg-blue-700/40 text-blue-200' :
+                                  asset.destinationType === 2 ? 'bg-emerald-700/40 text-emerald-200' :
+                                  'bg-orange-700/40 text-orange-200'
+                                }`}>
+                                  {DESTINATION_TYPE_LABELS[asset.destinationType] ?? String(asset.destinationType)}
+                                </span>
+                              )
+                              : <span className="text-slate-500">Not configured</span>}
+                          </td>
+                          <td className="px-3 py-2">
+                            {approvedDestinations.some(destination => destination.active && destination.destinationId === asset.defaultDestinationId)
+                              ? (
+                                <>
+                                  <div className="font-semibold text-slate-200">
+                                    {approvedDestinations.find(destination => destination.destinationId === asset.defaultDestinationId)?.name}
+                                  </div>
+                                  <div className="font-mono text-[10px] text-slate-400">
+                                    {isValidAddress(asset.destination) && asset.destination !== ethers.ZeroAddress
+                                      ? formatAddressShort(asset.destination)
+                                      : 'No address'}
+                                  </div>
+                                </>
+                              )
+                              : <span className="text-slate-500">Destination: Not configured</span>}
+                          </td>
                           {isOp && (
                             <td className="px-3 py-2">
                               <div className="flex flex-wrap gap-2">

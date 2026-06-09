@@ -9,6 +9,7 @@ import TREASURY_ABI from '../../lib/abis/Treasury.json';
 import GOLD_ORACLE_ABI from '../../lib/abis/MockOracle.json'; // use MockOracle ABI for GOLD (or replace with GoldOracle.json if you add it)
 import { getRuntimeAddress, isValidAddress, setRuntimeAddress } from '../../lib/runtime-addresses';
 import { useProtocolChain } from '../../context/ProtocolChainContext';
+import { readBatchAuthorityAnchorFromChain } from './escrowAuthorityBinding';
 
 const normalizeAbi = (x: any): any => Array.isArray(x) ? x : x?.abi ?? x?.default?.abi ?? x?.default ?? [];
 const TREASURY_ABI_NORM: any = normalizeAbi(TREASURY_ABI);
@@ -164,6 +165,10 @@ export default function TreasuryTab() {
   const [vaultAddress, setVaultAddress] = useState<string | null>(null);
 
   // BANK Liquidity panel state
+  // On-chain anchor status cache keyed by `${chainKey}:${sourceBatchId}`.
+  // Populated by chain reads, never from localStorage.
+  const [anchorCache, setAnchorCache] = useState<Record<string, { status: 'anchored' | 'pending' | 'unknown'; anchoredAt?: string }>>({});
+
   const [bankLots, setBankLots] = useState<Array<{
     id: string;
     treasuryOriginLotId: string;
@@ -387,6 +392,48 @@ export default function TreasuryTab() {
   useEffect(() => {
     fetchBankLots();
   }, []);
+
+  // Read anchor status for each BANK lot directly from the InvestmentEscrow contract.
+  // localStorage is NOT used as source of truth for anchor status.
+  useEffect(() => {
+    const effectiveEscrow = (escrowAddress && isValidAddress(escrowAddress))
+      ? escrowAddress
+      : (isValidAddress(escrowLinkInput) ? escrowLinkInput : null);
+    const lotsWithBatch = bankLots.filter(lot => lot.treasuryBatchId);
+    if (lotsWithBatch.length === 0 || !effectiveEscrow) return;
+
+    let cancelled = false;
+
+    Promise.all(
+      lotsWithBatch.map(async (lot) => {
+        const key = `${selectedChain.key}:${lot.treasuryBatchId}`;
+        try {
+          const result = await readBatchAuthorityAnchorFromChain({
+            escrowAddress: effectiveEscrow,
+            sourceBatchId: String(lot.treasuryBatchId),
+            rpcUrl: selectedChain.rpcUrl,
+          });
+          if (cancelled) return;
+          setAnchorCache(prev => ({
+            ...prev,
+            [key]: {
+              status: result?.exists ? 'anchored' : 'pending',
+              anchoredAt: result?.anchoredAt,
+            },
+          }));
+        } catch {
+          if (!cancelled) {
+            setAnchorCache(prev => ({
+              ...prev,
+              [key]: { status: 'unknown' },
+            }));
+          }
+        }
+      })
+    );
+
+    return () => { cancelled = true; };
+  }, [bankLots, escrowAddress, escrowLinkInput, selectedChain.key, selectedChain.rpcUrl]);
 
   useEffect(() => {
     if (treasury) fetchVaultLots();
@@ -840,55 +887,34 @@ export default function TreasuryTab() {
       setVaultBatchStatus(`No VAULT-origin lots can cover settlement by ${formatChainTime(settlementDeadlineAt)}.`);
       return;
     }
-    if (!signer || !isValidAddress(treasuryAddress)) {
-      setVaultBatchTone('danger');
-      setVaultBatchStatus('Treasury signer not available. Ensure Treasury address is set.');
-      return;
-    }
 
     setVaultBatchLoading(true);
     setVaultBatchStatus(null);
     try {
-      const treasuryWrite = new Contract(treasuryAddress, TREASURY_ABI_NORM, signer);
-      const lotIds = eligibleLots.map(lot => BigInt(lot.id));
-      const batchId = await treasuryWrite.createAndFundBatch.staticCall(
-        ORIGIN_TYPE_VAULT,
-        lotIds,
-        BigInt(expectedReturnAt),
-        BigInt(settlementDeadlineAt),
-      );
-      const tx = await treasuryWrite.createAndFundBatch(
-        ORIGIN_TYPE_VAULT,
-        lotIds,
-        BigInt(expectedReturnAt),
-        BigInt(settlementDeadlineAt),
-      );
-      await tx.wait();
-      const batchIdStr = batchId.toString();
-      setVaultBatchTone('success');
-      setVaultBatchStatus(`Batch #${batchIdStr} created with ${eligibleLots.length} lot(s). Tx: ${tx.hash}`);
-      pushEngineLog(`[TreasuryHandoff:Vault] batch=${batchIdStr} lots=${eligibleLots.map(l => l.id).join(',')}`);
-
-      // Register the on-chain batch with the banking tracker (fire-and-forget — non-blocking)
-      fetch(bankingUrl('/treasury/vault-batches/register'), {
+      const res = await fetch(bankingUrl('/treasury/vault-batches'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          batchId: batchIdStr,
           chainKey: selectedChain.key,
           chainId: selectedChain.chainId,
-          txHash: tx.hash,
-          lotIds: eligibleLots.map(l => String(l.id)),
-          principalUsd: eligibleLots.reduce((sum, l) => sum + l.amountUsd6 / 1_000_000, 0),
           expectedReturnAt: new Date(expectedReturnAt * 1000).toISOString(),
           settlementDeadlineAt: new Date(settlementDeadlineAt * 1000).toISOString(),
         }),
-      }).catch(() => {/* tracker unavailable — batch still succeeded on-chain */});
-
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      if (data.treasuryBatchId) {
+        setVaultBatchTone('success');
+        setVaultBatchStatus(`Batch #${data.treasuryBatchId} handed to Escrow with ${data.includedVaultLotIds?.length ?? 0} lot(s).`);
+        pushEngineLog(`[TreasuryHandoff:Vault] batch=${data.treasuryBatchId} lots=${(data.includedVaultLotIds ?? []).join(',')}`);
+      } else {
+        setVaultBatchTone('warning');
+        setVaultBatchStatus(data.skippedReason || 'No eligible VAULT lots are ready for batching.');
+      }
       await Promise.allSettled([fetchVaultLots(), refreshTreasuryState()]);
     } catch (e: any) {
       setVaultBatchTone('danger');
-      setVaultBatchStatus(String(e?.reason || e?.message || e));
+      setVaultBatchStatus(String(e?.message || e));
     } finally {
       setVaultBatchLoading(false);
     }
@@ -1277,6 +1303,13 @@ export default function TreasuryTab() {
                     : lot.protocolStatus === 'lot_registered'
                       ? 'Waiting for compatible batch'
                       : (lot.protocolStatus ?? 'Waiting');
+                // On-chain anchor status from InvestmentEscrow.getBatchAuthorityAnchor.
+                // Source of truth is the chain, not localStorage.
+                const anchorEntry = lot.treasuryBatchId
+                  ? anchorCache[`${selectedChain.key}:${lot.treasuryBatchId}`]
+                  : undefined;
+                const authStatus: 'pending' | 'anchored' | 'unknown' = anchorEntry?.status ?? 'pending';
+                const anchoredAt = anchorEntry?.anchoredAt;
                 return (
                   <div key={lot.id} className="panel-row" style={{ alignItems: 'flex-start' }}>
                     <span className="panel-row__label" style={{ minWidth: 90 }}>
@@ -1309,6 +1342,16 @@ export default function TreasuryTab() {
                         <div className="text-[11px] text-slate-400 mt-1">
                           {lot.returnedAmountUsd ? `settled amount ${formatUsd(lot.returnedAmountUsd * 1_000_000)}` : 'settlement recorded'}
                           {lot.treasurySettlementStatus ? ` | ${lot.treasurySettlementStatus}` : ''}
+                        </div>
+                      )}
+                      {lot.treasuryBatchId && (
+                        <div className={`text-[11px] mt-1 ${authStatus === 'anchored' ? 'text-emerald-400' : authStatus === 'unknown' ? 'text-amber-400/70' : 'text-slate-500'}`}>
+                          Auth:{' '}
+                          {authStatus === 'anchored'
+                            ? `anchored${anchoredAt ? ` · ${new Date(anchoredAt).toLocaleString()}` : ''}`
+                            : authStatus === 'unknown'
+                              ? 'unknown — RPC read failed'
+                              : 'pending — no on-chain anchor'}
                         </div>
                       )}
                     </span>

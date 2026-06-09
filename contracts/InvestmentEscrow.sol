@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 interface ITreasuryForEscrow {
     function fundEscrowBatch(uint256 batchId, uint256 amountUsd) external;
@@ -41,8 +42,14 @@ interface IProtocolDAOForEscrow {
     function getAddress(string calldata key) external view returns (address);
 }
 
+interface IBatchMultisigWallet {
+    function threshold() external view returns (uint8);
+    function getOwners() external view returns (address[3] memory);
+}
+
 contract InvestmentEscrow is Ownable {
     using SafeERC20 for IERC20;
+    using ECDSA for bytes32;
 
     uint256 public constant BATCH_INTERVAL = 7 days;
     uint256 public constant USER_PROFIT_BPS = 8_000;
@@ -164,6 +171,57 @@ contract InvestmentEscrow is Ownable {
         uint256 expiresAt;
     }
 
+    struct BatchAuthorityAnchorRecord {
+        bytes32 escrowBatchIdHash;
+        bytes32 batchAuthorityBindingHash;
+        bytes32 systemMapHash;
+        address sourceContractAddress;
+        address activeEscrowAddress;
+        address treasurySignerAddress;
+        address escrowSignerAddress;
+        address anchoredBy;
+        uint64 anchoredAt;
+        bool exists;
+    }
+
+    struct BatchWalletBinding {
+        bytes32 escrowBatchIdHash;
+        bytes32 batchAuthorityBindingHash;
+        address walletAddress;
+        address ownerTreasury;
+        address ownerEscrow;
+        address ownerContinuity;
+        uint8 threshold;
+        address factory;
+        // creationTxHash is caller-supplied indexed evidence of the wallet deployment
+        // transaction. The contract stores it as-is but cannot verify it on-chain;
+        // authoritative proof is the deployment receipt and BatchWalletBound event.
+        bytes32 creationTxHash;
+        uint64 boundAt;
+        address boundBy;
+        bool exists;
+    }
+
+    // ─── On-chain Role Authority Registry ─────────────────────────────────────────
+    // Each signing role has an expected signer address and a lifecycle status.
+    // anchorBatchAuthorityBinding reads these — never trusts caller-supplied signer addresses.
+
+    enum RoleStatus { Active, Frozen, Retired }
+
+    struct OnChainRoleRecord {
+        address signer;
+        RoleStatus status;
+        uint64 updatedAt;
+        address updatedBy;
+        bool exists;
+    }
+
+    uint8 public constant ROLE_TREASURY_VAULT  = 0;
+    uint8 public constant ROLE_ESCROW          = 1;
+    uint8 public constant ROLE_CONTINUITY_SCE  = 2;
+
+    mapping(uint8 => OnChainRoleRecord) public roleAuthorities;
+
     mapping(uint256 => Batch) public batches;
     mapping(uint256 => uint256) public receiptBatchId;
     mapping(uint256 => BatchMandate) private batchMandates;
@@ -176,7 +234,86 @@ contract InvestmentEscrow is Ownable {
     mapping(uint256 => mapping(uint256 => uint256)) private batchRouteMaxAllocationUsd6;
     mapping(uint256 => mapping(uint256 => uint256)) private batchRouteCommittedUsd6;
     mapping(uint256 => mapping(uint256 => ComplianceAttestation)) private batchRouteAttestations;
+    mapping(uint256 => BatchAuthorityAnchorRecord) public batchAuthorityAnchors;
+    mapping(uint256 => BatchWalletBinding) public batchWalletBindings;
+    mapping(uint256 => bool) public batchWalletFunded;
 
+    struct AllocationAttachment {
+        bytes32 allocationPlanHash;
+        bytes32 policyContextHash;
+        string  portfolioRegistryVersion;
+        address attachedBy;
+        uint64  attachedAt;
+        bool    exists;
+    }
+
+    mapping(uint256 => AllocationAttachment) public batchAllocationAttachments;
+
+    error AlreadyAnchored(uint256 sourceBatchId, bytes32 existingHash);
+    error AnchorHashMismatch(uint256 sourceBatchId, bytes32 existingHash, bytes32 newHash);
+    error InvalidTreasurySigner(address recovered, address expected);
+    error InvalidEscrowSigner(address recovered, address expected);
+    error RoleSignerNotSet(uint8 roleId);
+    error RoleNotActive(uint8 roleId, RoleStatus status);
+    error WalletAlreadyBound(uint256 sourceBatchId, address existingWallet);
+    error WalletNotBound(uint256 sourceBatchId);
+    error AnchorNotFound(uint256 sourceBatchId);
+    error WalletBindingHashMismatch(bytes32 anchorHash, bytes32 providedHash);
+    error WalletBindingEscrowIdMismatch(bytes32 anchorId, bytes32 providedId);
+    error ZeroWalletAddress();
+    error WalletThresholdInvalid(uint8 walletThreshold);
+    error WalletOwnersMissing();
+    error AlreadyFunded(uint256 sourceBatchId);
+    error BatchPositionNotFound(uint256 sourceBatchId);
+    error InsufficientEscrowBalance(uint256 required, uint256 available);
+    error BatchNotFunded(uint256 sourceBatchId);
+    error ZeroAllocationHash();
+    error AllocationHashMismatch(uint256 sourceBatchId, bytes32 existingHash, bytes32 newHash);
+
+    event RoleAuthorityUpdated(
+        uint8 indexed roleId,
+        address indexed signer,
+        RoleStatus indexed status,
+        address updatedBy
+    );
+    event BatchAuthorityBindingAnchored(
+        uint256 indexed sourceBatchId,
+        bytes32 indexed batchAuthorityBindingHash,
+        bytes32 indexed escrowBatchIdHash,
+        bytes32 systemMapHash,
+        address sourceContractAddress,
+        address activeEscrowAddress,
+        address treasurySignerAddress,
+        address escrowSignerAddress,
+        address anchoredBy
+    );
+    event BatchWalletBound(
+        uint256 indexed sourceBatchId,
+        address indexed walletAddress,
+        bytes32 indexed batchAuthorityBindingHash,
+        bytes32 escrowBatchIdHash,
+        address ownerTreasury,
+        address ownerEscrow,
+        address ownerContinuity,
+        address factory,
+        bytes32 creationTxHash,
+        address boundBy
+    );
+    event BatchWalletFunded(
+        uint256 indexed sourceBatchId,
+        address indexed walletAddress,
+        string asset,
+        uint256 amount,
+        bytes32 indexed authorityBindingHash,
+        bytes32 walletBindingHash
+    );
+    event BatchAllocationAttached(
+        uint256 indexed sourceBatchId,
+        bytes32 indexed allocationPlanHash,
+        bytes32 policyContextHash,
+        string  portfolioRegistryVersion,
+        address attachedBy
+    );
     event BatchCreated(uint256 indexed batchId, uint256 createdAt);
     event DepositRegistered(uint256 indexed tokenId, uint256 indexed batchId, uint256 amountUsd, uint256 shares);
     event BatchRolled(uint256 indexed batchId, uint256 amountUsd);
@@ -745,6 +882,313 @@ contract InvestmentEscrow is Ownable {
 
     function getBatchRouteCommittedUsd6(uint256 batchId, uint256 routeId) external view returns (uint256) {
         return batchRouteCommittedUsd6[batchId][routeId];
+    }
+
+    function anchorBatchAuthorityBinding(
+        uint256 sourceBatchId,
+        bytes32 escrowBatchIdHash,
+        bytes32 batchAuthorityBindingHash,
+        bytes32 systemMapHash,
+        address sourceContractAddress,
+        address activeEscrowAddress,
+        bytes calldata treasurySignature,
+        bytes calldata escrowSignature
+    ) external {
+        require(sourceBatchId != 0, "Invalid sourceBatchId");
+        require(batchAuthorityBindingHash != bytes32(0), "Invalid bindingHash");
+        require(escrowBatchIdHash != bytes32(0), "Invalid escrowBatchIdHash");
+        require(treasurySignature.length > 0, "Treasury signature required");
+        require(escrowSignature.length > 0, "Escrow signature required");
+
+        // Load expected signers from on-chain role authority registry — caller-supplied addresses are not trusted.
+        OnChainRoleRecord storage tvRole     = roleAuthorities[ROLE_TREASURY_VAULT];
+        OnChainRoleRecord storage escrowRole = roleAuthorities[ROLE_ESCROW];
+
+        if (!tvRole.exists)    revert RoleSignerNotSet(ROLE_TREASURY_VAULT);
+        if (!escrowRole.exists) revert RoleSignerNotSet(ROLE_ESCROW);
+
+        if (tvRole.status != RoleStatus.Active)     revert RoleNotActive(ROLE_TREASURY_VAULT, tvRole.status);
+        if (escrowRole.status != RoleStatus.Active) revert RoleNotActive(ROLE_ESCROW, escrowRole.status);
+
+        // Recover signers from EIP-712 hash — must match the stored on-chain role signers exactly.
+        address recoveredTreasury = batchAuthorityBindingHash.recover(treasurySignature);
+        if (recoveredTreasury != tvRole.signer) {
+            revert InvalidTreasurySigner(recoveredTreasury, tvRole.signer);
+        }
+
+        address recoveredEscrow = batchAuthorityBindingHash.recover(escrowSignature);
+        if (recoveredEscrow != escrowRole.signer) {
+            revert InvalidEscrowSigner(recoveredEscrow, escrowRole.signer);
+        }
+
+        BatchAuthorityAnchorRecord storage record = batchAuthorityAnchors[sourceBatchId];
+
+        if (record.exists) {
+            if (record.batchAuthorityBindingHash == batchAuthorityBindingHash) {
+                // Same hash — idempotent, nothing to do.
+                return;
+            }
+            revert AnchorHashMismatch(sourceBatchId, record.batchAuthorityBindingHash, batchAuthorityBindingHash);
+        }
+
+        // Store recovered signer addresses (on-chain verified) — not caller-supplied values.
+        batchAuthorityAnchors[sourceBatchId] = BatchAuthorityAnchorRecord({
+            escrowBatchIdHash: escrowBatchIdHash,
+            batchAuthorityBindingHash: batchAuthorityBindingHash,
+            systemMapHash: systemMapHash,
+            sourceContractAddress: sourceContractAddress,
+            activeEscrowAddress: activeEscrowAddress,
+            treasurySignerAddress: recoveredTreasury,
+            escrowSignerAddress: recoveredEscrow,
+            anchoredBy: msg.sender,
+            anchoredAt: uint64(block.timestamp),
+            exists: true
+        });
+
+        emit BatchAuthorityBindingAnchored(
+            sourceBatchId,
+            batchAuthorityBindingHash,
+            escrowBatchIdHash,
+            systemMapHash,
+            sourceContractAddress,
+            activeEscrowAddress,
+            recoveredTreasury,
+            recoveredEscrow,
+            msg.sender
+        );
+    }
+
+    function getBatchAuthorityAnchor(uint256 sourceBatchId) external view returns (BatchAuthorityAnchorRecord memory) {
+        return batchAuthorityAnchors[sourceBatchId];
+    }
+
+    // ─── Batch wallet binding ──────────────────────────────────────────────────────
+    // bindBatchWallet may only be called after Batch Authority Binding is anchored.
+    // The provided wallet contract must be a BatchMultisigWallet with:
+    //   - threshold == 2
+    //   - sourceBatchId matching the requested batch
+    //   - batchAuthorityBindingHash matching the anchor
+    //   - owners == {ROLE_TREASURY_VAULT, ROLE_ESCROW, ROLE_CONTINUITY_SCE} signers (in any order)
+
+    function bindBatchWallet(
+        uint256 sourceBatchId,
+        bytes32 escrowBatchIdHash,
+        bytes32 batchAuthorityBindingHash_,
+        address walletAddress,
+        address factory,
+        bytes32 creationTxHash
+    ) external {
+        if (walletAddress == address(0)) revert ZeroWalletAddress();
+        if (batchWalletBindings[sourceBatchId].exists) {
+            revert WalletAlreadyBound(sourceBatchId, batchWalletBindings[sourceBatchId].walletAddress);
+        }
+
+        BatchAuthorityAnchorRecord storage anchor = batchAuthorityAnchors[sourceBatchId];
+        if (!anchor.exists) revert AnchorNotFound(sourceBatchId);
+        if (anchor.batchAuthorityBindingHash != batchAuthorityBindingHash_) {
+            revert WalletBindingHashMismatch(anchor.batchAuthorityBindingHash, batchAuthorityBindingHash_);
+        }
+        if (anchor.escrowBatchIdHash != escrowBatchIdHash) {
+            revert WalletBindingEscrowIdMismatch(anchor.escrowBatchIdHash, escrowBatchIdHash);
+        }
+
+        OnChainRoleRecord storage tvRole = roleAuthorities[ROLE_TREASURY_VAULT];
+        OnChainRoleRecord storage escrowRole = roleAuthorities[ROLE_ESCROW];
+        OnChainRoleRecord storage sceRole = roleAuthorities[ROLE_CONTINUITY_SCE];
+        if (!tvRole.exists)    revert RoleSignerNotSet(ROLE_TREASURY_VAULT);
+        if (!escrowRole.exists) revert RoleSignerNotSet(ROLE_ESCROW);
+        if (!sceRole.exists)   revert RoleSignerNotSet(ROLE_CONTINUITY_SCE);
+        if (tvRole.status != RoleStatus.Active)    revert RoleNotActive(ROLE_TREASURY_VAULT, tvRole.status);
+        if (escrowRole.status != RoleStatus.Active) revert RoleNotActive(ROLE_ESCROW, escrowRole.status);
+        if (sceRole.status != RoleStatus.Active)   revert RoleNotActive(ROLE_CONTINUITY_SCE, sceRole.status);
+
+        // The anchor hash and escrow batch ID hash are already validated above from
+        // batchAuthorityAnchors (the escrow's own storage), so no need to re-read
+        // them via wallet interface calls — that would add bytecode with no new security.
+        IBatchMultisigWallet w = IBatchMultisigWallet(walletAddress);
+
+        uint8 walletThreshold = w.threshold();
+        if (walletThreshold != 2) revert WalletThresholdInvalid(walletThreshold);
+
+        address[3] memory owners = w.getOwners();
+        bool hasTreasury;
+        bool hasEscrow;
+        bool hasContinuity;
+        for (uint8 i = 0; i < 3; i++) {
+            if (owners[i] == tvRole.signer)    hasTreasury = true;
+            if (owners[i] == escrowRole.signer) hasEscrow   = true;
+            if (owners[i] == sceRole.signer)   hasContinuity = true;
+        }
+        if (!hasTreasury || !hasEscrow || !hasContinuity) revert WalletOwnersMissing();
+
+        batchWalletBindings[sourceBatchId] = BatchWalletBinding({
+            escrowBatchIdHash: escrowBatchIdHash,
+            batchAuthorityBindingHash: batchAuthorityBindingHash_,
+            walletAddress: walletAddress,
+            ownerTreasury: tvRole.signer,
+            ownerEscrow: escrowRole.signer,
+            ownerContinuity: sceRole.signer,
+            threshold: 2,
+            factory: factory,
+            creationTxHash: creationTxHash,
+            boundAt: uint64(block.timestamp),
+            boundBy: msg.sender,
+            exists: true
+        });
+
+        emit BatchWalletBound(
+            sourceBatchId,
+            walletAddress,
+            batchAuthorityBindingHash_,
+            escrowBatchIdHash,
+            tvRole.signer,
+            escrowRole.signer,
+            sceRole.signer,
+            factory,
+            creationTxHash,
+            msg.sender
+        );
+    }
+
+    function getBatchWalletBinding(uint256 sourceBatchId) external view returns (BatchWalletBinding memory) {
+        return batchWalletBindings[sourceBatchId];
+    }
+
+    // ─── Batch wallet funding ──────────────────────────────────────────────────────
+    // fundBatchWallet may only be called after:
+    //   1. Batch Authority Binding is anchored (anchor exists for sourceBatchId)
+    //   2. Batch Wallet Binding exists and is valid (wallet bound for sourceBatchId)
+    // It is idempotent-guarded: a second call reverts with AlreadyFunded.
+
+    function fundBatchWallet(uint256 sourceBatchId) external {
+        // 1. Verify Batch Authority Binding anchor exists.
+        BatchAuthorityAnchorRecord storage anchor = batchAuthorityAnchors[sourceBatchId];
+        if (!anchor.exists) revert AnchorNotFound(sourceBatchId);
+
+        // 2. Verify Batch Wallet Binding exists.
+        BatchWalletBinding storage binding = batchWalletBindings[sourceBatchId];
+        if (!binding.exists) revert WalletNotBound(sourceBatchId);
+
+        // 3. Verify wallet address is non-zero.
+        if (binding.walletAddress == address(0)) revert ZeroWalletAddress();
+
+        // 4. Verify threshold is 2.
+        if (binding.threshold != 2) revert WalletThresholdInvalid(binding.threshold);
+
+        // 5. Verify owners match current on-chain role authority signers.
+        OnChainRoleRecord storage tvRole    = roleAuthorities[ROLE_TREASURY_VAULT];
+        OnChainRoleRecord storage escrowRole = roleAuthorities[ROLE_ESCROW];
+        OnChainRoleRecord storage sceRole   = roleAuthorities[ROLE_CONTINUITY_SCE];
+        if (!tvRole.exists)     revert RoleSignerNotSet(ROLE_TREASURY_VAULT);
+        if (!escrowRole.exists) revert RoleSignerNotSet(ROLE_ESCROW);
+        if (!sceRole.exists)    revert RoleSignerNotSet(ROLE_CONTINUITY_SCE);
+        if (tvRole.status    != RoleStatus.Active) revert RoleNotActive(ROLE_TREASURY_VAULT,  tvRole.status);
+        if (escrowRole.status != RoleStatus.Active) revert RoleNotActive(ROLE_ESCROW,          escrowRole.status);
+        if (sceRole.status   != RoleStatus.Active) revert RoleNotActive(ROLE_CONTINUITY_SCE,  sceRole.status);
+        if (binding.ownerTreasury   != tvRole.signer  ||
+            binding.ownerEscrow     != escrowRole.signer ||
+            binding.ownerContinuity != sceRole.signer) {
+            revert WalletOwnersMissing();
+        }
+
+        // 6. Verify batch position exists.
+        EscrowBatchPosition storage position = escrowBatchPositions[sourceBatchId];
+        if (position.batchId != sourceBatchId) revert BatchPositionNotFound(sourceBatchId);
+
+        // 7. Verify asset and amount are valid.
+        uint256 amount = position.deployedPrincipal;
+        require(amount > 0, "No funded principal");
+        uint256 available = usdc.balanceOf(address(this));
+        if (available < amount) revert InsufficientEscrowBalance(amount, available);
+
+        // 8. Idempotency guard — reject double funding.
+        if (batchWalletFunded[sourceBatchId]) revert AlreadyFunded(sourceBatchId);
+
+        // 9. Mark funded before transfer (checks-effects-interactions).
+        batchWalletFunded[sourceBatchId] = true;
+
+        // 10. Transfer USDC from InvestmentEscrow to the bound batch wallet.
+        usdc.safeTransfer(binding.walletAddress, amount);
+
+        emit BatchWalletFunded(
+            sourceBatchId,
+            binding.walletAddress,
+            "USDC",
+            amount,
+            anchor.batchAuthorityBindingHash,
+            binding.creationTxHash
+        );
+    }
+
+    // ─── AAA Allocation attachment ─────────────────────────────────────────────────
+    // attachAllocation records the canonical AAA allocation plan hash and policy context
+    // hash on-chain for a funded batch. Both hashes and the registry version must be
+    // present. Re-attachment is idempotent only when the full attachment matches.
+
+    function attachAllocation(
+        uint256 sourceBatchId,
+        bytes32 allocationPlanHash,
+        bytes32 policyContextHash,
+        string calldata portfolioRegistryVersion
+    ) external onlyKeeperOwnerOrTreasury {
+        EscrowBatchPosition storage position = escrowBatchPositions[sourceBatchId];
+        bool escrowPositionFunded = position.batchId == sourceBatchId && position.deployedPrincipal > 0;
+        if (!batchWalletFunded[sourceBatchId] && !escrowPositionFunded) revert BatchNotFunded(sourceBatchId);
+        if (allocationPlanHash == bytes32(0)) revert ZeroAllocationHash();
+        if (policyContextHash  == bytes32(0)) revert ZeroAllocationHash();
+        require(bytes(portfolioRegistryVersion).length > 0, "Registry version required");
+
+        AllocationAttachment storage attachment = batchAllocationAttachments[sourceBatchId];
+        if (attachment.exists) {
+            if (
+                attachment.allocationPlanHash == allocationPlanHash &&
+                attachment.policyContextHash  == policyContextHash &&
+                keccak256(bytes(attachment.portfolioRegistryVersion)) == keccak256(bytes(portfolioRegistryVersion))
+            ) {
+                return;
+            }
+            revert AllocationHashMismatch(sourceBatchId, attachment.allocationPlanHash, allocationPlanHash);
+        }
+
+        batchAllocationAttachments[sourceBatchId] = AllocationAttachment({
+            allocationPlanHash:        allocationPlanHash,
+            policyContextHash:         policyContextHash,
+            portfolioRegistryVersion:  portfolioRegistryVersion,
+            attachedBy:                msg.sender,
+            attachedAt:                uint64(block.timestamp),
+            exists:                    true
+        });
+
+        emit BatchAllocationAttached(
+            sourceBatchId,
+            allocationPlanHash,
+            policyContextHash,
+            portfolioRegistryVersion,
+            msg.sender
+        );
+    }
+
+    function getAllocationAttachment(uint256 sourceBatchId) external view returns (AllocationAttachment memory) {
+        return batchAllocationAttachments[sourceBatchId];
+    }
+
+    // ─── Role authority management ─────────────────────────────────────────────────
+    // TODO: Transition to DAO/timelock-controlled role updates once governance is live.
+
+    function setRoleAuthority(uint8 roleId, address signer, RoleStatus status) external onlyOwner {
+        require(signer != address(0), "Zero signer address");
+        roleAuthorities[roleId] = OnChainRoleRecord({
+            signer: signer,
+            status: status,
+            updatedAt: uint64(block.timestamp),
+            updatedBy: msg.sender,
+            exists: true
+        });
+        emit RoleAuthorityUpdated(roleId, signer, status, msg.sender);
+    }
+
+    function getRoleAuthority(uint8 roleId) external view returns (OnChainRoleRecord memory) {
+        return roleAuthorities[roleId];
     }
 
     function _ensurePendingBatchExists(uint256 batchId) internal {

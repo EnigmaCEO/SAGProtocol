@@ -30,10 +30,15 @@ module.exports = {
   networks: {
     hardhat: {
       chainId: 1337,
+      // InvestmentEscrow exceeds EIP-170 24 576-byte limit on local dev builds.
+      // This flag only affects the in-process Hardhat network; real testnets and
+      // mainnet still enforce the limit — reduce size before deploying there.
+      allowUnlimitedContractSize: true,
     },
     localhost: {
       url: "http://127.0.0.1:8545",
       chainId: 1337,
+      allowUnlimitedContractSize: true,
     },
     moonbase: {
       url: process.env.MOONBASE_RPC || process.env.MOONBASE_RPC_URL || "https://rpc.api.moonbase.moonbeam.network",

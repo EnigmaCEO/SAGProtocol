@@ -31,6 +31,81 @@
     "type": "constructor"
   },
   {
+    "inputs": [],
+    "name": "AlreadyExists",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "AlreadySettled",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "BatchNotFound",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "EscrowNotSet",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InsufficientBalance",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidParam",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "LotAlreadyAllocated",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "LotNotAvailable",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "LotNotFound",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoPendingProfit",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotEscrow",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotVault",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotVaultOrOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OracleInvalid",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OracleNotSet",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -74,6 +149,11 @@
     "type": "error"
   },
   {
+    "inputs": [],
+    "name": "RecipientNotFound",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -82,6 +162,21 @@
       }
     ],
     "name": "SafeERC20FailedOperation",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "TransferFailed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "VaultNotSet",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroAddress",
     "type": "error"
   },
   {
@@ -986,6 +1081,29 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "principalUsd",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "returnedUsd",
+        "type": "uint256"
+      }
+    ],
+    "name": "adminReportBatchSettled",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "allowAutoMintCollateralize",
     "outputs": [
@@ -1009,6 +1127,56 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "expectedCloseTime",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "settlementUnit",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "policyContextHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "allocationPlanHash",
+        "type": "bytes32"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "routeId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxAllocationUsd6",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IEscrowForTreasury.RouteAllocation[]",
+        "name": "routeAllocations",
+        "type": "tuple[]"
+      }
+    ],
+    "name": "authorizeEscrowBatch",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -1221,6 +1389,45 @@
         "internalType": "uint64",
         "name": "settlementDeadlineAt",
         "type": "uint64"
+      }
+    ],
+    "name": "createAndFundBatch",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "batchId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "enum Treasury.OriginType",
+        "name": "originType",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "lotIds",
+        "type": "uint256[]"
+      },
+      {
+        "internalType": "uint64",
+        "name": "expectedReturnAt",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "settlementDeadlineAt",
+        "type": "uint64"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "executionContextHash",
+        "type": "bytes32"
       }
     ],
     "name": "createAndFundBatch",

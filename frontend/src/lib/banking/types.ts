@@ -107,6 +107,15 @@ export interface EscrowExecutionOrder {
   assignedInvestor?: string;
   assignedVenue?: string;
   treasuryBatchTxHash?: string;
+  batchWalletAddress?: string;
+  walletAddress?: string;
+  assignedBatchWalletAddress?: string;
+  batchWalletChain?: string;
+  expectedFundingAmountUsd?: number;
+  observedWalletBalanceUsd?: number;
+  fundingTxHash?: string;
+  depositManifestHash?: string;
+  batchWalletBindingHash?: string;
   authorizationTxHash?: string;
   settlementTxHash?: string;
   treasurySettlementTxHash?: string;

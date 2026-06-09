@@ -152,8 +152,8 @@
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\InvestmentEscrow.sol": {
-      "lastModificationDate": 1777036144142,
-      "contentHash": "76185c4bbe87d8f1b45cb8e6db2ffcf9",
+      "lastModificationDate": 1780784159829,
+      "contentHash": "93b9fe292b7d7ed27b3174c3fdefc169",
       "sourceName": "contracts/InvestmentEscrow.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -183,12 +183,14 @@
       "imports": [
         "@openzeppelin/contracts/access/Ownable.sol",
         "@openzeppelin/contracts/token/ERC20/IERC20.sol",
-        "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
+        "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+        "@openzeppelin/contracts/utils/cryptography/ECDSA.sol"
       ],
       "versionPragmas": [
         "^0.8.24"
       ],
       "artifacts": [
+        "IBatchMultisigWallet",
         "IExecutionRouteRegistry",
         "IProtocolDAOForEscrow",
         "ITreasuryForEscrow",
@@ -1626,8 +1628,8 @@
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\PortfolioRegistry.sol": {
-      "lastModificationDate": 1776566528561,
-      "contentHash": "92d912aefa05e4f1e27b30f1595081b2",
+      "lastModificationDate": 1780650329239,
+      "contentHash": "b6c023b84a71147c3998893954db85c6",
       "sourceName": "contracts/PortfolioRegistry.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -1899,6 +1901,127 @@
       ],
       "artifacts": [
         "OracleMock"
+      ]
+    },
+    "D:\\Projects\\Sagitta\\SAGProtocol\\node_modules\\@openzeppelin\\contracts\\utils\\cryptography\\ECDSA.sol": {
+      "lastModificationDate": 1776567070853,
+      "contentHash": "81de029d56aa803972be03c5d277cb6c",
+      "sourceName": "@openzeppelin/contracts/utils/cryptography/ECDSA.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 1
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "ECDSA"
+      ]
+    },
+    "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\BatchMultisigWallet.sol": {
+      "lastModificationDate": 1780537854442,
+      "contentHash": "f1b8029d519cdf182ca0b067a9d5359f",
+      "sourceName": "contracts/BatchMultisigWallet.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 1
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+        "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "BatchMultisigWallet"
+      ]
+    },
+    "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\mocks\\MockApprovedDestinations.sol": {
+      "lastModificationDate": 1780781714740,
+      "contentHash": "220052960eb4d990bd47b6f94769331d",
+      "sourceName": "contracts/mocks/MockApprovedDestinations.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 1
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "MockApprovedDestination",
+        "MockBlockdaemonDotStaking",
+        "MockBlockdaemonUsdcDestination",
+        "MockGoldfinchDestination",
+        "MockMapleSyrupDestination",
+        "MockOndoOusgDestination",
+        "MockPaxgPurchaseAdapter",
+        "MockSkyDestination"
       ]
     }
   }

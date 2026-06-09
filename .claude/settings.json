@@ -1,5 +1,13 @@
 {
   "permissions": {
-    "allow": []
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(grep -v \"//\\\\|treasury_signer\\\\|TREASURY_SIGNER\\\\|escrow_signer\\\\|ESCROW_SIGNER\")",
+      "Bash(grep -v \"//\\\\|treasury_signer\\\\|TREASURY_SIGNER\\\\|escrow_signer\\\\|ESCROW_SIGNER\\\\|Signer\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Treasury:', d.get\\('Treasury','not found'\\)\\)\")",
+      "Bash(node -e \"const {ethers} = require\\('ethers'\\); console.log\\('depositReturnForBatch\\(uint256,uint256\\):', ethers.id\\('depositReturnForBatch\\(uint256,uint256\\)'\\).slice\\(0,10\\)\\); console.log\\('batches\\(uint256\\):', ethers.id\\('batches\\(uint256\\)'\\).slice\\(0,10\\)\\); console.log\\('finalizeBatchSettlement\\(uint256,bytes32,bytes32\\):', ethers.id\\('finalizeBatchSettlement\\(uint256,bytes32,bytes32\\)'\\).slice\\(0,10\\)\\);\")",
+      "Bash(node -e \"const {ethers} = require\\('ethers'\\); ['batchAccounting\\(uint256\\)','batchSettlements\\(uint256\\)','batchPositionIds\\(uint256,uint256\\)','escrowBatchPositions\\(uint256\\)','keeper\\(\\)','usdc\\(\\)','owner\\(\\)','getBatchSettlement\\(uint256\\)'].forEach\\(s => console.log\\(s + ':', ethers.id\\(s\\).slice\\(0,10\\)\\)\\);\")",
+      "Bash(node -e \"const {ethers} = require\\('ethers'\\); ['getBatchSettlement\\(uint256\\)','getBatchAccounting\\(uint256\\)','batchAccounting\\(uint256\\)'].forEach\\(s => console.log\\(s + ':', ethers.id\\(s\\).slice\\(0,10\\)\\)\\);\")"
+    ]
   }
 }

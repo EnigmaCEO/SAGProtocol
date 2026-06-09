@@ -10,6 +10,7 @@ import type {
   SettlementEvent,
   TermPosition,
 } from './types';
+import { escrowBatchUuid } from '../escrow/ids';
 
 export const BANKING_STORAGE_KEY = 'sagitta.banking.state.v1';
 
@@ -48,6 +49,50 @@ function nextPositionId(): string {
 
 function nextTransactionId(prefix: string): string {
   return `${prefix}-${Date.now()}`;
+}
+
+function fnv1a32(input: string, seed: number) {
+  let hash = seed >>> 0;
+
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+
+  return hash.toString(16).padStart(8, '0');
+}
+
+function demoHash(value: unknown) {
+  const source = JSON.stringify(value ?? {});
+  const hex = [
+    fnv1a32(source, 0x811c9dc5),
+    fnv1a32(source, 0x12345678),
+    fnv1a32(source, 0x9e3779b9),
+    fnv1a32(source, 0xa5a5a5a5),
+    fnv1a32(source, 0x7f4a7c15),
+    fnv1a32(source, 0x34567890),
+    fnv1a32(source, 0x2468ace0),
+    fnv1a32(source, 0x13579bdf),
+  ].join('');
+
+  return `0x${hex}`;
+}
+
+function createDemoEscrowWalletAddress(treasuryBatchId: string) {
+  const source = `escrow-${treasuryBatchId}:${treasuryBatchId}`;
+  const hex = [
+    fnv1a32(source, 0x811c9dc5),
+    fnv1a32(source, 0x12345678),
+    fnv1a32(source, 0x9e3779b9),
+    fnv1a32(source, 0xa5a5a5a5),
+    fnv1a32(source, 0x7f4a7c15),
+  ].join('');
+
+  return `0x${hex.slice(0, 40)}`;
+}
+
+function createDemoBindingHash(payload: Record<string, unknown>) {
+  return demoHash(payload);
 }
 
 function rateLabelForTerm(termYears: number): string {
@@ -364,6 +409,78 @@ export async function createBankingTreasuryBatch(request: BankingBatchRequest = 
     const principalUsd = nextState.termPositions
       .filter((position) => batchResult.includedTermDepositIds.includes(position.id))
       .reduce((sum, position) => sum + position.principalUsd, 0);
+    const sourceTerm = eligibleTerms[0];
+    const treasuryBatchId = batchResult.batchId;
+    const escrowBatchId = escrowBatchUuid({ chainId: 1337, treasuryAddress: '0x0000000000000000000000000000000000000000', sourceBatchId: treasuryBatchId, openedAt: 0 });
+    const batchWalletAddress = createDemoEscrowWalletAddress(treasuryBatchId);
+    const termMonths = Math.max(1, (sourceTerm?.termYears ?? 1) * 12);
+    const durationClass = sourceTerm?.durationClass ?? `${sourceTerm?.termYears ?? 1}Y`;
+    const policyProfileId = sourceTerm?.policyProfileId ?? 'bank-conservative-v1';
+    const policyVersion = sourceTerm?.policyVersion ?? 1;
+    const policyConfigHash = sourceTerm?.policyConfigHash;
+    const strategyClass = sourceTerm?.strategyClass ?? 'conservative_bank_sleeve';
+    const sourceType = sourceTerm?.originType ?? 'BANK';
+    const originInstitutionId = sourceTerm?.originInstitutionId ?? 'sagitta-demo-bank';
+    const executionContextHash = demoHash({
+      version: 1,
+      type: 'execution_receipt',
+      treasuryBatchId,
+      sourceType,
+      originInstitutionId,
+      principalReceivedUsd: principalUsd,
+      durationClass,
+      targetReturnAt: expectedReturnAt,
+      hardCloseAt: settlementDeadlineAt,
+      policyProfileId,
+      policyVersion,
+      policyConfigHash: policyConfigHash ?? null,
+      strategyClass,
+    });
+    const depositManifestHash = demoHash({
+      version: 1,
+      type: 'treasury_deposit_manifest',
+      treasuryBatchId,
+      sourceType,
+      originInstitutionId,
+      principalReceivedUsd: principalUsd,
+      executionContextHash,
+    });
+    const allocationPlanHash = demoHash({
+      version: 1,
+      type: 'treasury_allocation_plan',
+      treasuryBatchId,
+      principalReceivedUsd: principalUsd,
+      strategyClass,
+      policyProfileId,
+      policyVersion,
+    });
+    const policyContextHash = demoHash({
+      version: 1,
+      type: 'treasury_policy_context',
+      treasuryBatchId,
+      policyProfileId,
+      policyVersion,
+      policyConfigHash: policyConfigHash ?? null,
+      strategyClass,
+    });
+    const bindingCanonicalPayload = {
+      batchId: escrowBatchId,
+      treasuryBatchId,
+      walletAddress: batchWalletAddress,
+      totalAmountUsd: roundUsd(principalUsd),
+      asset: 'USDC',
+      termMonths,
+      depositManifestHash,
+      allocationPlanHash,
+      policyContextHash,
+      chainId: 'arc_testnet',
+    };
+    const batchWalletBinding = {
+      bindingId: `${escrowBatchId}-wallet-binding`,
+      bindingHash: createDemoBindingHash(bindingCanonicalPayload),
+      canonicalPayload: bindingCanonicalPayload,
+      bindingStatus: 'binding_locked',
+    };
 
     const settlementEvent: SettlementEvent = {
       id: nextTransactionId('set-batch'),
@@ -380,6 +497,63 @@ export async function createBankingTreasuryBatch(request: BankingBatchRequest = 
       settlementEvent,
       ...nextState.settlementEvents,
     ].slice(0, 8);
+
+    const escrowOrder = {
+      id: `escrow-order-${treasuryBatchId}`,
+      batchId: treasuryBatchId,
+      sourceType,
+      originInstitutionId,
+      principalReceivedUsd: roundUsd(principalUsd),
+      durationClass,
+      productDuration: durationClass,
+      executionHorizon: '30D',
+      deploymentStartAt: nowIso,
+      targetReturnAt: expectedReturnAt,
+      hardCloseAt: settlementDeadlineAt,
+      policyProfileId,
+      policyVersion,
+      policyConfigHash,
+      strategyClass,
+      executionStatus: 'received',
+      aaaRequestStatus: 'not_requested',
+      deploymentStatus: 'not_started',
+      settlementStatus: 'not_started',
+      routeStatus: 'queued',
+      eligibleRouteTypes: ['external_investor', 'staking', 'private_credit'],
+      treasuryBatchTxHash: batchResult.txHash,
+      batchWalletAddress,
+      walletAddress: batchWalletAddress,
+      assignedBatchWalletAddress: batchWalletAddress,
+      batchWalletChain: 'arc_testnet',
+      expectedFundingAmountUsd: roundUsd(principalUsd),
+      depositManifestHash,
+      allocationPlanHash,
+      policyContextHash,
+      batchWalletBindingHash: batchWalletBinding.bindingHash,
+      executionContextHash,
+      metadata: {
+        treasuryBatchTxHash: batchResult.txHash,
+        executionContextHash,
+        originTermIds: batchResult.includedTermDepositIds,
+        expectedFundingAmountUsd: roundUsd(principalUsd),
+        asset: 'USDC',
+        escrowBatchId,
+        batchWalletAddress,
+        batchWalletChain: 'arc_testnet',
+        depositManifestHash,
+        allocationPlanHash,
+        policyContextHash,
+        batchWalletBinding,
+      },
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    } as NonNullable<BankingDashboardState['escrowExecutionOrders']>[number];
+    const existingOrders = nextState.escrowExecutionOrders ?? [];
+    const existingIndex = existingOrders.findIndex((order) => order.batchId === treasuryBatchId);
+    nextState.escrowExecutionOrders =
+      existingIndex === -1
+        ? [escrowOrder, ...existingOrders]
+        : existingOrders.map((order, index) => (index === existingIndex ? { ...order, ...escrowOrder, metadata: { ...order.metadata, ...escrowOrder.metadata } } : order));
   } else {
     nextState.termPositions = nextState.termPositions.map((position) => {
       if (!position.treasuryOriginLotId || position.treasuryBatchId) return position;
