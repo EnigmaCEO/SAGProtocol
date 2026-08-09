@@ -360,6 +360,7 @@ contract Treasury is Ownable {
 
     // EVENTS
     event Collateralized(uint256 amountUsd);
+    event CollateralReleased(uint256 amountUsd6);
     event CollateralizeAttempt(uint256 requestedUsd, uint256 usdcBefore, uint256 usdcNeeded);
     event CollateralizeSucceeded(uint256 requestedUsd, uint256 usdcAfter);
     // Diagnostic: indicates we auto-minted USDC to cover a shortfall in test environments
@@ -376,6 +377,12 @@ contract Treasury is Ownable {
         uint256 indexed batchId,
         bytes32 settlementReportHash,
         bytes32 complianceDigestHash
+    );
+    event InstitutionSettlementPaid(
+        bytes32 indexed manifestHash,
+        address indexed recipient,
+        uint256 amountUsd,
+        bytes32 railRefHash
     );
     event ReceiptProfitPaid(uint256 indexed receiptId, address indexed recipient, uint256 amountUsd);
     event ReceiptProfitPaidDetailed(
@@ -939,6 +946,21 @@ contract Treasury is Ownable {
         emit BatchFunded(batchId, amountUsd);
     }
 
+    /// @notice Owner-only institution settlement payout for BANK-origin distribution execution.
+    /// @dev Used by the backend distribution executor after Phase 9 proves that funds returned
+    ///      from Escrow to Treasury. Emits an audit event with the manifest hash and rail ref hash.
+    function payInstitutionSettlement(
+        address recipient,
+        uint256 amountUsd,
+        bytes32 manifestHash,
+        bytes32 railRefHash
+    ) external onlyOwner {
+        if (recipient == address(0) || amountUsd == 0) revert InvalidParam();
+        if (usdc.balanceOf(address(this)) < amountUsd) revert InsufficientBalance();
+        usdc.safeTransfer(recipient, amountUsd);
+        emit InstitutionSettlementPaid(manifestHash, recipient, amountUsd, railRefHash);
+    }
+
     function reportBatchResult(
         uint256 batchId,
         uint256 principalUsd,
@@ -967,6 +989,22 @@ contract Treasury is Ownable {
             settlementReportHash,
             complianceDigestHash
         );
+    }
+
+    /**
+     * @notice Release depositor obligations after confirmed bank distribution payout.
+     * @dev Called by the banking server operator after distribution execution confirms the
+     *      bank has been paid. Decoupled from reportBatchResult so that totalCollateralUsd
+     *      reflects outstanding obligations until funds actually leave the protocol.
+     * @param amountUsd6 The principal amount (USD6) being released.
+     */
+    function releaseCollateral(uint256 amountUsd6) external onlyOwner {
+        if (totalCollateralUsd >= amountUsd6) {
+            totalCollateralUsd -= amountUsd6;
+        } else {
+            totalCollateralUsd = 0;
+        }
+        emit CollateralReleased(amountUsd6);
     }
 
     // Overloaded: reportBatchResult + immediate distribution to Vault per-token (by share).
@@ -1248,11 +1286,8 @@ contract Treasury is Ownable {
         batchSettlementReportHash[batchId] = settlementReportHash;
         batchComplianceDigestHash[batchId] = complianceDigestHash;
 
-        if (totalCollateralUsd >= principalUsd) {
-            totalCollateralUsd -= principalUsd;
-        } else {
-            totalCollateralUsd = 0;
-        }
+        // totalCollateralUsd is NOT decremented here. Obligations remain until
+        // releaseCollateral() is called after the bank distribution is confirmed paid.
 
         TreasuryBatch storage batch_ = treasuryBatches[batchId];
         if (batch_.batchId == batchId && batch_.status != TreasuryBatchStatus.Closed) {

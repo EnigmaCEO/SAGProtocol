@@ -11,6 +11,15 @@ import {
 } from 'ethers';
 import * as path from 'path';
 import * as fs from 'fs';
+import {
+  loadServiceSecurityConfig,
+  createServiceAuthGuard,
+  routeResolverFor,
+  serviceSecuritySummary,
+  ServiceSecurityConfigError,
+  type ServiceSecurityConfig,
+} from '../../shared/serviceGuard';
+import { SERVICE_IDS } from '../../shared/routeAuthority';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -108,13 +117,61 @@ function toB32(v: string | undefined): string {
 
 // ─── App ───────────────────────────────────────────────────────────────────────
 
-const app = express();
-app.use(cors({ origin: CORS_ORIGIN }));
-app.use(express.json());
+// ── Security configuration — fail closed before the listener exists ──────────
+// This service deploys the multisig wallets that custody batch funds.
+let SECURITY: ServiceSecurityConfig;
+try {
+  SECURITY = loadServiceSecurityConfig({ serviceId: SERVICE_IDS.walletFactory });
+} catch (err) {
+  if (err instanceof ServiceSecurityConfigError) {
+    console.error('[security] STARTUP ABORTED — wallet-factory security configuration is invalid');
+    for (const problem of err.problems) console.error(`[security] ✗ ${problem}`);
+    process.exit(1);
+  }
+  throw err;
+}
+console.log('[security] Configuration validated', serviceSecuritySummary(SECURITY));
 
+// Contract binding is opt-in during rollout: both sides must resolve the same
+// address or every call fails closed. Confirm agreement, then set this to true.
+const BIND_CONTRACT = String(process.env.SIGNER_BIND_CONTRACT ?? '').toLowerCase() === 'true';
+
+const app = express();
+app.disable('x-powered-by');
+
+// CORS supplements authentication for browsers. It is not the boundary.
+app.use(cors({ origin: CORS_ORIGIN }));
+// `verify` records the EXACT received bytes so the guard can bind the
+// assertion's body digest to them.
+app.use(express.json({
+  limit: '256kb',
+  verify: (req: any, _res, buf) => { req.rawBody = Buffer.from(buf); },
+}));
+
+// Minimal by contract — the factory address and chain id are deployment detail
+// an unauthenticated caller does not need.
 app.get('/health', (_req: Request, res: Response) => {
-  res.json({ service: 'wallet-factory', factoryAddress: FACTORY_ADDRESS, chainId: CHAIN_ID, version: '1.0.0' });
+  res.json({ status: 'ok', service: 'wallet-factory', version: '1.0.0' });
 });
+
+app.get('/ready', (_req: Request, res: Response) => {
+  res.json({ ready: true, environment: SECURITY.environment });
+});
+
+// GET /wallet-binding/:sourceBatchId is declared public in the route authority
+// registry (it reads an on-chain binding that is already public), so the guard
+// lets it through. Every unsafe route below requires an approved service caller.
+// Signer assertions must name the chain and contract this service is
+// configured for, and the operation they authorize. A token minted for a
+// different chain or a different operation is refused even if it is otherwise
+// valid — signature production is bound to one concrete on-chain action.
+app.use(createServiceAuthGuard(SECURITY, routeResolverFor(SERVICE_IDS.walletFactory), {
+  requiredContext: (route) => ({
+    chainId: CHAIN_ID,
+    op: route.path.slice(1),
+    contract: BIND_CONTRACT ? ((ESCROW_ADDRESS || '').toLowerCase() || undefined) : undefined,
+  }),
+}) as any);
 
 // ─── POST /create-batch-wallet ─────────────────────────────────────────────────
 // Body: { sourceBatchId: string, escrowBatchId: string, batchAuthorityBindingHash: string }

@@ -6,7 +6,6 @@ import {
   ChevronRight,
   Clock3,
   Database,
-  Hash,
   Info,
   Layers,
   Lock,
@@ -96,6 +95,7 @@ export interface BatchLifecycleState {
   lifecycle: LifecycleRow;
   evidence: Record<number, PhaseEvidenceRow>;
   latestAttempt: PhaseAttemptRow | null;
+  allAttempts?: PhaseAttemptRow[];
   currentChecklist: ChecklistResult | null;
 }
 
@@ -103,7 +103,7 @@ export interface BatchLifecycleState {
 // Phase metadata
 // ─────────────────────────────────────────────────────────────────────────────
 
-const PHASE_NAMES: Record<number, string> = {
+export const PHASE_NAMES: Record<number, string> = {
   1: 'Treasury Handoff Registered',
   2: 'Authority Binding Anchored',
   3: 'Batch Wallet Created & Bound',
@@ -170,48 +170,6 @@ function SourceBadge({ source }: { source: ChecklistSource }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Section: Batch Identity
-// ─────────────────────────────────────────────────────────────────────────────
-
-function IdentitySection({ lc }: { lc: LifecycleRow }) {
-  return (
-    <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-4">
-      <h4 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
-        <Hash className="h-3.5 w-3.5" /> Batch Identity
-      </h4>
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
-        <div>
-          <dt className="text-xs text-slate-400">Escrow Batch ID</dt>
-          <dd className="font-mono text-xs truncate" title={lc.escrow_batch_id}>{trunc(lc.escrow_batch_id, 22)}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-slate-400">Source Batch ID</dt>
-          <dd className="font-mono text-xs">{lc.source_batch_id}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-slate-400">Chain</dt>
-          <dd className="font-mono text-xs">{lc.chain_key} ({lc.chain_id})</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-slate-400">Treasury</dt>
-          <dd className="font-mono text-xs truncate" title={lc.treasury_address}>{trunc(lc.treasury_address, 20)}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-slate-400">Opened At</dt>
-          <dd className="font-mono text-xs">{lc.opened_at_unix ? new Date(lc.opened_at_unix * 1000).toLocaleString() : '—'}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-slate-400">Wallet</dt>
-          <dd className="font-mono text-xs truncate" title={lc.wallet_address ?? ''}>
-            {lc.wallet_address ? trunc(lc.wallet_address, 20) : <span className="text-slate-500">not yet set</span>}
-          </dd>
-        </div>
-      </dl>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Section: Phase Progress
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -268,16 +226,7 @@ function PhaseProgressSection({ lc, evidence }: { lc: LifecycleRow; evidence: Re
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ChecklistSection({ checklist }: { checklist: ChecklistResult | null }) {
-  if (!checklist) {
-    return (
-      <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-4">
-        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
-          <ShieldCheck className="h-3.5 w-3.5" /> Phase Checklist
-        </h4>
-        <p className="text-xs text-slate-500">No checklist available. Click Refresh or Advance to evaluate.</p>
-      </div>
-    );
-  }
+  if (!checklist) return null;
 
   return (
     <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-4">
@@ -339,16 +288,7 @@ function ChecklistSection({ checklist }: { checklist: ChecklistResult | null }) 
 // ─────────────────────────────────────────────────────────────────────────────
 
 function LastAttemptSection({ attempt }: { attempt: PhaseAttemptRow | null }) {
-  if (!attempt) {
-    return (
-      <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-4">
-        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
-          <Database className="h-3.5 w-3.5" /> Last Attempt
-        </h4>
-        <p className="text-xs text-slate-500">No transitions attempted yet.</p>
-      </div>
-    );
-  }
+  if (!attempt) return null;
 
   const statusColour: Record<string, string> = {
     claimed: 'text-yellow-400',
@@ -411,98 +351,81 @@ function AdvanceSection({
   checklist,
   onAdvance,
   advancing,
-  onFinalizeSettlement,
-  finalizingSettlement,
+  onFinalizeAndAdvance,
   finalizeSettlementError,
 }: {
   lc: LifecycleRow;
   checklist: ChecklistResult | null;
   onAdvance: () => void;
   advancing: boolean;
-  onFinalizeSettlement: () => void;
-  finalizingSettlement: boolean;
+  onFinalizeAndAdvance: () => void;
   finalizeSettlementError: string | null;
 }) {
   const nextPhase = lc.current_phase + 1;
   const canAdvance = lc.status !== 'running' && lc.status !== 'settled' && lc.status !== 'admin_hold' && nextPhase <= 9;
 
-  let tooltip = '';
-  if (lc.status === 'running') tooltip = 'A transition is in progress (lease held). Wait for it to complete.';
-  if (lc.status === 'admin_hold') tooltip = 'Batch is in admin_hold. Admin action required before advancing.';
-  if (lc.status === 'settled') tooltip = 'Batch has fully settled.';
-  if (lc.status === 'blocked' && lc.current_blocking_summary) tooltip = lc.current_blocking_summary;
-
   const settlementBlocked = checklist?.items.some(
     (i) => i.errorCode === 'settlement_not_finalized' && i.blocking && i.status === 'fail',
   ) ?? false;
 
+  let tooltip = '';
+  if (lc.status === 'running') tooltip = 'A transition is in progress (lease held). Wait for it to complete.';
+  if (lc.status === 'admin_hold') tooltip = 'Batch is in admin_hold. Admin action required before advancing.';
+  if (lc.status === 'settled') tooltip = 'Batch has fully settled.';
+  if (lc.status === 'blocked' && lc.current_blocking_summary && !settlementBlocked) tooltip = lc.current_blocking_summary;
+  if (settlementBlocked) tooltip = 'Simulates investment return then advances Phase 9';
+
+  const busy = advancing;
+  const handleClick = settlementBlocked ? onFinalizeAndAdvance : onAdvance;
+
+  const nextPhaseName = PHASE_NAMES[nextPhase] ?? '';
+
   return (
-    <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-4 space-y-3">
-      {lc.current_blocking_summary && (lc.status === 'blocked' || lc.status === 'failed') && (
+    <div className="space-y-2">
+      {lc.current_blocking_summary && (lc.status === 'blocked' || lc.status === 'failed') && !settlementBlocked && (
         <div className="flex items-start gap-2 rounded-md bg-orange-900/20 p-3 text-sm text-orange-300">
           <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-orange-400" />
           <span>{lc.current_blocking_summary}</span>
         </div>
       )}
-
-      {settlementBlocked && (
-        <div className="rounded-md bg-indigo-900/20 p-3 text-sm text-indigo-300 space-y-2">
-          <div className="flex items-start gap-2">
-            <ArrowDownToLine className="mt-0.5 h-4 w-4 flex-shrink-0 text-indigo-400" />
-            <span>
-              Investment proceeds have not yet returned to escrow.
-              Click to simulate the return (calls <code className="font-mono text-xs">depositReturnForBatch</code> with 1:1 NAV).
-            </span>
-          </div>
-          {finalizeSettlementError && (
-            <div className="font-mono text-xs text-red-400">{finalizeSettlementError}</div>
-          )}
-          <button
-            onClick={onFinalizeSettlement}
-            disabled={finalizingSettlement}
-            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold transition-colors
-              ${finalizingSettlement
-                ? 'cursor-not-allowed bg-slate-700 text-slate-500'
-                : 'bg-indigo-600 text-white hover:bg-indigo-700'
-              }`}
-          >
-            {finalizingSettlement
-              ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Simulating return…</>
-              : <><ArrowDownToLine className="h-3.5 w-3.5" /> Simulate Return &amp; Settle</>
-            }
-          </button>
+      {finalizeSettlementError && (
+        <div className="rounded-md bg-red-900/20 px-3 py-2 font-mono text-xs text-red-400">
+          {finalizeSettlementError}
         </div>
       )}
-
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-slate-400">
-          {lc.status === 'settled'
-            ? 'Batch is fully settled.'
-            : nextPhase > 9
-            ? 'All phases complete.'
-            : `Current: Phase ${lc.current_phase} · Next: Phase ${nextPhase} — ${PHASE_NAMES[nextPhase] ?? ''}`}
-        </div>
-        <button
-          onClick={onAdvance}
-          disabled={!canAdvance || advancing}
-          title={tooltip}
-          className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold transition-colors
-            ${canAdvance && !advancing
-              ? lc.status === 'blocked' || lc.status === 'failed'
-                ? 'bg-orange-500 text-white hover:bg-orange-600'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
-              : 'cursor-not-allowed bg-slate-700 text-slate-500'
-            }`}
-        >
-          {advancing ? (
-            <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Advancing…</>
-          ) : lc.status === 'blocked' ? (
-            <>Retry Phase {nextPhase}</>
-          ) : (
-            <>Advance to Phase {nextPhase}</>
-          )}
-        </button>
-      </div>
+      {lc.status !== 'settled' && nextPhase <= 9 && (
+        <p className="text-xs text-slate-500">
+          Next: <span className="text-slate-300">{nextPhaseName}</span>
+        </p>
+      )}
+      <button
+        onClick={handleClick}
+        disabled={!canAdvance || busy}
+        title={tooltip}
+        className={`action-button w-full ${
+          !canAdvance || busy
+            ? 'opacity-40 cursor-not-allowed bg-slate-700 border-slate-600 text-slate-400'
+            : settlementBlocked
+            ? 'action-button--success'
+            : lc.status === 'blocked' || lc.status === 'failed'
+            ? 'action-button--warning'
+            : 'action-button--primary'
+        }`}
+      >
+        {busy ? (
+          <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> {settlementBlocked ? 'Returning…' : 'Advancing…'}</>
+        ) : lc.status === 'settled' ? (
+          'Fully Settled'
+        ) : nextPhase > 9 ? (
+          'All Phases Complete'
+        ) : settlementBlocked ? (
+          <><ArrowDownToLine className="h-3.5 w-3.5" /> Simulate Return &amp; Advance</>
+        ) : lc.status === 'blocked' ? (
+          <>Retry Phase {nextPhase}</>
+        ) : (
+          <>Advance to Phase {nextPhase}</>
+        )}
+      </button>
     </div>
   );
 }
@@ -512,22 +435,20 @@ function AdvanceSection({
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface BatchLifecycleCardProps {
-  // Supply exactly one identity: either a known escrowBatchId or chainKey+sourceBatchId pair.
-  // When chainKey+sourceBatchId are supplied, the card registers the batch if needed and
-  // resolves the escrowBatchId from the server before displaying lifecycle state.
   escrowBatchId?: string;
   chainKey?: string;
   sourceBatchId?: string;
   initialState?: BatchLifecycleState;
   onAdvanced?: (newState: BatchLifecycleState) => void;
+  /** 'embedded' strips the outer card shell and mini-header — use when hosting inside another panel */
+  variant?: 'card' | 'embedded' | 'rail';
 }
 
-export function BatchLifecycleCard({ escrowBatchId: propsEscrowBatchId, chainKey, sourceBatchId, initialState, onAdvanced }: BatchLifecycleCardProps) {
+export function BatchLifecycleCard({ escrowBatchId: propsEscrowBatchId, chainKey, sourceBatchId, initialState, onAdvanced, variant = 'card' }: BatchLifecycleCardProps) {
   const [resolvedId, setResolvedId] = useState<string | null>(propsEscrowBatchId ?? null);
   const [state, setState] = useState<BatchLifecycleState | null>(initialState ?? null);
   const [loading, setLoading] = useState(!initialState);
   const [advancing, setAdvancing] = useState(false);
-  const [finalizingSettlement, setFinalizingSettlement] = useState(false);
   const [finalizeSettlementError, setFinalizeSettlementError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -598,28 +519,47 @@ export function BatchLifecycleCard({ escrowBatchId: propsEscrowBatchId, chainKey
     }
   }, [resolvedId, load, onAdvanced, state]);
 
-  const handleFinalizeSettlement = useCallback(async () => {
+  const handleFinalizeAndAdvance = useCallback(async () => {
     if (!resolvedId) return;
-    setFinalizingSettlement(true);
+    setAdvancing(true);
     setFinalizeSettlementError(null);
     try {
-      const res = await fetch('/api/banking/escrow/admin/finalize-settlement', {
+      // Step 1: trigger on-chain settlement (depositReturnForBatch)
+      const fRes = await fetch('/api/banking/escrow/admin/finalize-settlement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ escrowBatchId: resolvedId }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-      // Reload so Phase 9 checklist re-evaluates
+      const fData = await fRes.json();
+      if (!fRes.ok) throw new Error(fData.error ?? `HTTP ${fRes.status}`);
+      // Step 2: advance Phase 9 now that settlement is finalized on-chain
+      const aRes = await fetch('/api/banking/escrow/lifecycle/advance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ escrowBatchId: resolvedId }),
+      });
+      const aData = await aRes.json();
+      if (!aRes.ok) throw new Error(aData.error ?? `HTTP ${aRes.status}`);
       await load(resolvedId);
+      if (onAdvanced && state) onAdvanced(state);
     } catch (err: any) {
-      setFinalizeSettlementError(err.message ?? 'Finalize settlement failed.');
+      setFinalizeSettlementError(err.message ?? 'Simulate return & advance failed.');
     } finally {
-      setFinalizingSettlement(false);
+      setAdvancing(false);
     }
-  }, [resolvedId, load]);
+  }, [resolvedId, load, onAdvanced, state]);
 
   if (loading && !state) {
+    if (variant === 'rail') return (
+      <div className="flex items-center gap-2 py-2 text-xs text-slate-500">
+        <RefreshCw className="h-3 w-3 animate-spin" /> Loading phase state…
+      </div>
+    );
+    if (variant === 'embedded') return (
+      <div className="flex items-center gap-2 py-4 text-xs text-slate-500">
+        <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Loading lifecycle…
+      </div>
+    );
     return (
       <div className="flex items-center justify-center rounded-xl border border-slate-700/50 bg-slate-800/30 p-8">
         <RefreshCw className="h-5 w-5 animate-spin text-slate-400" />
@@ -629,6 +569,12 @@ export function BatchLifecycleCard({ escrowBatchId: propsEscrowBatchId, chainKey
   }
 
   if (error && !state) {
+    if (variant === 'rail' || variant === 'embedded') return (
+      <div className="rounded px-2 py-1.5 text-xs text-red-400">
+        <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />{error}
+        <button onClick={() => resolvedId && load(resolvedId)} className="ml-2 underline">Retry</button>
+      </div>
+    );
     return (
       <div className="rounded-xl border border-red-700/50 bg-red-900/20 p-4 text-sm text-red-400">
         <AlertTriangle className="mr-1.5 inline h-4 w-4" />
@@ -642,9 +588,138 @@ export function BatchLifecycleCard({ escrowBatchId: propsEscrowBatchId, chainKey
 
   const { lifecycle: lc, evidence, latestAttempt, currentChecklist } = state;
 
+  // ── Rail variant ─────────────────────────────────────────────────────────────
+  if (variant === 'rail') {
+    const nextPhase = lc.current_phase + 1;
+    const canAdvance = lc.status !== 'running' && lc.status !== 'settled' && lc.status !== 'admin_hold' && nextPhase <= 9;
+    const settlementBlocked = currentChecklist?.items.some(
+      (i) => i.errorCode === 'settlement_not_finalized' && i.blocking && i.status === 'fail',
+    ) ?? false;
+    const railHandleClick = settlementBlocked ? handleFinalizeAndAdvance : handleAdvance;
+
+    const railBtnClass = [
+      'action-button flex-shrink-0',
+      !canAdvance || advancing
+        ? 'opacity-40 cursor-not-allowed bg-slate-700 border-slate-600 text-slate-400'
+        : settlementBlocked
+        ? 'action-button--success'
+        : lc.status === 'blocked' || lc.status === 'failed'
+        ? 'action-button--warning'
+        : 'action-button--primary',
+    ].join(' ');
+
+    return (
+      <div className="space-y-3">
+        {/* Numbered phase circles with connecting lines */}
+        <div className="flex items-center">
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((phase, idx) => {
+            const isComplete = phase <= lc.current_phase;
+            const isCurrent = phase === lc.current_phase + 1;
+            return (
+              <React.Fragment key={phase}>
+                {idx > 0 && (
+                  <div className={`h-px flex-1 ${idx <= lc.current_phase ? 'bg-green-700/50' : 'bg-slate-700/40'}`} />
+                )}
+                <div
+                  title={`Phase ${phase}: ${PHASE_NAMES[phase]}`}
+                  className={[
+                    'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold border transition-all',
+                    isComplete
+                      ? 'border-green-600/60 bg-green-900/30 text-green-400'
+                      : isCurrent
+                      ? 'border-blue-500/60 bg-blue-900/20 text-blue-300 shadow-[0_0_0_3px_rgba(59,130,246,0.14)]'
+                      : 'border-slate-700/50 bg-slate-800/20 text-slate-600',
+                  ].join(' ')}
+                >
+                  {isComplete ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span>{phase}</span>}
+                </div>
+              </React.Fragment>
+            );
+          })}
+        </div>
+
+        {/* Blocking error strip */}
+        {lc.current_blocking_summary && (lc.status === 'blocked' || lc.status === 'failed') && !settlementBlocked && (
+          <div className="flex items-start gap-2 rounded bg-orange-900/20 px-3 py-1.5 text-xs text-orange-300">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+            <span>{lc.current_blocking_summary}</span>
+          </div>
+        )}
+        {finalizeSettlementError && (
+          <div className="rounded bg-red-900/20 px-3 py-1.5 font-mono text-xs text-red-400">{finalizeSettlementError}</div>
+        )}
+        {error && (
+          <div className="rounded bg-red-900/20 px-3 py-1.5 text-xs text-red-400">
+            <AlertTriangle className="mr-1 inline h-3 w-3" />{error}
+          </div>
+        )}
+
+        {/* Next phase label + advance button */}
+        <div className="flex items-center justify-between gap-4">
+          <p className="min-w-0 text-xs text-slate-400">
+            {lc.status === 'settled' ? (
+              <span className="text-green-400">Batch fully settled</span>
+            ) : nextPhase > 9 ? (
+              'All phases complete'
+            ) : (
+              <>Next: <span className="font-medium text-slate-200">{PHASE_NAMES[nextPhase]}</span></>
+            )}
+          </p>
+          <button
+            onClick={railHandleClick}
+            disabled={!canAdvance || advancing}
+            className={railBtnClass}
+          >
+            {advancing ? (
+              <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> {settlementBlocked ? 'Returning…' : 'Advancing…'}</>
+            ) : lc.status === 'settled' ? (
+              'Settled'
+            ) : nextPhase > 9 ? (
+              'Complete'
+            ) : settlementBlocked ? (
+              <><ArrowDownToLine className="h-3.5 w-3.5" /> Simulate Return &amp; Advance</>
+            ) : lc.status === 'blocked' ? (
+              <>Retry Phase {nextPhase}</>
+            ) : (
+              <>Advance to Phase {nextPhase}</>
+            )}
+          </button>
+        </div>
+
+        <p className="text-right text-[10px] text-slate-600">updated {fmt(lc.updated_at)}</p>
+      </div>
+    );
+  }
+
+  // ── Embedded / Card variants ─────────────────────────────────────────────────
+  const content = (
+    <>
+      {error && (
+        <div className="rounded-md bg-red-900/20 px-3 py-2 text-xs text-red-400">
+          <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />{error}
+        </div>
+      )}
+      <PhaseProgressSection lc={lc} evidence={evidence} />
+      <ChecklistSection checklist={currentChecklist} />
+      <LastAttemptSection attempt={latestAttempt} />
+      <AdvanceSection
+        lc={lc}
+        checklist={currentChecklist}
+        onAdvance={handleAdvance}
+        advancing={advancing}
+        onFinalizeAndAdvance={handleFinalizeAndAdvance}
+        finalizeSettlementError={finalizeSettlementError}
+      />
+      <p className="text-right text-[10px] text-slate-500">updated {fmt(lc.updated_at)}</p>
+    </>
+  );
+
+  if (variant === 'embedded') {
+    return <div className="space-y-3">{content}</div>;
+  }
+
   return (
     <div className="space-y-3 rounded-xl border border-slate-700/50 bg-slate-900/60 p-4">
-      {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div>
           <div className="flex items-center gap-2">
@@ -665,31 +740,7 @@ export function BatchLifecycleCard({ escrowBatchId: propsEscrowBatchId, chainKey
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
-
-      {error && (
-        <div className="rounded-md bg-red-900/20 px-3 py-2 text-xs text-red-400">
-          <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />{error}
-        </div>
-      )}
-
-      {/* Six sections */}
-      <IdentitySection lc={lc} />
-      <PhaseProgressSection lc={lc} evidence={evidence} />
-      <ChecklistSection checklist={currentChecklist} />
-      <LastAttemptSection attempt={latestAttempt} />
-      <AdvanceSection
-        lc={lc}
-        checklist={currentChecklist}
-        onAdvance={handleAdvance}
-        advancing={advancing}
-        onFinalizeSettlement={handleFinalizeSettlement}
-        finalizingSettlement={finalizingSettlement}
-        finalizeSettlementError={finalizeSettlementError}
-      />
-
-      <p className="text-right text-[10px] text-slate-500">
-        last updated {fmt(lc.updated_at)}
-      </p>
+      {content}
     </div>
   );
 }

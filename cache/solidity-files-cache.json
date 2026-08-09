@@ -152,8 +152,8 @@
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\InvestmentEscrow.sol": {
-      "lastModificationDate": 1780784159829,
-      "contentHash": "93b9fe292b7d7ed27b3174c3fdefc169",
+      "lastModificationDate": 1781233316376,
+      "contentHash": "24ebfd5c479744d3d04d1222992e699c",
       "sourceName": "contracts/InvestmentEscrow.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -1299,8 +1299,8 @@
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\Treasury.sol": {
-      "lastModificationDate": 1777054607675,
-      "contentHash": "54f82c9a7af355914aa3a8817dd3333f",
+      "lastModificationDate": 1781474975129,
+      "contentHash": "1bb8ffe778e90db5b49d669b0c8b2013",
       "sourceName": "contracts/Treasury.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -1435,8 +1435,8 @@
       ]
     },
     "D:\\Projects\\Sagitta\\SAGProtocol\\contracts\\MockUSDC.sol": {
-      "lastModificationDate": 1776566528561,
-      "contentHash": "91c68039c965ce38392965441d4c525e",
+      "lastModificationDate": 1781233299590,
+      "contentHash": "e13e117c5de0b16ccedb1b1cc422080f",
       "sourceName": "contracts/MockUSDC.sol",
       "solcConfig": {
         "version": "0.8.24",

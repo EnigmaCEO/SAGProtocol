@@ -82,23 +82,39 @@ export function getBatchWalletBindingValidation(batch: EscrowBatch): EscrowWalle
   }
 
   const storedPayload = getBindingStoredPayload(binding);
-  const currentPayload = createCanonicalWalletBindingPayload(batch, batch.wallet);
-  const recomputedBindingHash = createWalletBindingHash(storedPayload);
   const mismatchedFields: string[] = [];
 
-  if (recomputedBindingHash !== binding.bindingHash) {
-    recordMismatch(mismatchedFields, 'bindingHash');
-  }
+  // All hash and live-field comparisons require the wallet to be confirmed on-chain.
+  //
+  // Before wallet confirmation (fundingStatus 'not_created' or 'created'):
+  //   - The stored bindingHash may be a Treasury-provided value computed against a predicted
+  //     wallet address that differs from the factory-deployed address. Comparing it to the
+  //     client-recomputed hash always produces a false mismatch.
+  //   - Live invariant fields (walletAddress, etc.) also reference the predicted address,
+  //     making comparisons meaningless.
+  // 'created' means Treasury assigned an address (possibly factory-predicted, not yet deployed).
+  // 'funded' / 'verified' means the wallet is on-chain and the address is authoritative.
+  const walletConfirmed =
+    batch.wallet.fundingStatus === 'funded' || batch.wallet.fundingStatus === 'verified';
 
-  for (const field of BINDING_PAYLOAD_FIELDS) {
-    if (binding[field] !== storedPayload[field]) {
-      recordMismatch(mismatchedFields, field);
+  let recomputedBindingHash: string | undefined;
+  if (walletConfirmed) {
+    recomputedBindingHash = createWalletBindingHash(storedPayload);
+    if (recomputedBindingHash !== binding.bindingHash) {
+      recordMismatch(mismatchedFields, 'bindingHash');
     }
-  }
 
-  for (const field of WALLET_BINDING_LIVE_INVARIANT_FIELDS) {
-    if (currentPayload[field] !== storedPayload[field]) {
-      recordMismatch(mismatchedFields, field);
+    for (const field of BINDING_PAYLOAD_FIELDS) {
+      if (binding[field] !== storedPayload[field]) {
+        recordMismatch(mismatchedFields, field);
+      }
+    }
+
+    const currentPayload = createCanonicalWalletBindingPayload(batch, batch.wallet);
+    for (const field of WALLET_BINDING_LIVE_INVARIANT_FIELDS) {
+      if (currentPayload[field] !== storedPayload[field]) {
+        recordMismatch(mismatchedFields, field);
+      }
     }
   }
 
@@ -114,7 +130,7 @@ export function getBatchWalletBindingValidation(batch: EscrowBatch): EscrowWalle
 
   return {
     state: 'valid',
-    label: 'Binding Valid',
+    label: walletConfirmed ? 'Binding Valid' : 'Binding Locked',
     recomputedBindingHash,
     blockingReason: null,
     mismatchedFields: [],
@@ -170,8 +186,8 @@ export function createWalletAuditEvent(batch: EscrowBatch, wallet: EscrowWalletM
     eventId: `${batch.batchId}-wallet-assigned`,
     timestamp,
     actor: 'Escrow Service',
-    eventType: 'Escrow wallet assigned',
-    description: 'Batch wallet metadata assigned from the Treasury-sent Escrow batch handoff.',
+    eventType: 'Predicted wallet metadata attached',
+    description: 'Predicted wallet metadata attached from Treasury-sent handoff — not a confirmed on-chain wallet creation.',
     reference: wallet.walletAddress ?? wallet.address,
   };
 }
@@ -181,8 +197,8 @@ export function createWalletBindingAuditEvent(batch: EscrowBatch, binding: NonNu
     eventId: `${batch.batchId}-wallet-binding-created`,
     timestamp: binding.createdAt,
     actor: 'Escrow Service',
-    eventType: 'Batch wallet binding hash created',
-    description: 'Canonical Batch ID, Treasury reference, wallet address, amount, term, chain, and wallet binding evidence were hashed and locked.',
+    eventType: 'Precomputed wallet binding preview',
+    description: 'Precomputed wallet binding payload hashed for candidate phase — not a confirmed Phase 3 on-chain wallet binding.',
     reference: binding.bindingHash,
   };
 }

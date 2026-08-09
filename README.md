@@ -204,73 +204,80 @@ A compliance-friendly, batch-based, cross-chain investment interface.
 npm install
 npm --prefix frontend install
 npm --prefix server install
+npm --prefix services/signer-treasury install
+npm --prefix services/signer-escrow install
+npm --prefix services/wallet-factory install
 ```
 
 2. Compile smart contracts:
 ```bash
-npx hardhat compile
+npm run compile
 ```
 
-3. Deploy contracts (optional, for local development):
+3. Run tests and coverage:
 ```bash
-npx hardhat run scripts/deploy.ts --network localhost
-```
-
-4. Run the banking server:
-```bash
-npm run server
-```
-
-5. Run the frontend:
-```bash
-cd frontend
-npm run dev
-```
-
-6. Code Test & Coverage:
-```bash
-npx hardhat test
-npx hardhat coverage
+npm test
+npm run coverage
 ```
 
 ## Quick Start
 
-### 1. Start Hardhat Node
+### One-command demo (recommended)
+
+Starts the Hardhat node, deploys contracts, all three signer services, and the frontend in parallel:
+
+```bash
+npm run demo
+```
+
+Then visit `http://localhost:3000`.
+
+### Manual startup (individual terminals)
+
+#### 1. Start Hardhat node
 ```bash
 npx hardhat node
 ```
 
-### 2. Deploy Contracts (in a new terminal)
+#### 2. Deploy contracts
 ```bash
-npx hardhat run scripts/deploy.ts --network localhost
+npm run deploy:local
 ```
 
-This will:
-- Deploy all contracts to localhost
-- Fund demo account with 1000 USDC
-- Generate `deployments/localhost.json` and local frontend address fallback
+This deploys all contracts to localhost, funds the demo account with USDC, and writes `deployments/localhost.json`.
 
-### 3. Start Banking Server (in a new terminal)
+#### 3. Start signer services
+```bash
+# Treasury signer
+cd services/signer-treasury && npm run dev
+
+# Escrow signer (new terminal)
+cd services/signer-escrow && npm run dev
+
+# Wallet factory (new terminal)
+cd services/wallet-factory && npm run dev
+```
+
+#### 4. Start banking server (new terminal)
 ```bash
 npm run server
 ```
 
-### 4. Start Frontend (in a new terminal)
+#### 5. Start frontend (new terminal)
 ```bash
-cd frontend
-pnpm dev
+pnpm --dir frontend dev
 ```
 
-### 5. Access the App
+#### 6. Access the app
 
 Visit `http://localhost:3000`
 
-**Demo Mode:** The frontend runs in demo mode using a pre-configured test account. No wallet needed!
+**Demo mode:** The frontend runs with a pre-configured test account — no wallet required.
 
-- Demo Account: `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`
-- Initial Balance: 1000 mDOT
+- Demo account: `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`
+- Initial balance: 1000 USDC
 
-**Note:** Hardhat node is ephemeral. If you restart it, you must redeploy contracts and get new addresses.
+**Note:** The Hardhat node is ephemeral. If you restart it, redeploy contracts (`npm run deploy:local`) to get fresh addresses.
 
 ## Multi-Chain Frontend
 

@@ -10,7 +10,7 @@ import type {
   SettlementEvent,
   TermPosition,
 } from './types';
-import { escrowBatchUuid } from '../escrow/ids';
+import { generateEscrowBatchId } from '../escrow/ids';
 
 export const BANKING_STORAGE_KEY = 'sagitta.banking.state.v1';
 
@@ -411,7 +411,7 @@ export async function createBankingTreasuryBatch(request: BankingBatchRequest = 
       .reduce((sum, position) => sum + position.principalUsd, 0);
     const sourceTerm = eligibleTerms[0];
     const treasuryBatchId = batchResult.batchId;
-    const escrowBatchId = escrowBatchUuid({ chainId: 1337, treasuryAddress: '0x0000000000000000000000000000000000000000', sourceBatchId: treasuryBatchId, openedAt: 0 });
+    const escrowBatchId = generateEscrowBatchId();
     const batchWalletAddress = createDemoEscrowWalletAddress(treasuryBatchId);
     const termMonths = Math.max(1, (sourceTerm?.termYears ?? 1) * 12);
     const durationClass = sourceTerm?.durationClass ?? `${sourceTerm?.termYears ?? 1}Y`;

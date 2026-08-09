@@ -5,7 +5,8 @@ import useBankingData, {
   onboardInstitution,
   openCustomerAccount,
   readBankingAccount,
-  clearBankingAccount,
+  readSelectedBankingInstitutionId,
+  saveSelectedBankingInstitutionId,
   type BankInstitution,
   type BankingAccountRecord,
 } from '../../hooks/useBankingData';
@@ -98,8 +99,11 @@ function accountIcon(account: BankingAccountSummary) {
 }
 
 export default function BankingTab() {
+  const initialSelectedInstitutionId = readSelectedBankingInstitutionId();
+  const initialBankingAccount = readBankingAccount(initialSelectedInstitutionId) ?? readBankingAccount();
+
   // ── Account record (persisted in localStorage) ─────────────────────────────
-  const [bankingAccount, setBankingAccount] = useState<BankingAccountRecord | null>(() => readBankingAccount());
+  const [bankingAccount, setBankingAccount] = useState<BankingAccountRecord | null>(initialBankingAccount);
 
   // ── Open-account flow ──────────────────────────────────────────────────────
   const [openAccountInstitutionId, setOpenAccountInstitutionId] = useState<string>('');
@@ -134,7 +138,7 @@ export default function BankingTab() {
   // ── Institution / bank selector ────────────────────────────────────────────
   const [institutions, setInstitutions] = useState<BankInstitution[]>([]);
   const [selectedInstitutionId, setSelectedInstitutionId] = useState<string | undefined>(
-    () => readBankingAccount()?.institutionId
+    initialSelectedInstitutionId ?? initialBankingAccount?.institutionId
   );
   const [isOnboarding, setIsOnboarding] = useState(false);
   const [onboardName, setOnboardName] = useState('');
@@ -174,8 +178,8 @@ export default function BankingTab() {
   };
 
   // ── Customer reference (opaque ID supplied by the bank, never PII) ──────────
-  const [customerRef, setCustomerRef] = useState(() => readBankingAccount()?.customerRef ?? 'demo-customer-001');
-  const [customerRefInput, setCustomerRefInput] = useState(() => readBankingAccount()?.customerRef ?? 'demo-customer-001');
+  const [customerRef, setCustomerRef] = useState(() => initialBankingAccount?.customerRef ?? 'demo-customer-001');
+  const [customerRefInput, setCustomerRefInput] = useState(() => initialBankingAccount?.customerRef ?? 'demo-customer-001');
 
   const handleCustomerRefChange = () => {
     const trimmed = customerRefInput.trim();
@@ -183,6 +187,31 @@ export default function BankingTab() {
   };
 
   // ── Banking data (filtered by selected institution + customer ref) ──────────
+  useEffect(() => {
+    if (!selectedInstitutionId) return;
+
+    saveSelectedBankingInstitutionId(selectedInstitutionId);
+    setOpenAccountInstitutionId((current) => (
+      current === selectedInstitutionId ? current : selectedInstitutionId
+    ));
+
+    const record = readBankingAccount(selectedInstitutionId);
+    if (!record) {
+      setBankingAccount((current) => (
+        current?.institutionId === selectedInstitutionId ? current : null
+      ));
+      return;
+    }
+
+    setBankingAccount((current) => (
+      current?.institutionId === record.institutionId && current?.customerRef === record.customerRef
+        ? current
+        : record
+    ));
+    setCustomerRef((current) => (current === record.customerRef ? current : record.customerRef));
+    setCustomerRefInput((current) => (current === record.customerRef ? current : record.customerRef));
+  }, [selectedInstitutionId]);
+
   const { state, loading, error, refresh, createDeposit, receiveWire, simulateCheckingWire, retryCircleFunding } = useBankingData(selectedInstitutionId, customerRef);
   const [activeView, setActiveView] = useState<BankingViewId>(() => readBankingViewFromLocation());
   const [isComposerOpen, setIsComposerOpen] = useState(false);

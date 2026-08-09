@@ -759,6 +759,32 @@ contract InvestmentEscrow is Ownable {
         emit BatchSettlementFinalized(batchId, finalValueUsd6, userProfitUsd6, protocolFeeUsd6, settlementReportHash, complianceDigestHash);
     }
 
+    // Called when the batch wallet has already transferred USDC back to this contract.
+    // Sets accounting identically to depositReturnForBatch but skips _collectReturnFunds —
+    // the USDC must already be present (verified via balanceOf check).
+    function finalizePreFundedBatch(uint256 batchId, uint256 finalNavPerShare) external onlyKeeperOrOwner {
+        Batch storage batch_ = batches[batchId];
+        require(batch_.id == batchId, "Batch not found");
+        require(batch_.status == BatchStatus.Invested || batch_.status == BatchStatus.Running, "Batch not invested or running");
+        require(batchPositionIds[batchId].length == 0, "Use positions");
+
+        BatchAccounting storage accounting = batchAccounting[batchId];
+        if (batch_.status == BatchStatus.Running) {
+            batch_.status = BatchStatus.Invested;
+        }
+        if (accounting.principalCommittedUsd6 == 0) {
+            accounting.principalCommittedUsd6 = accounting.principalFundedUsd6;
+        }
+
+        uint256 totalReturnUsd6 = (accounting.principalFundedUsd6 * finalNavPerShare) / 1e18;
+        require(usdc.balanceOf(address(this)) >= totalReturnUsd6, "Escrow not pre-funded for batch return");
+        accounting.principalReturnedUsd6 = totalReturnUsd6;
+        accounting.realizedPnlUsd6 = int256(totalReturnUsd6) - int256(accounting.principalFundedUsd6);
+
+        emit BatchReturnDeposited(batchId, totalReturnUsd6);
+        finalizeBatchSettlement(batchId, bytes32(0), bytes32(0));
+    }
+
     function depositReturnForBatch(uint256 batchId, uint256 finalNavPerShare) external onlyKeeperOrOwner {
         Batch storage batch_ = batches[batchId];
         require(batch_.id == batchId, "Batch not found");

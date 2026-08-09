@@ -48,7 +48,11 @@
       "Bash(grep -n \"useState.*getRuntimeAddress\\\\|getRuntimeAddress.*useState\\\\|const.*getRuntimeAddress\" frontend/src/components/tabs/*.tsx frontend/src/hooks/*.ts)",
       "Bash(ls d:/Projects/Sagitta/SAGProtocol/.env*)",
       "Bash(npx vercel:*)",
-      "Bash(ls d:/Projects/Sagitta/SAGProtocol/deployments*.json)"
+      "Bash(ls d:/Projects/Sagitta/SAGProtocol/deployments*.json)",
+      "PowerShell(Stop-Process -Id 19416 -Force)",
+      "PowerShell(\"Killed PID 19416 \\(port 4000\\)\")",
+      "PowerShell($env:PGPASSWORD = \"sagitta_pw\"; psql -U sagitta -h 127.0.0.1 -p 5432 -d sagitta_banking -c \"UPDATE term_positions SET term_maturity_at = NOW\\(\\) - INTERVAL '1 day' WHERE id = 'b33fc7c7-0496-4f0c-92bf-98e03c499a29' RETURNING id, term_maturity_at;\")",
+      "PowerShell($proc = Get-NetTCPConnection -LocalPort 4000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -First 1; if \\($proc\\) { Stop-Process -Id $proc -Force; \"Killed PID $proc\" } else { \"Nothing on port 4000\" })"
     ]
   }
 }

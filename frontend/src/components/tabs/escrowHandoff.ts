@@ -1,11 +1,8 @@
 import { EscrowBatch } from '../../lib/escrow/batches';
+import { isUuid } from '../../lib/escrow/ids';
 import { getDefaultEscrowSigningAuthorities } from './escrowSigningAuthorities';
-import {
-  createBatchWalletBinding,
-  createWalletAuditEvent,
-  createWalletBindingAuditEvent,
-} from './escrowWallet';
-import { createBatchAuthorityBinding, createAuthorityBindingAuditEvent } from './escrowAuthorityBinding';
+import { createBatchWalletBinding } from './escrowWallet';
+import { createBatchAuthorityBinding } from './escrowAuthorityBinding';
 
 export type TreasuryHandoffStatus =
   | 'draft'
@@ -34,6 +31,7 @@ export type TreasuryHandoffPackage = {
   proposedBatchId: string;
   /** Set to true only when both treasury.getTreasuryBatch and escrow.escrowBatchPositions confirmed this batch on-chain. Never set from DB/backend data. */
   chainConfirmed?: boolean;
+  openedAt?: number;
   custodyMode?: 'escrow_contract_custody' | 'batch_wallet_custody';
   sourceContract?: string;
   sourceBatchId?: string;
@@ -193,6 +191,7 @@ export function normalizeHandoffPackage(value: unknown): TreasuryHandoffPackage 
   return {
     handoffId: normalizeString(value.handoffId),
     proposedBatchId: normalizeString(value.proposedBatchId),
+    openedAt: value.openedAt == null ? undefined : normalizeNumber(value.openedAt),
     custodyMode:
       normalizeString(value.custodyMode) === 'escrow_contract_custody' || normalizeString(value.custodyMode) === 'batch_wallet_custody'
         ? (normalizeString(value.custodyMode) as TreasuryHandoffPackage['custodyMode'])
@@ -298,6 +297,7 @@ export function createEscrowBatchFromHandoff(handoff: TreasuryHandoffPackage, op
       handoffId: handoff.handoffId,
       approvedByTreasury: handoff.approvedByTreasury,
       approvedAt: handoff.approvedAt,
+      openedAtUnix: handoff.openedAt,
       treasurySourceWallet: handoff.treasurySourceWallet,
       depositManifestHash: handoff.depositManifestHash,
     },
@@ -319,6 +319,12 @@ export function createEscrowBatchFromHandoff(handoff: TreasuryHandoffPackage, op
     settlement: { maturityDate: '', status: 'not_due', walletRetirementStatus: 'not_eligible' },
     exception: validation.blockingReason ? createTreasuryBatchException(handoff, validation, createdAt) : undefined,
     auditTrail: [
+      // Only include externally-sourced facts in the audit trail.
+      // Frontend construction work (binding hash computation, wallet metadata attachment)
+      // is an implementation detail — it never happened on-chain or on the server and must
+      // not appear as protocol evidence. The one real external fact at this stage is that
+      // Treasury sent the batch; the exception note is included when validation fails because
+      // it reflects a genuine data-integrity signal from the server's validation result.
       {
         eventId: `${handoff.handoffId || handoff.proposedBatchId}-treasury-sent`,
         timestamp: handoff.approvedAt ?? createdAt,
@@ -328,24 +334,27 @@ export function createEscrowBatchFromHandoff(handoff: TreasuryHandoffPackage, op
         txHash: handoff.treasuryBatchTxHash,
         reference: handoff.depositManifestHash,
       },
-      {
-        eventId: `${handoff.handoffId || handoff.proposedBatchId}-container-created`,
+      ...(validation.blockingReason ? [{
+        eventId: `${handoff.handoffId || handoff.proposedBatchId}-container-exception`,
         timestamp: createdAt,
         actor: 'Escrow Service',
-        eventType: validation.blockingReason ? 'Escrow batch container created with exception' : 'Real batch materialized',
-        description: validation.blockingReason
-          ? `Escrow created a batch container with an exception: ${validation.blockingReason}`
-          : `Escrow created batch container ${handoff.proposedBatchId} from Treasury batch ${handoff.handoffId}.`,
+        eventType: 'Escrow batch container created with exception',
+        description: `Batch container created with exception: ${validation.blockingReason}`,
         reference: handoff.proposedBatchId,
-      },
+      }] : []),
     ],
   };
 
   if (validation.blockingReason) return batch;
 
   // Only create the authority binding when both Treasury batch and Escrow position are confirmed
-  // on-chain. DB-only execution orders must not produce a signable binding.
-  if (!handoff.chainConfirmed) return batch;
+  // on-chain AND the server has returned an authoritative UUID for this batch.
+  //
+  // proposedBatchId is a valid UUID only after the server registers the batch. Before that it
+  // holds a deterministic non-UUID pending key derived from Treasury identity. Binding creation
+  // must be blocked here: authority bindings, wallet bindings, and signer payloads embed batchId —
+  // using a temporary pre-registration value would produce invalid evidence.
+  if (!handoff.chainConfirmed || !isUuid(handoff.proposedBatchId)) return batch;
 
   const authorityBinding = createBatchAuthorityBinding(handoff, batch.batchId, createdAt, options.chainId);
   const binding = walletAddress ? createBatchWalletBinding(batch, wallet, wallet.createdAt ?? createdAt) : undefined;
@@ -353,16 +362,14 @@ export function createEscrowBatchFromHandoff(handoff: TreasuryHandoffPackage, op
     ? { ...binding, bindingHash: handoff.batchWalletBindingHash }
     : binding;
 
+  // Audit trail: carry forward only the externally-sourced events already in batch.auditTrail.
+  // The authority binding, wallet metadata, and wallet binding hash were computed locally by
+  // the frontend — they are candidate metadata, not server or on-chain lifecycle evidence.
+  // Phase 2 and Phase 3 server executors will emit the authoritative events once those phases run.
   return {
     ...batch,
     status: 'wallet_created',
     batchWalletBinding: lockedBinding,
     batchAuthorityBinding: authorityBinding,
-    auditTrail: [
-      ...batch.auditTrail,
-      createAuthorityBindingAuditEvent(batch.batchId, authorityBinding),
-      ...(walletAddress ? [createWalletAuditEvent(batch, wallet, wallet.createdAt ?? createdAt)] : []),
-      ...(lockedBinding ? [createWalletBindingAuditEvent(batch, lockedBinding)] : []),
-    ],
   };
 }

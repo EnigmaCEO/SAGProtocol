@@ -1857,6 +1857,7 @@ function targetYieldFromRole(role: string): number {
     case 'defensive':   return 300;
     case 'speculative': return 1200;
     case 'yield_fund':  return 700;
-    default:            return 500;
+    case 'external':    return 900;
+    default:            return 900;
   }
 }

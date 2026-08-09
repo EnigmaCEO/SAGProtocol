@@ -1,57 +1,75 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
+// /api/banking/escrow/deployment-executions
+//
+// GET  — public read of the stored multisig execution record.
+// POST — records a client-side multisig execution. Requires a wallet session
+//        holding `escrow:deployment:write`.
+//
+// WHAT CHANGED
+//   The POST branch previously accepted any request when INTERNAL_API_TOKEN was
+//   unset, and forwarded to the banking server with no credential at all. Both
+//   halves of that are gone: authority now comes from the verified wallet
+//   session, and the upstream call carries a scoped assertion.
 
-const BANKING_API = process.env.NEXT_PUBLIC_BANKING_API_URL || 'http://localhost:4000';
-const RECORDS_URL = `${BANKING_API}/banking/escrow/deployment-records`;
+import { withAuthority } from '../../../../lib/security/apiGuard';
+import { callBankingApi, sendUpstream } from '../../../../lib/security/upstream';
+import { SCOPES } from '../../../../../../services/shared/routeAuthority';
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method === 'GET') {
-    const { batchUuid } = req.query;
-    if (!batchUuid || typeof batchUuid !== 'string') {
-      return res.status(400).json({ error: 'batchUuid query parameter is required.' });
+const RECORDS_PATH = '/banking/escrow/deployment-records';
+
+export default withAuthority('/api/banking/escrow/deployment-executions', {
+  GET: async (req, res, ctx) => {
+    const batchUuid = typeof req.query.batchUuid === 'string' ? req.query.batchUuid.trim() : '';
+    if (!batchUuid) {
+      res.status(400).json({ error: 'batchUuid query parameter is required.', code: 'invalid_request' });
+      return;
     }
-    try {
-      const upstream = await fetch(`${RECORDS_URL}?batchUuid=${encodeURIComponent(batchUuid)}`);
-      const data = await upstream.json().catch(() => null);
-      return res.status(upstream.status).json(data ?? { execution: null });
-    } catch {
-      return res.status(200).json({ execution: null });
-    }
-  }
+    sendUpstream(res, await callBankingApi({
+      method: 'GET',
+      path: RECORDS_PATH,
+      query: { batchUuid },
+      session: null,
+      authorityClass: 'public',
+      scopes: [],
+      requestId: ctx.requestId,
+    }));
+  },
 
-  if (req.method === 'POST') {
-    // INTERNAL_ONLY — only lifecycle controller (server-to-server) may write execution records.
-    const internalToken = process.env.INTERNAL_API_TOKEN;
-    if (internalToken && req.headers['x-internal-token'] !== internalToken) {
-      return res.status(403).json({ error: 'Forbidden: deployment-executions POST is an internal endpoint. Public clients may not create execution records.' });
-    }
-
-    // Local idempotency guard: if batchUuid is already recorded upstream, return 409 rather than
-    // proxying a duplicate write that may produce a second execution record for the same batch.
-    const batchUuid = req.body?.batchUuid;
-    if (batchUuid && typeof batchUuid === 'string') {
-      try {
-        const check = await fetch(`${RECORDS_URL}?batchUuid=${encodeURIComponent(batchUuid)}`);
-        const existing = await check.json().catch(() => null);
-        if (check.ok && existing && existing.execution != null) {
-          return res.status(409).json({ error: 'Execution record already exists for this batch UUID.', existing: existing.execution });
-        }
-      } catch {
-        // If the idempotency check fails, proceed and let the upstream decide.
-      }
+  POST: async (req, res, ctx) => {
+    const body = (req.body ?? {}) as Record<string, any>;
+    const batchUuid = typeof body.batchUuid === 'string' ? body.batchUuid.trim() : '';
+    if (!batchUuid || !body.execution?.deploymentId) {
+      res.status(400).json({ error: 'batchUuid and execution.deploymentId are required.', code: 'invalid_request' });
+      return;
     }
 
-    try {
-      const upstream = await fetch(RECORDS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req.body),
+    // Pre-check kept from the original handler: surface an existing record as a
+    // 409 rather than proxying a duplicate write. The banking server's
+    // idempotency guard is the authoritative protection; this is a nicer error.
+    const existing = await callBankingApi({
+      method: 'GET',
+      path: RECORDS_PATH,
+      query: { batchUuid },
+      session: null,
+      authorityClass: 'public',
+      scopes: [],
+      requestId: ctx.requestId,
+    });
+    if (existing.status === 200 && (existing.data as any)?.execution != null) {
+      res.status(409).json({
+        error: 'Execution record already exists for this batch UUID.',
+        existing: (existing.data as any).execution,
       });
-      const data = await upstream.json().catch(() => null);
-      return res.status(upstream.ok ? 201 : upstream.status).json(data ?? {});
-    } catch (err: any) {
-      return res.status(500).json({ error: err?.message || 'Failed to save deployment record.' });
+      return;
     }
-  }
 
-  return res.status(405).json({ error: 'Method not allowed.' });
-}
+    sendUpstream(res, await callBankingApi({
+      method: 'POST',
+      path: RECORDS_PATH,
+      body: { batchUuid, execution: body.execution },
+      session: ctx.session,
+      authorityClass: 'user',
+      scopes: [SCOPES.escrowDeploymentWrite],
+      requestId: ctx.requestId,
+    }));
+  },
+});

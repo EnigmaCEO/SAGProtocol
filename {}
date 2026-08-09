@@ -1,0 +1,71 @@
+[DEPLOY] [eval]:1
+[DEPLOY] setTimeout(()=,2000)
+[DEPLOY]             ^
+[DEPLOY] Parenthesized expression cannot be empty
+[DEPLOY] 
+[DEPLOY] SyntaxError: Unexpected token ')'
+[DEPLOY]     at makeContextifyScript (node:internal/vm:185:14)
+[DEPLOY]     at compileScript (node:internal/process/execution:383:10)
+[DEPLOY]     at evalTypeScript (node:internal/process/execution:256:22)
+[DEPLOY]     at node:internal/main/eval_string:74:3
+[DEPLOY] 
+[DEPLOY] Node.js v22.20.0
+[DEPLOY] node -e "setTimeout(()=,2000)" && npm run deploy:local exited with code 1
+--> Sending SIGTERM to other processes..
+[T-SIGN] [eval]:1
+[T-SIGN] setTimeout(()=,14000)
+[T-SIGN]             ^
+[T-SIGN] Parenthesized expression cannot be empty
+[T-SIGN] 
+[T-SIGN] SyntaxError: Unexpected token ')'
+[T-SIGN]     at makeContextifyScript (node:internal/vm:185:14)
+[T-SIGN]     at compileScript (node:internal/process/execution:383:10)
+[T-SIGN]     at evalTypeScript (node:internal/process/execution:256:22)
+[T-SIGN]     at node:internal/main/eval_string:74:3
+[T-SIGN] 
+[T-SIGN] Node.js v22.20.0
+[E-SIGN] [eval]:1
+[E-SIGN] setTimeout(()=,14000)
+[E-SIGN]             ^
+[E-SIGN] Parenthesized expression cannot be empty
+[E-SIGN] 
+[E-SIGN] SyntaxError: Unexpected token ')'
+[E-SIGN]     at makeContextifyScript (node:internal/vm:185:14)
+[E-SIGN]     at compileScript (node:internal/process/execution:383:10)
+[E-SIGN]     at evalTypeScript (node:internal/process/execution:256:22)
+[E-SIGN]     at node:internal/main/eval_string:74:3
+[E-SIGN] 
+[E-SIGN] Node.js v22.20.0
+[W-FACT] [eval]:1
+[W-FACT] setTimeout(()=,14000)
+[W-FACT]             ^
+[W-FACT] Parenthesized expression cannot be empty
+[W-FACT] 
+[W-FACT] SyntaxError: Unexpected token ')'
+[W-FACT]     at makeContextifyScript (node:internal/vm:185:14)
+[W-FACT]     at compileScript (node:internal/process/execution:383:10)
+[W-FACT]     at evalTypeScript (node:internal/process/execution:256:22)
+[W-FACT]     at node:internal/main/eval_string:74:3
+[W-FACT] 
+[W-FACT] Node.js v22.20.0
+[WEB] [eval]:1
+[WEB] setTimeout(()=,14000)
+[WEB]             ^
+[WEB] Parenthesized expression cannot be empty
+[WEB] 
+[WEB] SyntaxError: Unexpected token ')'
+[WEB]     at makeContextifyScript (node:internal/vm:185:14)
+[WEB]     at compileScript (node:internal/process/execution:383:10)
+[WEB]     at evalTypeScript (node:internal/process/execution:256:22)
+[WEB]     at node:internal/main/eval_string:74:3
+[WEB] 
+[WEB] Node.js v22.20.0
+[WEB] node -e "setTimeout(()=,14000)" && pnpm --dir frontend dev exited with code 1
+--> Sending SIGTERM to other processes..
+[W-FACT] node -e "setTimeout(()=,14000)" && npm --prefix services/wallet-factory run dev exited with code 1
+--> Sending SIGTERM to other processes..
+[E-SIGN] node -e "setTimeout(()=,14000)" && npm --prefix services/signer-escrow run dev exited with code 1
+--> Sending SIGTERM to other processes..
+[T-SIGN] node -e "setTimeout(()=,14000)" && npm --prefix services/signer-treasury run dev exited with code 1
+--> Sending SIGTERM to other processes..
+[NODE] hardhat node exited with code 1

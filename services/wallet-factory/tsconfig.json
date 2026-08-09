@@ -7,8 +7,13 @@
     "resolveJsonModule": true,
     "strict": true,
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "../.."
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

@@ -386,6 +386,7 @@ export type EscrowBatch = {
     handoffId: string;
     approvedByTreasury: boolean;
     approvedAt?: string;
+    openedAtUnix?: number;
     treasurySourceWallet?: string;
     depositManifestHash: string;
   };

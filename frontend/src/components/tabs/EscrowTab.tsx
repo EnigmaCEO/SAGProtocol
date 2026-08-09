@@ -1,16 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserProvider, Contract, Interface, JsonRpcProvider, formatUnits, parseUnits } from 'ethers';
 import {
-  Activity,
   AlertTriangle,
   Anchor,
   ArrowRight,
   Banknote,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   CircleDollarSign,
   Clock3,
+  Copy,
   Database,
+  ExternalLink,
   FileCheck,
+  Filter,
   Info,
   KeyRound,
   Landmark,
@@ -30,10 +34,8 @@ import { useProtocolChain } from '../../context/ProtocolChainContext';
 import { getRuntimeAddress, isValidAddress } from '../../lib/runtime-addresses';
 import {
   LifecycleStep,
-  canAdvanceBatch,
   getBatchBlockingReason,
   getLifecycleSteps,
-  getPrimaryAction,
 } from './escrowBatchState';
 import {
   ReadinessRowState,
@@ -49,6 +51,7 @@ import {
   TreasuryHandoffPackage,
   createEscrowBatchFromHandoff,
 } from './escrowHandoff';
+import { fetchInstitutions } from '../../hooks/useBankingData';
 import {
   canExecuteDeployment,
   getDeploymentExecutionBlockingReason,
@@ -134,15 +137,10 @@ import {
   readBatchLifecycleStateFromChain,
 } from './escrowChainState';
 import {
-  areBothSignerServicesConfigured,
   getSignerServiceConfig,
   isSignerServiceConfigured,
-  requestEscrowDeployLegConfirmationFromService,
-  requestAllocationAnchorFromService,
-  requestAnchorFromService,
-  requestSignatureFromService,
-  requestTreasuryDeployLegFromService,
 } from '../../lib/escrow/signerServiceClient';
+import { advanceEscrowLifecycleOrThrow } from '../../lib/escrow/lifecycleActions';
 import {
   AaaAllocationResponse,
   AaaTickResponse,
@@ -163,8 +161,9 @@ import {
   resolveAllocationStatus,
 } from './escrowAllocation';
 import { hasValidatedAaaAllocation } from './escrowAllocationStatus';
-import { escrowBatchUuid, resolveEscrowBatchId, isUuid } from '../../lib/escrow/ids';
-import { BatchLifecycleCard, type LifecycleRow } from '../BatchLifecycleCard';
+import { resolveEscrowBatchId, isUuid } from '../../lib/escrow/ids';
+import { BatchLifecycleCard, PHASE_NAMES, type LifecycleRow, type PhaseEvidenceRow, type PhaseAttemptRow } from '../BatchLifecycleCard';
+import { buildEscrowBatchDisplayModel, type EscrowBatchDisplayModel, type DevLegPositionRecord } from './escrowDisplayModel';
 
 const TREASURY_BATCH_READER_ABI = [
   'function nextTreasuryBatchId() view returns (uint256)',
@@ -264,6 +263,7 @@ const fmtUsd = (value?: number) =>
   }).format(value ?? 0);
 
 const fmtPct = (value: number) => `${value.toFixed(value % 1 === 0 ? 0 : 1)}%`;
+const fmtTerm = (months: number) => months > 0 && months % 12 === 0 ? `${months / 12}Y` : `${months}M`;
 
 function bankingUrl(path: string) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
@@ -292,16 +292,90 @@ const compactBatchId = (value?: string) => {
   return value;
 };
 
-const formatDateTime = (value?: string) => {
+const formatDateTime = (value?: string | number | null) => {
   if (!value) return 'Pending';
+  // Unix seconds (10-digit number or numeric string) → convert to ms
+  const asNum = typeof value === 'number' ? value : /^\d{9,10}$/.test(String(value)) ? Number(value) : null;
+  const d = asNum != null ? new Date(asNum * 1000) : new Date(value as string);
+  if (isNaN(d.getTime())) return 'Pending';
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: '2-digit',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(value));
+  }).format(d);
 };
+
+function toUnixSeconds(value?: string | number | null) {
+  if (value == null || value === '') return 0;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 1_000_000_000_000 ? Math.floor(value / 1000) : Math.floor(value);
+  }
+  const trimmed = String(value).trim();
+  if (!trimmed) return 0;
+  if (/^\d+$/.test(trimmed)) {
+    const parsed = Number(trimmed);
+    if (Number.isFinite(parsed)) return parsed > 1_000_000_000_000 ? Math.floor(parsed / 1000) : Math.floor(parsed);
+  }
+  const parsed = Date.parse(trimmed);
+  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : 0;
+}
+
+function getLifecycleNaturalKey(sourceBatchId?: string | null, openedAt?: string | number | null) {
+  const normalizedSourceBatchId = String(sourceBatchId ?? '').trim();
+  if (!normalizedSourceBatchId) return '';
+  const openedAtUnix = toUnixSeconds(openedAt);
+  return openedAtUnix > 0 ? `${normalizedSourceBatchId}:${openedAtUnix}` : normalizedSourceBatchId;
+}
+
+function getLifecycleRowLookupKeys(lc: LifecycleRow) {
+  const keys = [
+    String(lc.escrow_batch_id ?? '').trim(),
+    getLifecycleNaturalKey(lc.source_batch_id, lc.opened_at_unix),
+  ].filter(Boolean);
+  return Array.from(new Set(keys));
+}
+
+function getBatchLifecycleLookupKeys(batch: EscrowBatch) {
+  const keys = [
+    String(batch.batchId ?? '').trim(),
+    getLifecycleNaturalKey(
+      batch.sourceBatchId ?? batch.treasuryHandoff.handoffId,
+      batch.treasuryHandoff.openedAtUnix ?? batch.treasuryHandoff.approvedAt,
+    ),
+  ].filter(Boolean);
+  return Array.from(new Set(keys));
+}
+
+function getHandoffNaturalKey(handoff: TreasuryHandoffPackage) {
+  return getLifecycleNaturalKey(handoff.sourceBatchId ?? handoff.handoffId, handoff.openedAt ?? handoff.approvedAt);
+}
+
+function getHandoffLookupKey(handoff: TreasuryHandoffPackage) {
+  if (isUuid(handoff.proposedBatchId)) return handoff.proposedBatchId;
+  return getHandoffNaturalKey(handoff) || handoff.proposedBatchId || handoff.handoffId;
+}
+
+function findLifecycleBatchForBatch(
+  lifecycleBatchByKey: Map<string, LifecycleRow>,
+  batch: EscrowBatch | undefined,
+) {
+  if (!batch) return undefined;
+  return getBatchLifecycleLookupKeys(batch)
+    .map((key) => lifecycleBatchByKey.get(key))
+    .find((row): row is LifecycleRow => Boolean(row));
+}
+
+function findLifecycleEvidenceForBatch(
+  lifecycleEvidenceByBatchId: Map<string, Record<number, PhaseEvidenceRow>>,
+  batch: EscrowBatch,
+) {
+  return getBatchLifecycleLookupKeys(batch)
+    .map((key) => lifecycleEvidenceByBatchId.get(key))
+    .find((evidence): evidence is Record<number, PhaseEvidenceRow> => Boolean(evidence && Object.keys(evidence).length > 0))
+    ?? {};
+}
 
 import { canonicalKeccak } from '../../lib/escrow/canonicalHash';
 
@@ -1189,6 +1263,19 @@ function compactPrimaryActionLabel(label: string) {
   return labels[label] ?? label;
 }
 
+function getApproximatePhase(batch: EscrowBatch): number {
+  if (batch.status === 'settled' || batch.status === 'retired') return 9;
+  if (batch.status === 'deployed' || batch.status === 'active' || batch.status === 'disputed') return 8;
+  if (batch.status === 'settlement_pending') return 8;
+  if (batch.status === 'deployment_pending') return hasDeploymentApproval(batch) ? 7 : 6;
+  if (batch.status === 'aaa_plan_attached') return 5;
+  if (batch.status === 'wallet_funded') return 4;
+  // 'wallet_created' is set client-side when chainConfirmed===true — it does NOT mean Phase 3 ran.
+  if (batch.status === 'wallet_created' || batch.status === 'wallet_requested') return 1;
+  if (batch.status === 'handoff_approved' || batch.status === 'treasury_received') return 1;
+  return 0;
+}
+
 function custodyModeLabel(batch: EscrowBatch) {
   return batch.custodyMode === 'batch_wallet_custody' ? 'Batch Wallet Custody' : 'Escrow Contract Custody';
 }
@@ -1319,7 +1406,7 @@ function termMonthsFromOrder(order: any) {
 function createIncomingDepositFromOrder(order: any): TreasuryHandoffPackage['deposits'][number] {
   return {
     depositId: `${order.sourceType || 'TREASURY'}-${order.batchId}-aggregate`,
-    originBank: order.originInstitutionId || order.sourceType || 'Treasury',
+    originBank: order.originInstitutionId || 'Manual / Demo Bank',
     adapterType: 'manual',
     amountUsd: Number(order.principalReceivedUsd ?? 0),
     termMonths: termMonthsFromOrder(order),
@@ -1336,7 +1423,9 @@ function termMonthsFromTimestamps(startAt: unknown, endAt: unknown) {
   const startMs = Number(startAt ?? 0) * 1000;
   const endMs = Number(endAt ?? 0) * 1000;
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs <= 0 || endMs <= startMs) return 0;
-  return Math.max(1, Math.round((endMs - startMs) / (30 * 24 * 60 * 60 * 1000)));
+  // 365.25 / 12 ≈ 30.4375 days/month: avoids the 30-day rounding error that turns
+  // 5 years (1826 days) into 61 months instead of 60.
+  return Math.max(1, Math.round((endMs - startMs) / (365.25 / 12 * 24 * 60 * 60 * 1000)));
 }
 
 function decodeReceiptIdFromOriginRef(value: unknown) {
@@ -1390,9 +1479,10 @@ async function loadOnChainTreasurySentBatches(params: {
         const receiptId = decodeReceiptIdFromOriginRef(lot.originRefId ?? lot[2]);
         const liabilityUnlockAt = Number(lot.liabilityUnlockAt ?? lot[5] ?? 0);
         return {
-          depositId: receiptId ? `vault-receipt-${receiptId}` : `vault-lot-${lotId}`,
+          depositId: receiptId ? `${originSource}-receipt-${receiptId}` : `${originSource}-lot-${lotId}`,
           originBank: originLabel,
           adapterType: 'manual' as const,
+          bankClientRef: receiptId || undefined,
           amountUsd: Number(lot.amount ?? lot[3] ?? 0) / 1_000_000,
           termMonths: termMonthsFromTimestamps(Number(lot.fundedAt ?? lot[4] ?? openedAt), liabilityUnlockAt) || fallbackTermMonths,
           status: 'batched' as const,
@@ -1428,8 +1518,11 @@ async function loadOnChainTreasurySentBatches(params: {
 
     handoffs.push({
       handoffId: String(batchId),
-      proposedBatchId: escrowBatchUuid({ chainId: params.chainId, treasuryAddress: params.treasuryAddress, sourceBatchId: String(batchId), openedAt }),
+      // Keep pre-registration IDs deterministic but non-UUID so the frontend does not treat
+      // on-chain discovery alone as an authoritative server registration.
+      proposedBatchId: `pending-${batchId}-${openedAt || 0}`,
       chainConfirmed: true,
+      openedAt,
       custodyMode: 'batch_wallet_custody',
       sourceContract: params.escrowAddress,
       sourceBatchId: String(batchId),
@@ -1466,20 +1559,28 @@ async function loadOnChainTreasurySentBatches(params: {
 // Backend execution-order rows are metadata only. They may include historical or failed
 // orders that no longer correspond to a live contract batch, so they must never create
 // a visible Escrow batch by themselves.
-function buildIncomingTreasuryBatch(order: any, termPositions: any[]): TreasuryHandoffPackage | null {
+function resolveInstitutionName(id: string | undefined | null, names: Map<string, string>): string {
+  if (!id) return '';
+  return names.get(id) ?? id;
+}
+
+function buildIncomingTreasuryBatch(order: any, termPositions: any[], institutionNames: Map<string, string> = new Map()): TreasuryHandoffPackage | null {
   const treasuryBatchId = String(order.batchId ?? '');
   if (!treasuryBatchId) return null;
 
   const sourceEntries = termPositions
     .filter((position) => String(position.treasuryBatchId ?? position.treasury_batch_id ?? '') === treasuryBatchId)
-    .map((position, index) => ({
-      depositId: String(position.id ?? position.termPositionId ?? `${treasuryBatchId}-source-${index + 1}`),
-      originBank: String(position.originInstitutionId ?? position.origin_institution_id ?? order.originInstitutionId ?? order.sourceType ?? 'Treasury'),
-      adapterType: 'manual' as const,
-      amountUsd: Number(position.amountUsd ?? position.amount_usd ?? position.principalUsd ?? 0),
-      termMonths: termMonthsFromOrder(position),
-      status: 'batched' as const,
-    }));
+    .map((position, index) => {
+      const institutionId = position.originInstitutionId ?? position.origin_institution_id ?? order.originInstitutionId;
+      return {
+        depositId: String(position.id ?? position.termPositionId ?? `${treasuryBatchId}-source-${index + 1}`),
+        originBank: position.institutionDisplayName || resolveInstitutionName(institutionId, institutionNames) || 'Manual / Demo Bank',
+        adapterType: 'manual' as const,
+        amountUsd: Number(position.amountUsd ?? position.amount_usd ?? position.principalUsd ?? 0),
+        termMonths: termMonthsFromOrder(position),
+        status: 'batched' as const,
+      };
+    });
   const deposits = sourceEntries.length > 0 ? sourceEntries : [createIncomingDepositFromOrder(order)];
   const originBanks = Array.from(new Set(deposits.map((deposit) => deposit.originBank).filter(Boolean)));
   const metadata = order.metadata ?? {};
@@ -1496,6 +1597,7 @@ function buildIncomingTreasuryBatch(order: any, termPositions: any[]): TreasuryH
   const termMonths = termMonthsFromOrder(order);
   const asset = order.asset ?? metadata.asset;
   const sourceBatchId = String(order.sourceBatchId ?? metadata.sourceBatchId ?? treasuryBatchId);
+  const openedAt = toUnixSeconds(order.openedAt ?? metadata.openedAt);
 
   return {
     handoffId: treasuryBatchId,
@@ -1503,9 +1605,10 @@ function buildIncomingTreasuryBatch(order: any, termPositions: any[]): TreasuryH
       chainId: order.chainId ?? 0,
       treasuryAddress: getRuntimeAddress('Treasury') ?? '',
       sourceBatchId,
-      openedAt: order.openedAt ?? metadata.openedAt ?? 0,
+      openedAt,
     }),
     chainConfirmed: false,
+    openedAt: openedAt || undefined,
     custodyMode: (order.custodyMode === 'batch_wallet_custody' || metadata.custodyMode === 'batch_wallet_custody') ? 'batch_wallet_custody' : 'escrow_contract_custody',
     sourceContract: order.sourceContract ?? metadata.sourceContract ?? getRuntimeAddress('InvestmentEscrow'),
     sourceBatchId,
@@ -1554,10 +1657,48 @@ function mergeBackendMetadataIntoOnChainBatch(
   // The on-chain recomputed UUID is a fallback only when no backend record exists.
   const canonicalBatchId =
     isUuid(backendBatch.proposedBatchId) ? backendBatch.proposedBatchId : onChainBatch.proposedBatchId;
+
+  // Prefer backend termMonths: the backend derives it from real term positions (term_years * 12),
+  // whereas the Treasury contract's expectedReturnAt is the execution deadline (often 30 days),
+  // not the investment term. Vault lots carry the correct term via liabilityUnlockAt (already
+  // computed into each deposit's termMonths), so use the max deposit term as a fallback when
+  // both batch-level sources are 1 (the Math.max(1,...) floor indicating a missing timestamp).
+  const maxDepositTermMonths = Math.max(
+    0,
+    ...onChainBatch.deposits.map(d => d.termMonths || 0),
+    ...backendBatch.deposits.map(d => d.termMonths || 0),
+  );
+  const resolvedTermMonths =
+    (backendBatch.termMonths > 1 ? backendBatch.termMonths : 0) ||
+    (onChainBatch.termMonths > 1 ? onChainBatch.termMonths : 0) ||
+    (maxDepositTermMonths > 1 ? maxDepositTermMonths : 0) ||
+    backendBatch.termMonths ||
+    onChainBatch.termMonths;
+
+  // Patch on-chain deposit termMonths for bank lots which have no liabilityUnlockAt on-chain.
+  // Vault lots carry the correct term from liabilityUnlockAt — only override when the computed
+  // value is 1 (the Math.max(1,...) floor, indicating a missing timestamp).
+  // When the batch has a single resolved institution name, use it for all on-chain deposits.
+  // On-chain lots only store originType (vault vs bank), not the institution ID, so
+  // per-deposit ID matching is not possible — use the batch-level originBanks as the source.
+  const resolvedBatchOriginBank =
+    backendBatch.originBanks.length === 1 ? backendBatch.originBanks[0] : null;
+
+  const mergedDeposits = onChainBatch.deposits.length > 0
+    ? onChainBatch.deposits.map(d => ({
+        ...d,
+        termMonths: resolvedTermMonths || (d.termMonths > 1 ? d.termMonths : 0),
+        originBank: resolvedBatchOriginBank || d.originBank,
+      }))
+    : backendBatch.deposits;
+
   return {
     ...backendBatch,
     ...onChainBatch,
     proposedBatchId: canonicalBatchId,
+    openedAt: backendBatch.openedAt ?? onChainBatch.openedAt,
+    termMonths: resolvedTermMonths,
+    deposits: mergedDeposits,
     batchWalletAddress: backendBatch.batchWalletAddress ?? onChainBatch.batchWalletAddress,
     batchWalletChain: backendBatch.batchWalletChain ?? onChainBatch.batchWalletChain,
     batchWalletBindingHash: backendBatch.batchWalletBindingHash ?? onChainBatch.batchWalletBindingHash,
@@ -1655,7 +1796,7 @@ function getAuthorityBindingEvidence(batch: EscrowBatch): EvidenceRow[] {
     { label: 'Custody location', value: p.custodyLocation },
     { label: 'Asset', value: p.asset },
     { label: 'Total amount', value: fmtUsd(p.totalAmountUsd) },
-    { label: 'Term', value: `${p.termMonths}M` },
+    { label: 'Term', value: fmtTerm(p.termMonths) },
     { label: 'Manifest hash', value: p.depositManifestHash },
     ...(p.allocationPlanHash ? [{ label: 'Allocation hash', value: p.allocationPlanHash }] : []),
     ...(p.policyContextHash ? [{ label: 'Policy hash', value: p.policyContextHash }] : []),
@@ -1691,7 +1832,7 @@ function getStepEvidence(batch: EscrowBatch, stepId: LifecycleStep['id']): Evide
         { label: 'Source batch ID', value: batch.sourceBatchId ?? batch.treasuryHandoff.handoffId },
         { label: 'Asset', value: batch.asset ?? 'USDC' },
         { label: 'Amount', value: fmtUsd(batch.totalAmountUsd) },
-        { label: 'Term', value: `${batch.termMonths}M` },
+        { label: 'Term', value: fmtTerm(batch.termMonths) },
         { label: 'Authority binding hash', value: shortHash(binding?.batchAuthorityBindingHash) },
       ];
     case 'wallet_created':
@@ -2053,12 +2194,14 @@ function BatchReadinessPanel({ batch }: { batch: EscrowBatch }) {
 
 function TreasuryFundingSection({
   batch,
+  currentPhase,
   onVerifyFunding,
   onManualConfirmFunding,
   isVerifying,
   verificationError,
 }: {
   batch: EscrowBatch;
+  currentPhase: number;
   onVerifyFunding: (batch: EscrowBatch) => void;
   onManualConfirmFunding: (batch: EscrowBatch, observedAmountUsd: number, fundingTxHash: string) => void;
   isVerifying: boolean;
@@ -2070,12 +2213,24 @@ function TreasuryFundingSection({
   const [fundingTxHash, setFundingTxHash] = useState(latestConfirmation?.fundingTxHash ?? '');
   const walletAddress = batch.wallet.walletAddress ?? batch.wallet.address;
   const isEscrowContractCustody = batch.custodyMode === 'escrow_contract_custody';
+
+  // Funding verification requires Phase 2+ (authority binding anchored) for escrow_contract_custody,
+  // or Phase 3+ (wallet created on-chain) for batch_wallet_custody.
+  // Before those phases, binding state is precomputed candidate metadata — not confirming it as
+  // a blocking error would produce false phase-0 diagnostics.
+  const fundingPhaseReady = isEscrowContractCustody ? currentPhase >= 2 : currentPhase >= 3;
+
   const bindingLocked = batch.batchWalletBinding?.bindingStatus === 'binding_locked';
   const bindingValidation = getBatchWalletBindingValidation(batch);
   const bindingValid = bindingValidation.state === 'valid';
   const authorityBindingValid = hasValidAuthorityBinding(batch);
   const authorityBindingAnchored = isAuthorityBindingAnchored(batch);
-  const blockingReason = isEscrowContractCustody
+
+  // Blocking reason is only meaningful once the relevant phase prerequisites exist.
+  // Before that, show a phase-appropriate message instead of false mismatch errors.
+  const blockingReason = !fundingPhaseReady
+    ? null
+    : isEscrowContractCustody
     ? (!authorityBindingAnchored
         ? 'Batch Authority Binding has not been anchored on-chain.'
         : !authorityBindingValid
@@ -2111,7 +2266,6 @@ function TreasuryFundingSection({
       <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         <Field label="Expected funding amount" value={fmtUsd(fundingValidation.expectedAmountUsd)} />
         <Field label="Observed amount" value={fundingValidation.observedAmountUsd == null ? 'Pending' : fmtUsd(fundingValidation.observedAmountUsd)} />
-        <Field label="Custody mode" value={custodyModeLabel(batch)} />
         <Field label="Source contract" value={<span className="font-mono">{shortHash(batch.sourceContract)}</span>} />
         <Field label="Source batch ID" value={batch.sourceBatchId ?? batch.treasuryHandoff.handoffId} />
         <Field label="Funding source" value={latestConfirmation?.fundingSource ?? batch.fundingSource ?? 'Pending'} />
@@ -2130,16 +2284,24 @@ function TreasuryFundingSection({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className="action-button action-button--primary inline-flex items-center gap-2"
-          disabled={isEscrowContractCustody ? (!authorityBindingAnchored || !authorityBindingValid || isVerifying) : (!walletAddress || !bindingLocked || !bindingValid || !authorityBindingValid || isVerifying)}
-          aria-disabled={isEscrowContractCustody ? (!authorityBindingAnchored || !authorityBindingValid || isVerifying) : (!walletAddress || !bindingLocked || !bindingValid || !authorityBindingValid || isVerifying)}
-          onClick={() => onVerifyFunding(batch)}
-        >
-          <CheckCircle2 size={16} />
-          {isVerifying ? 'Verifying...' : 'Verify Funding'}
-        </button>
+        {!fundingPhaseReady ? (
+          <p className="text-xs text-slate-500">
+            {isEscrowContractCustody
+              ? 'Funding verification available after authority binding is anchored (Phase 2).'
+              : 'Funding verification available after wallet is created on-chain (Phase 3).'}
+          </p>
+        ) : (
+          <button
+            type="button"
+            className="action-button action-button--primary inline-flex items-center gap-2"
+            disabled={isEscrowContractCustody ? (!authorityBindingAnchored || !authorityBindingValid || isVerifying) : (!walletAddress || !bindingLocked || !bindingValid || !authorityBindingValid || isVerifying)}
+            aria-disabled={isEscrowContractCustody ? (!authorityBindingAnchored || !authorityBindingValid || isVerifying) : (!walletAddress || !bindingLocked || !bindingValid || !authorityBindingValid || isVerifying)}
+            onClick={() => onVerifyFunding(batch)}
+          >
+            <CheckCircle2 size={16} />
+            {isVerifying ? 'Verifying...' : 'Verify Funding'}
+          </button>
+        )}
       </div>
 
 
@@ -2165,6 +2327,7 @@ function BatchWalletBindingSection({
 }) {
   const binding = batch.batchWalletBinding;
   const isLocked = binding?.bindingStatus === 'binding_locked';
+  const walletConfirmed = Boolean(batch.wallet.walletAddress);
   const bindingValidation = getBatchWalletBindingValidation(batch);
   const bindingValid = bindingValidation.state === 'valid';
   const canonicalPayloadText = binding?.canonicalPayload
@@ -2177,7 +2340,11 @@ function BatchWalletBindingSection({
         <>
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <ReadinessBadge label={isLocked ? 'Binding Locked' : 'Binding Pending'} state={isLocked ? 'passed' : 'pending'} />
-            <ReadinessBadge label={bindingValidation.label} state={bindingValid ? 'passed' : 'blocked'} />
+            {/* Only surface the binding hash validation badge once the wallet is confirmed on-chain.
+                Before Phase 3 the wallet address is predicted — any divergence is expected. */}
+            {walletConfirmed && (
+              <ReadinessBadge label={bindingValidation.label} state={bindingValid ? 'passed' : 'blocked'} />
+            )}
             <span className="data-chip">Auto-locked</span>
           </div>
           <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -2200,7 +2367,7 @@ function BatchWalletBindingSection({
               {canonicalPayloadText}
             </pre>
           </div>
-          {!bindingValid && bindingValidation.blockingReason ? (
+          {walletConfirmed && !bindingValid && bindingValidation.blockingReason ? (
             <div className="mt-3 rounded-lg border border-[rgba(236,86,86,0.34)] bg-[rgba(60,20,20,0.42)] p-3 text-sm text-rose-100">
               <span className="font-semibold">Blocking Reason:</span> {bindingValidation.blockingReason}
             </div>
@@ -2276,58 +2443,20 @@ function roleStatusTone(status: RoleAuthorityRecord['status']): 'success' | 'war
 }
 
 function RoleAuthorityRegistrySection() {
+  const allActive = ROLE_AUTHORITY_REGISTRY.every(r => r.status === 'active');
   return (
     <SectionCard title="Role Authority Registry" icon={<ShieldCheck size={18} />}>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="data-chip" data-tone="purple">Role Authority Registry</span>
-        <span className="data-chip">{ROLE_AUTHORITY_REGISTRY[0].registryVersion}</span>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="data-chip" data-tone="purple">{ROLE_AUTHORITY_REGISTRY[0].registryVersion}</span>
         <span className="data-chip">{ROLE_AUTHORITY_REGISTRY.length} roles</span>
-      </div>
-      <div className="mb-3 rounded-lg border border-slate-700/50 bg-slate-900/35 p-3 text-xs text-slate-400">
-        Canonical expected signer addresses for Batch Authority Binding. Public addresses only — no private keys, seed phrases, or signing secrets.
-        Connect a wallet matching the expected signer address to sign for that role.
-      </div>
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        {ROLE_AUTHORITY_REGISTRY.map((role) => {
-          const roleCheck = isRoleSigningAllowed(role);
-          return (
-            <div
-              key={role.roleId}
-              className={`rounded-lg border p-3 ${
-                role.status === 'active' ? 'border-slate-700/50 bg-slate-900/35' :
-                role.status === 'rotation_pending' ? 'border-amber-700/40 bg-amber-900/10' :
-                'border-rose-700/40 bg-rose-900/10'
-              }`}
-            >
-              <div className="mb-2 flex items-start justify-between gap-2">
-                <span className="text-xs font-semibold text-slate-100">{role.roleLabel}</span>
-                <StatusBadge
-                  label={titleCase(role.status.replace(/_/g, ' '))}
-                  tone={roleStatusTone(role.status)}
-                />
-              </div>
-              <div className="grid grid-cols-1 gap-1.5 text-[11px]">
-                <div className="flex flex-col gap-0.5">
-                  <span className="uppercase tracking-[0.14em] text-slate-500">Expected signer</span>
-                  <span className="break-all font-mono text-slate-300">{role.expectedSignerAddress}</span>
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  <span className="uppercase tracking-[0.14em] text-slate-500">Custody domain</span>
-                  <span className="text-slate-400">{role.custodyDomain}</span>
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  <span className="uppercase tracking-[0.14em] text-slate-500">Registry version</span>
-                  <span className="text-slate-400">{role.registryVersion}</span>
-                </div>
-                {!roleCheck.allowed ? (
-                  <div className="mt-1 rounded bg-rose-900/40 px-2 py-1 text-[10px] text-rose-200">
-                    {roleCheck.reason} — signing blocked
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          );
-        })}
+        <span className="data-chip" data-tone={allActive ? 'success' : 'warning'}>
+          drift: {allActive ? 'none' : 'detected'}
+        </span>
+        {ROLE_AUTHORITY_REGISTRY.map(role => (
+          <span key={role.roleId} className="data-chip" data-tone={role.status === 'active' ? 'success' : role.status === 'rotation_pending' ? 'warning' : 'danger'}>
+            {role.roleLabel}: {role.status}
+          </span>
+        ))}
       </div>
     </SectionCard>
   );
@@ -2362,6 +2491,7 @@ function BatchAuthorityBindingSection({
   const isValid = validation.state === 'valid';
   const sigStatus = binding ? getBatchAuthoritySignatureStatus(binding) : null;
   const fullySigned = binding ? isBatchAuthorityFullySigned(binding) : false;
+  const effectiveAnchorStatus = binding?.anchorStatus ?? 'pending_onchain_anchor';
 
   // Detect connected browser wallet (for enabling sign buttons in non-dev mode)
   const [connectedAddress, setConnectedAddress] = useState('');
@@ -2517,8 +2647,8 @@ function BatchAuthorityBindingSection({
             <StatusBadge label={`Escrow sig: ${binding.escrowSignatureStatus}`} tone={sigStatusTone(binding.escrowSignatureStatus)} />
           </span>
         </EvidencePopover>
-        <span className="data-chip" data-tone={binding.anchorStatus === 'anchored' ? 'success' : binding.anchorStatus === 'binding_mismatch' ? 'danger' : 'purple'}>
-          {binding.anchorStatus === 'anchored' ? 'On-chain Anchored' : binding.anchorStatus === 'binding_mismatch' ? 'Binding Mismatch' : 'Pending On-chain Anchor'}
+        <span className="data-chip" data-tone={effectiveAnchorStatus === 'anchored' ? 'success' : effectiveAnchorStatus === 'binding_mismatch' ? 'danger' : 'purple'}>
+          {effectiveAnchorStatus === 'anchored' ? 'On-chain Anchored' : effectiveAnchorStatus === 'binding_mismatch' ? 'Binding Mismatch' : 'Pending On-chain Anchor'}
         </span>
         <span className="data-chip">EIP-712</span>
         <span className="data-chip" title={`EVM chain ID: ${binding.canonicalPayload.chainId}`}>
@@ -2701,8 +2831,8 @@ function BatchAuthorityBindingSection({
           />
           <span className="text-[11px] text-slate-500">On-chain:</span>
           <StatusBadge
-            label={binding.anchorStatus === 'anchored' ? 'Anchored' : binding.anchorStatus === 'binding_mismatch' ? 'Binding Mismatch' : 'Pending Anchor'}
-            tone={binding.anchorStatus === 'anchored' ? 'success' : binding.anchorStatus === 'binding_mismatch' ? 'danger' : 'warning'}
+            label={effectiveAnchorStatus === 'anchored' ? 'Anchored' : effectiveAnchorStatus === 'binding_mismatch' ? 'Binding Mismatch' : 'Pending Anchor'}
+            tone={effectiveAnchorStatus === 'anchored' ? 'success' : effectiveAnchorStatus === 'binding_mismatch' ? 'danger' : 'warning'}
           />
           {binding.signatureVerificationStatus ? (
             <>
@@ -2715,8 +2845,11 @@ function BatchAuthorityBindingSection({
           ) : null}
         </div>
 
-        {onSignAsRole ? (
-          <div className="mt-4 flex flex-wrap gap-2">
+        {onSignAsRole && process.env.NEXT_PUBLIC_DEV_SIGNING_TOOLS === 'true' ? (
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="rounded border border-rose-500/50 bg-rose-950/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-rose-300">
+              DEV ONLY
+            </span>
             <button
               type="button"
               className="action-button action-button--secondary inline-flex items-center gap-2"
@@ -2725,7 +2858,7 @@ function BatchAuthorityBindingSection({
               onClick={() => onSignAsRole(batch, 'treasury')}
             >
               <KeyRound size={15} />
-              {isSigningTreasury ? 'Requesting…' : tvServiceMode ? 'Request Treasury Signature' : 'Sign as Treasury/Vault'}
+              {isSigningTreasury ? 'Signing…' : 'Sign as Treasury/Vault'}
             </button>
             <button
               type="button"
@@ -2735,7 +2868,7 @@ function BatchAuthorityBindingSection({
               onClick={() => onSignAsRole(batch, 'escrow')}
             >
               <KeyRound size={15} />
-              {isSigningEscrow ? 'Requesting…' : escrowServiceMode ? 'Request Escrow Signature' : 'Sign as Escrow'}
+              {isSigningEscrow ? 'Signing…' : 'Sign as Escrow'}
             </button>
           </div>
         ) : null}
@@ -2831,7 +2964,7 @@ function BatchAuthorityBindingSection({
           </div>
         ) : null}
 
-        {binding.anchorStatus === 'binding_mismatch' ? (
+        {effectiveAnchorStatus === 'binding_mismatch' ? (
           <div className="mt-3 rounded-lg border border-[rgba(236,86,86,0.34)] bg-[rgba(60,20,20,0.42)] p-3 text-sm text-rose-100">
             <span className="font-semibold">Binding Mismatch:</span> On-chain anchor for this sourceBatchId has a different hash. This batch is blocked.
           </div>
@@ -3059,68 +3192,73 @@ function DestinationApprovalPreviewSection({
 
 function AaaAllocationSection({
   batch,
-  onRequestAllocation,
-  isRequesting,
-  requestError,
-  onRecoverPlan,
-  isRecovering,
-  recoveryError,
+  evidence = {},
+  currentPhase = 0,
 }: {
   batch: EscrowBatch;
-  onRequestAllocation: (batch: EscrowBatch) => void;
-  isRequesting: boolean;
-  requestError: string | null;
-  onRecoverPlan: (batch: EscrowBatch) => void;
-  isRecovering: boolean;
-  recoveryError: string | null;
+  evidence?: Record<number, import('../BatchLifecycleCard').PhaseEvidenceRow>;
+  currentPhase?: number;
 }) {
-  const alloc = batch.aaaAllocation;
-  const fundingVerified = getFundingValidation(batch).state === 'verified';
-  const isAttached = hasValidatedAaaAllocation(batch);
+  // Phase 5 evidence takes precedence over session-side batch fields when present.
+  // This prevents "Request AAA Allocation" from showing after Phase 5 has completed.
+  const p5Evidence = evidence[5];
+  const p5ev = p5Evidence?.evidence_json as Record<string, unknown> | undefined;
+  const phase5Complete = currentPhase >= 5;
+  const phase5EvidencePresent = Boolean(p5Evidence);
+
+  // When Phase 5 is complete but evidence is missing: show integrity fault immediately.
+  if (phase5Complete && !phase5EvidencePresent) {
+    return (
+      <SectionCard title="AAA Allocation" icon={<ShieldCheck size={18} />}>
+        <EvidenceIntegrityFault phase={5} label="Phase 5 (AAA Allocation)" currentPhase={currentPhase} />
+      </SectionCard>
+    );
+  }
+
+  // When Phase 5 evidence exists, override alloc fields from evidence to prevent stale batch object.
+  const alloc = phase5Complete && p5ev ? {
+    ...batch.aaaAllocation,
+    status: 'validated' as const,
+    allocationPlan: (p5ev.allocationPlanJson ?? batch.aaaAllocation.allocationPlan) as Record<string, unknown> | null,
+    allocationPlanHash: (p5ev.allocationPlanHash as string | undefined) ?? batch.aaaAllocation.allocationPlanHash,
+    policyContextHash: (p5ev.policyContextHash as string | undefined) ?? batch.aaaAllocation.policyContextHash,
+    portfolioRegistryVersion: (p5ev.portfolioRegistryVersion as string | undefined) ?? batch.aaaAllocation.portfolioRegistryVersion,
+    attachedAt: p5ev.attachedAt != null
+      ? (typeof p5ev.attachedAt === 'number'
+        ? new Date((p5ev.attachedAt as number) * 1000).toISOString()
+        : String(p5ev.attachedAt))
+      : batch.aaaAllocation.attachedAt,
+    attachTxHash: (p5ev.attachTxHash as string | undefined) ?? batch.aaaAllocation.attachTxHash,
+  } : batch.aaaAllocation;
+
   const [jsonExpanded, setJsonExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const planData = alloc.allocationPlan as (Record<string, unknown> | null | undefined);
   const isPayloadMissing = alloc.status === 'chain_only' && !planData;
-  const canRequest = fundingVerified && !isAttached && !isRequesting && !isPayloadMissing;
-  const canRecover = isPayloadMissing && !isRecovering;
-  const allocationActionLabel = isRequesting
-    ? 'Requesting...'
-    : isRecovering && isPayloadMissing
-      ? 'Recovering...'
-      : isPayloadMissing
-        ? 'Recover Plan Data'
-        : isAttached
-          ? 'Allocation Attached'
-          : alloc.status === 'computed'
-            ? 'Anchor AAA Allocation'
-            : 'Request AAA Allocation';
-  const targetWeights   = planData?.target_weights    as Record<string, number> | undefined;
-  const roleByAsset     = planData?.role_by_asset     as Record<string, string> | undefined;
-  const scoreTrace      = planData?.score_trace_by_asset as Record<string, Record<string, unknown>> | undefined;
-  const riskSummary     = planData?.risk_summary      as Record<string, Record<string, number>> | undefined;
-  const stabilityMetrics= planData?.stability_metrics as Record<string, unknown> | undefined;
-  const metaData        = planData?.meta              as Record<string, unknown> | undefined;
+  const hasChainAllocationAnchor = phase5Complete || ['validated', 'attached', 'locked', 'deployed', 'chain_only', 'hash_mismatch'].includes(alloc.status);
+  const isMismatch = alloc.status === 'hash_mismatch';
+
+  const targetWeights = planData?.target_weights as Record<string, number> | undefined;
+  const roleByAsset   = planData?.role_by_asset  as Record<string, string> | undefined;
+  const scoreTrace    = planData?.score_trace_by_asset as Record<string, Record<string, unknown>> | undefined;
+  const metaData      = planData?.meta as Record<string, unknown> | undefined;
+  const legCount      = targetWeights ? Object.keys(targetWeights).length : null;
 
   const planJson = planData ? JSON.stringify(planData, null, 2) : null;
-  let canonicalPlanData: Record<string, unknown> | null = null;
   let recomputedPlanHash = '';
+  let canonicalPlanJson: string | null = null;
   try {
     if (planData) {
-      canonicalPlanData = canonicalPlanFields(planData as any);
-      recomputedPlanHash = canonicalKeccak(canonicalPlanData);
+      const cpd = canonicalPlanFields(planData as any);
+      recomputedPlanHash = canonicalKeccak(cpd);
+      canonicalPlanJson = JSON.stringify(cpd, null, 2);
     }
-  } catch {
-    canonicalPlanData = null;
-    recomputedPlanHash = '';
-  }
-  const canonicalPlanJson = canonicalPlanData ? JSON.stringify(canonicalPlanData, null, 2) : null;
+  } catch { /* ignore */ }
   const planHashMatches = Boolean(
-    recomputedPlanHash &&
-    alloc.allocationPlanHash &&
+    recomputedPlanHash && alloc.allocationPlanHash &&
     recomputedPlanHash.toLowerCase() === alloc.allocationPlanHash.toLowerCase()
   );
-  const hasChainAllocationAnchor = ['validated', 'attached', 'locked', 'deployed', 'chain_only', 'hash_mismatch'].includes(alloc.status);
 
   const copyJson = () => {
     if (!planJson) return;
@@ -3130,293 +3268,203 @@ function AaaAllocationSection({
     });
   };
 
-  return (
-    <SectionCard title="AAA Allocation" icon={<ShieldCheck size={18} />}>
-      {/* ── Status badges ── */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <ReadinessBadge
-          label={allocationStatusLabel(alloc.status)}
-          state={allocationStatusTone(alloc.status)}
-        />
-        {alloc.status === 'hash_mismatch' && (
-          <span className="data-chip text-rose-300">Local plan hash ≠ on-chain hash</span>
-        )}
-        {isAttached && alloc.portfolioRegistryVersion && (
-          <span className="data-chip font-mono">registry {alloc.portfolioRegistryVersion.slice(0, 10)}…</span>
-        )}
-        {metaData && (
-          <span className="data-chip">{String(metaData.allocator ?? 'allocator')} · v{String(metaData.allocator_version_effective ?? '1')}</span>
-        )}
-        {planData?.schema_version && (
-          <span className="data-chip font-mono">{String(planData.schema_version)}</span>
-        )}
-        {planData && alloc.allocationPlanHash && (
-          <span className={`data-chip ${planHashMatches ? 'text-emerald-300' : 'text-rose-300'}`}>
-            {planHashMatches
-              ? hasChainAllocationAnchor ? 'JSON hash matches on-chain' : 'JSON hash verified'
-              : 'JSON hash mismatch'}
-          </span>
-        )}
-      </div>
+  // Pre-phase-5: awaiting Phase 5 execution. Post-phase-5: anchored read-only.
+  const showAnchoredState = hasChainAllocationAnchor;
 
-      {/* ── Summary fields ── */}
-      <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        <Field label="Plan ID"             value={alloc.planId || 'Pending'} />
-        <Field label="Status"              value={allocationStatusLabel(alloc.status)} />
-        <Field label="Target yield"        value={alloc.targetYieldBps ? `${alloc.targetYieldBps} bps` : 'Pending'} />
-        <Field label="Allocation plan hash"
-          value={<span className="break-all font-mono text-[11px] text-[var(--gold-300)]">{alloc.allocationPlanHash || '—'}</span>} />
-        <Field label="Policy context hash"
-          value={<span className="break-all font-mono text-[11px]">{alloc.policyContextHash || '—'}</span>} />
-        <Field label="Registry version"
-          value={alloc.portfolioRegistryVersion
-            ? <span className="break-all font-mono text-[11px]">{alloc.portfolioRegistryVersion}</span>
-            : 'Pending'} />
-        {alloc.attachedAt && <Field label="Attached at"  value={formatDateTime(alloc.attachedAt)} />}
-        {alloc.attachTxHash && <Field label="Attach tx"  value={<span className="font-mono text-[11px]">{alloc.attachTxHash}</span>} />}
-        {planData?.tick_id && <Field label="Tick ID"     value={<span className="font-mono">{String(planData.tick_id)}</span>} />}
-        {planData?.timestamp && <Field label="Computed at" value={String(planData.timestamp)} />}
-        {recomputedPlanHash && (
-          <Field
-            label="Recomputed canonical JSON hash"
-            value={<span className="break-all font-mono text-[11px]">{recomputedPlanHash}</span>}
-          />
-        )}
-        {recomputedPlanHash && alloc.allocationPlanHash && (
-          <Field
-            label="JSON evidence verification"
-            value={
-              <span className={planHashMatches ? 'text-emerald-300' : 'text-rose-300'}>
-                {planHashMatches
-                  ? hasChainAllocationAnchor ? 'Matches on-chain allocationPlanHash' : 'Matches computed allocationPlanHash'
-                  : 'Does not match allocationPlanHash'}
-              </span>
-            }
-          />
-        )}
-      </div>
-
-      {/* ── Allocation weights + score trace ── */}
-      {targetWeights && roleByAsset && (
-        <div className="mb-5">
-          <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-slate-500">Target Allocation Weights</div>
-          <div className="overflow-x-auto rounded-lg border border-slate-700/40">
-            <table className="w-full min-w-[700px] text-xs">
-              <thead>
-                <tr className="border-b border-slate-700/50 bg-slate-900/60 text-left text-[10px] uppercase tracking-[0.12em] text-slate-500">
-                  <th className="px-3 py-2">Asset</th>
-                  <th className="px-3 py-2">Role</th>
-                  <th className="px-3 py-2 text-right">Weight</th>
-                  <th className="px-3 py-2 text-right">Amount</th>
-                  {scoreTrace && <th className="px-3 py-2 text-right">Score</th>}
-                  {scoreTrace && <th className="px-3 py-2 text-right">ER adj</th>}
-                  {scoreTrace && <th className="px-3 py-2 text-right">Vol adj</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(targetWeights)
-                  .sort(([, a], [, b]) => b - a)
-                  .map(([symbol, weight]) => {
-                    const trace = scoreTrace?.[symbol];
-                    return (
-                      <tr key={symbol} className="border-b border-slate-800/40 hover:bg-slate-800/20">
-                        <td className="px-3 py-2 font-mono font-semibold text-slate-100">{symbol}</td>
-                        <td className="px-3 py-2 text-slate-400">{roleByAsset[symbol] ?? '—'}</td>
-                        <td className="px-3 py-2 text-right font-mono font-semibold text-[var(--gold-300)]">
-                          {(weight * 100).toFixed(2)}%
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono">{fmtUsd(weight * batch.totalAmountUsd)}</td>
-                        {scoreTrace && (
-                          <td className="px-3 py-2 text-right font-mono text-slate-300">
-                            {trace ? Number(trace.score_v1).toFixed(4) : '—'}
-                          </td>
-                        )}
-                        {scoreTrace && (
-                          <td className="px-3 py-2 text-right font-mono text-slate-400">
-                            {trace ? Number(trace.expected_return_used_role_adj).toFixed(4) : '—'}
-                          </td>
-                        )}
-                        {scoreTrace && (
-                          <td className="px-3 py-2 text-right font-mono text-slate-400">
-                            {trace ? Number(trace.volatility_used_role_adj).toFixed(4) : '—'}
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      <DestinationApprovalPreviewSection batch={batch} targetWeights={targetWeights} />
-
-      {/* ── Risk summary + stability ── */}
-      {(riskSummary || stabilityMetrics) && (
-        <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {riskSummary?.pre?.portfolio_volatility != null && (
-            <Field label="Portfolio vol (pre)"  value={`${(riskSummary.pre.portfolio_volatility * 100).toFixed(2)}%`} />
-          )}
-          {riskSummary?.post?.portfolio_volatility != null && (
-            <Field label="Portfolio vol (post)" value={`${(riskSummary.post.portfolio_volatility * 100).toFixed(2)}%`} />
-          )}
-          {riskSummary?.delta?.portfolio_volatility != null && (
-            <Field label="Vol delta" value={`${(riskSummary.delta.portfolio_volatility * 100).toFixed(2)}%`} />
-          )}
-          {stabilityMetrics?.churn_pct != null && (
-            <Field label="Churn" value={`${Number(stabilityMetrics.churn_pct).toFixed(2)}%`} />
-          )}
-        </div>
-      )}
-
-      {/* ── Action button ── */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+  const rawJsonToggle = (planData || alloc.allocationPlanHash) ? (
+    <div className="mt-4 rounded-lg border border-slate-700/40 bg-slate-900/40">
+      <div className="flex items-center justify-between px-4 py-2.5">
         <button
           type="button"
-          className="action-button action-button--primary inline-flex items-center gap-2"
-          disabled={isPayloadMissing ? !canRecover : !canRequest}
-          aria-disabled={isPayloadMissing ? !canRecover : !canRequest}
-          onClick={() => isPayloadMissing ? onRecoverPlan(batch) : onRequestAllocation(batch)}
+          className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 hover:text-slate-200"
+          onClick={() => setJsonExpanded((v) => !v)}
         >
-          <ShieldCheck size={16} />
-          {allocationActionLabel}
+          <FileCheck size={13} />
+          {jsonExpanded ? 'Hide' : 'Show'} raw plan JSON (tick_v1 evidence)
+          <span className="ml-1 text-slate-600">{jsonExpanded ? '▲' : '▼'}</span>
         </button>
+        {planJson && (
+          <button type="button" className="text-[11px] text-slate-500 hover:text-slate-300" onClick={copyJson}>
+            {copied ? '✓ Copied' : 'Copy JSON'}
+          </button>
+        )}
       </div>
-
-      {/* ── Full tick JSON evidence ── */}
-      {(planData || alloc.allocationPlanHash) && (
-        <div className="mt-4 rounded-lg border border-slate-700/40 bg-slate-900/40">
-          <div className="flex items-center justify-between px-4 py-2.5">
-            <button
-              type="button"
-              className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 hover:text-slate-200"
-              onClick={() => setJsonExpanded((v) => !v)}
-            >
-              <FileCheck size={13} />
-              {jsonExpanded ? 'Hide' : 'Show'} Allocation Plan JSON (tick_v1 evidence)
-              <span className="ml-1 text-slate-600">{jsonExpanded ? '▲' : '▼'}</span>
-            </button>
-            {planJson && (
-              <button
-                type="button"
-                className="text-[11px] text-slate-500 hover:text-slate-300"
-                onClick={copyJson}
-              >
-                {copied ? '✓ Copied' : 'Copy JSON'}
-              </button>
-            )}
-          </div>
-          {jsonExpanded && (
-            <div className="border-t border-slate-700/40 px-4 pb-4 pt-3">
-              {planJson ? (
-                <div className="space-y-4">
-                  <div className="rounded border border-slate-700/40 bg-[rgba(0,0,0,0.25)] p-3 text-[11px]">
-                    <div className="mb-2 font-semibold uppercase tracking-[0.12em] text-slate-400">Hash Evidence</div>
-                    <div className="space-y-1 break-all font-mono text-slate-300">
-                      <div><span className="text-slate-500">allocationPlanHash: </span>{alloc.allocationPlanHash || '—'}</div>
-                      <div><span className="text-slate-500">recomputedHash:     </span>{recomputedPlanHash || '—'}</div>
-                      <div>
-                        <span className="text-slate-500">verification:       </span>
-                        <span className={planHashMatches ? 'text-emerald-300' : 'text-rose-300'}>
-                          {planHashMatches
-                            ? hasChainAllocationAnchor ? 'MATCHES ON-CHAIN ANCHOR' : 'MATCHES COMPUTED HASH'
-                            : 'HASH MISMATCH'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  {canonicalPlanJson && (
-                    <div>
-                      <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-slate-500">
-                        Canonical JSON hashed into allocationPlanHash
-                      </div>
-                      <pre className="max-h-[360px] overflow-auto rounded bg-[rgba(0,0,0,0.35)] p-4 text-[11px] leading-5 text-slate-300">
-                        {canonicalPlanJson}
-                      </pre>
-                    </div>
-                  )}
+      {jsonExpanded && (
+        <div className="border-t border-slate-700/40 px-4 pb-4 pt-3">
+          {planJson ? (
+            <div className="space-y-4">
+              <div className="rounded border border-slate-700/40 bg-[rgba(0,0,0,0.25)] p-3 text-[11px]">
+                <div className="mb-2 font-semibold uppercase tracking-[0.12em] text-slate-400">Hash Evidence</div>
+                <div className="space-y-1 break-all font-mono text-slate-300">
+                  <div><span className="text-slate-500">allocationPlanHash: </span>{alloc.allocationPlanHash || '—'}</div>
+                  <div><span className="text-slate-500">recomputedHash:     </span>{recomputedPlanHash || '—'}</div>
                   <div>
-                    <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-slate-500">
-                      Full tick_v1 JSON stored in DB
-                    </div>
-                    <pre className="max-h-[520px] overflow-auto rounded bg-[rgba(0,0,0,0.35)] p-4 text-[11px] leading-5 text-slate-300">
-                      {planJson}
-                    </pre>
+                    <span className="text-slate-500">verification:       </span>
+                    <span className={planHashMatches ? 'text-emerald-300' : 'text-rose-300'}>
+                      {planHashMatches
+                        ? hasChainAllocationAnchor ? 'MATCHES ON-CHAIN ANCHOR' : 'MATCHES COMPUTED HASH'
+                        : 'HASH MISMATCH'}
+                    </span>
                   </div>
                 </div>
-              ) : (
-                <div className="space-y-3 rounded bg-[rgba(0,0,0,0.25)] p-4 text-xs">
-                  <p className="font-semibold text-slate-200">
-                    {alloc.status === 'chain_only'
-                      ? 'Chain anchor found — no DB payload.'
-                      : 'Plan payload not in DB for this session.'}
-                  </p>
-                  <p className="text-slate-400">
-                    {alloc.status === 'chain_only'
-                      ? 'The chain anchor exists but the full tick JSON was never written to the database. Run "Recover Plan Data" to re-derive it from the current PortfolioRegistry. The allocator is deterministic — if the registry is unchanged, the hash will match the anchor.'
-                      : 'The tick payload was not found in the database. Re-run the deterministic allocator to recover it — the hash will match if the registry has not changed since the allocation was anchored.'}
-                  </p>
-                  <div className="space-y-1 font-mono text-[11px] text-slate-400">
-                    <div><span className="text-slate-500">allocationPlanHash: </span>{alloc.allocationPlanHash || '—'}</div>
-                    <div><span className="text-slate-500">policyContextHash:  </span>{alloc.policyContextHash  || '—'}</div>
-                    <div><span className="text-slate-500">registryVersion:    </span>{alloc.portfolioRegistryVersion || '—'}</div>
+              </div>
+              {canonicalPlanJson && (
+                <div>
+                  <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                    Canonical JSON hashed into allocationPlanHash
                   </div>
-                  <div className="flex items-center gap-3 pt-1">
-                    <button
-                      type="button"
-                      className="action-button action-button--primary inline-flex items-center gap-2 text-xs"
-                      disabled={isRecovering}
-                      onClick={() => onRecoverPlan(batch)}
-                    >
-                      <ShieldCheck size={13} />
-                      {isRecovering ? 'Running allocator…' : 'Recover Plan Data from PortfolioRegistry'}
-                    </button>
-                  </div>
-                  {recoveryError && (
-                    <div className="rounded border border-rose-700/40 bg-rose-900/20 p-2 text-[11px] text-rose-200">
-                      {recoveryError}
-                    </div>
-                  )}
+                  <pre className="max-h-[360px] overflow-auto rounded bg-[rgba(0,0,0,0.35)] p-4 text-[11px] leading-5 text-slate-300">
+                    {canonicalPlanJson}
+                  </pre>
                 </div>
               )}
+              <div>
+                <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-slate-500">Full tick_v1 JSON stored in DB</div>
+                <pre className="max-h-[520px] overflow-auto rounded bg-[rgba(0,0,0,0.35)] p-4 text-[11px] leading-5 text-slate-300">
+                  {planJson}
+                </pre>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3 rounded bg-[rgba(0,0,0,0.25)] p-4 text-xs">
+              <p className="font-semibold text-slate-200">
+                {alloc.status === 'chain_only' ? 'Chain anchor found — no DB payload.' : 'Plan payload not in DB for this session.'}
+              </p>
+              <div className="space-y-1 font-mono text-[11px] text-slate-400">
+                <div><span className="text-slate-500">allocationPlanHash: </span>{alloc.allocationPlanHash || '—'}</div>
+                <div><span className="text-slate-500">policyContextHash:  </span>{alloc.policyContextHash  || '—'}</div>
+                <div><span className="text-slate-500">registryVersion:    </span>{alloc.portfolioRegistryVersion || '—'}</div>
+              </div>
             </div>
           )}
         </div>
       )}
+    </div>
+  ) : null;
 
-      {/* ── Inline messages ── */}
-      {!fundingVerified && !isAttached ? (
-        <div className="mt-3 rounded-lg border border-slate-700/50 bg-slate-900/35 p-3 text-xs leading-6 text-amber-200">
-          Funding must be verified before AAA allocation can be requested.
-        </div>
-      ) : null}
+  return (
+    <SectionCard title="AAA Allocation" icon={<ShieldCheck size={18} />}>
+      {/* ── Status chip bar ── */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <ReadinessBadge label={allocationStatusLabel(alloc.status)} state={allocationStatusTone(alloc.status)} />
+        {phase5EvidencePresent && <span className="data-chip text-[9px] text-emerald-300">phase5_evidence</span>}
+        {isMismatch && <span className="data-chip text-rose-300">hash mismatch</span>}
+        {metaData && (
+          <span className="data-chip">{String(metaData.allocator ?? 'allocator')} v{String(metaData.allocator_version_effective ?? '1')}</span>
+        )}
+        {planData?.schema_version && <span className="data-chip font-mono">{String(planData.schema_version)}</span>}
+        {legCount != null && <span className="data-chip">{legCount} legs</span>}
+        {planData && alloc.allocationPlanHash && (
+          <span className={`data-chip ${planHashMatches ? 'text-emerald-300' : 'text-rose-300'}`}>
+            {planHashMatches ? (hasChainAllocationAnchor ? 'hash ✓ on-chain' : 'hash ✓') : 'hash ✗'}
+          </span>
+        )}
+      </div>
 
-      {fundingVerified && alloc.status === 'computed' ? (
-        <div className="mt-3 rounded-lg border border-slate-700/50 bg-slate-900/35 p-3 text-xs leading-6 text-amber-200">
-          AAA allocation computed — pending on-chain anchor.
+      {/* ── Awaiting Phase 5 ── */}
+      {!showAnchoredState && (
+        <div className="rounded-lg border border-slate-700/50 bg-slate-900/35 p-3 text-xs leading-6 text-slate-400">
+          AAA allocation will be computed and anchored on-chain when Phase 5 executes.
         </div>
-      ) : null}
+      )}
 
-      {alloc.status === 'hash_mismatch' ? (
-        <div className="mt-3 rounded-lg border border-[rgba(236,86,86,0.34)] bg-[rgba(60,20,20,0.42)] p-3 text-xs leading-6 text-rose-100">
-          <p className="mb-1 font-semibold">Hash Mismatch — PortfolioRegistry has changed since this allocation was anchored.</p>
-          <p className="mb-2 text-rose-200">
-            The deterministic allocator produced a different hash with the current registry state.
-            The allocation plan below shows what the allocator computed now (for reference only).
-            To re-anchor, run a new allocation — this will require a new on-chain transaction.
-          </p>
-          <p className="font-mono text-[11px]">
-            <span className="text-rose-400">On-chain: </span>{alloc.allocationPlanHash}
-          </p>
-        </div>
-      ) : null}
+      {/* ── State C: Anchored — read-only summary + per-leg table ── */}
+      {showAnchoredState && (
+        <div className="space-y-4">
+          {/* Summary row */}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {(alloc.attachedAt || (planData?.timestamp as string | undefined)) && (
+              <Field label="Anchored at"
+                value={formatDateTime((alloc.attachedAt ?? planData?.timestamp) as string)} />
+            )}
+            {metaData && (
+              <Field label="Algorithm"
+                value={`${String(metaData.allocator ?? 'allocator')} v${String(metaData.allocator_version_effective ?? '1')}`} />
+            )}
+            <Field label="Plan hash"
+              value={
+                <span className="flex items-center gap-1.5">
+                  <span className="break-all font-mono text-[11px] text-[var(--gold-300)]">
+                    {alloc.allocationPlanHash ? `${alloc.allocationPlanHash.slice(0, 10)}…` : '—'}
+                  </span>
+                  {planHashMatches && <span className="data-chip text-[9px] text-emerald-300">verified</span>}
+                  {alloc.allocationPlanHash && !planHashMatches && recomputedPlanHash && (
+                    <span className="data-chip text-[9px] text-rose-300">mismatch</span>
+                  )}
+                </span>
+              }
+            />
+            {legCount != null && <Field label="Legs" value={String(legCount)} />}
+            {alloc.targetYieldBps != null && <Field label="Target yield" value={`${alloc.targetYieldBps} bps`} />}
+            {alloc.attachTxHash && (
+              <Field label="Attach tx"
+                value={<span className="font-mono text-[11px]">{shortHash(alloc.attachTxHash)}</span>} />
+            )}
+          </div>
 
-      {(alloc.status === 'failed' || (requestError && alloc.status === 'requesting')) ? (
-        <div className="mt-3 rounded-lg border border-[rgba(236,86,86,0.34)] bg-[rgba(60,20,20,0.42)] p-3 text-xs leading-6 text-rose-100">
-          <span className="font-semibold">Error:</span> {requestError}
+          {/* Per-leg allocation table */}
+          {targetWeights && roleByAsset && (
+            <div>
+              <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-slate-500">Allocation Legs</div>
+              <div className="overflow-x-auto rounded-lg border border-slate-700/40">
+                <table className="w-full min-w-[480px] text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-700/50 bg-slate-900/60 text-left text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                      <th className="px-3 py-2">Provider</th>
+                      <th className="px-3 py-2">Asset</th>
+                      <th className="px-3 py-2 text-right">%</th>
+                      <th className="px-3 py-2 text-right">Amount</th>
+                      <th className="px-3 py-2 text-right">Target Yield</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(targetWeights)
+                      .sort(([, a], [, b]) => b - a)
+                      .map(([symbol, weight]) => {
+                        const trace = scoreTrace?.[symbol];
+                        const yieldEr = trace?.expected_return_used_role_adj;
+                        return (
+                          <tr key={symbol} className="border-b border-slate-800/40 hover:bg-slate-800/20">
+                            <td className="px-3 py-2 text-slate-400">{roleByAsset[symbol] ?? '—'}</td>
+                            <td className="px-3 py-2 font-mono font-semibold text-slate-100">{symbol}</td>
+                            <td className="px-3 py-2 text-right font-mono font-semibold text-[var(--gold-300)]">
+                              {(weight * 100).toFixed(2)}%
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono">{fmtUsd(weight * batch.totalAmountUsd)}</td>
+                            <td className="px-3 py-2 text-right font-mono text-slate-300">
+                              {yieldEr != null ? `${(Number(yieldEr) * 100).toFixed(2)}%` : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {isMismatch && (
+            <div className="rounded-lg border border-[rgba(236,86,86,0.34)] bg-[rgba(60,20,20,0.42)] p-3 text-xs leading-6 text-rose-100">
+              <p className="mb-1 font-semibold">Hash mismatch — PortfolioRegistry has changed since this allocation was anchored.</p>
+              <p className="mb-2 text-rose-200">
+                The deterministic allocator produced a different hash with the current registry state.
+                A new Phase 5 execution is required to re-anchor.
+              </p>
+              <p className="font-mono text-[11px]">
+                <span className="text-rose-400">On-chain: </span>{alloc.allocationPlanHash}
+              </p>
+            </div>
+          )}
+
+          {isPayloadMissing && (
+            <div className="rounded-lg border border-slate-700/50 bg-slate-900/35 p-3 text-xs text-slate-300">
+              Chain anchor found — full tick JSON not in DB. Re-run Phase 5 to re-anchor with current registry state.
+            </div>
+          )}
+
+          {rawJsonToggle}
         </div>
-      ) : null}
+      )}
     </SectionCard>
   );
 }
@@ -3495,35 +3543,52 @@ function buildDestinationChecklist(batch: EscrowBatch): {
 
 function DestinationApprovalSection({
   batch,
-  onApproveDestinations,
+  evidence = {},
+  currentPhase = 0,
 }: {
   batch: EscrowBatch;
-  onApproveDestinations: (batch: EscrowBatch) => void;
+  evidence?: Record<number, import('../BatchLifecycleCard').PhaseEvidenceRow>;
+  currentPhase?: number;
 }) {
+  const p6Evidence = evidence[6];
+  const phase6Complete = currentPhase >= 6;
+  const phase6EvidencePresent = Boolean(p6Evidence);
+
   const [showChecklist, setShowChecklist] = useState(false);
   const progress = getDestinationApprovalProgress(batch);
-  const approved = areBatchDestinationsApproved(batch);
-  const blockingReason = getDestinationApprovalBlockingReason(batch);
+  // When Phase 6 is complete, treat destinations as approved regardless of session state.
+  const approved = phase6Complete ? true : areBatchDestinationsApproved(batch);
+  const blockingReason = approved ? null : getDestinationApprovalBlockingReason(batch);
   const legs = getDeploymentLegsForDestinationApproval(batch);
   const fundingVerified = getFundingValidation(batch).state === 'verified';
   const authorityBindingValid = hasValidAuthorityBinding(batch);
-  const allocationAttached = hasValidatedAaaAllocation(batch);
+  // Phase 5 complete means allocation is anchored — don't re-check batch session state.
+  const allocationAttached = currentPhase >= 5 ? true : hasValidatedAaaAllocation(batch);
   const { batchChecks, legChecks } = buildDestinationChecklist(batch);
   const failCount = [...batchChecks, ...legChecks.flatMap((l) => l.items)].filter((c) => !c.ok).length;
+  const prerequisitesMet = authorityBindingValid && allocationAttached && fundingVerified;
+
+  if (phase6Complete && !phase6EvidencePresent) {
+    return (
+      <SectionCard title="DAO Approval" icon={<ShieldCheck size={18} />}>
+        <EvidenceIntegrityFault phase={6} label="Phase 6 (Destination Approvals)" currentPhase={currentPhase} />
+      </SectionCard>
+    );
+  }
 
   return (
     <SectionCard title="DAO Approval" icon={<ShieldCheck size={18} />}>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <ReadinessBadge label={approved ? 'DAO Approved' : 'DAO Pending'} state={approved ? 'passed' : 'pending'} />
+        {phase6EvidencePresent && <span className="data-chip text-[9px] text-emerald-300">phase6_evidence</span>}
         <span className="data-chip">Approval progress {progress.label}</span>
-        <span className="data-chip">DAO registry {DAO_DESTINATION_REGISTRY[0]?.destinationRegistryVersion ?? 'Missing'}</span>
-        {!approved && failCount > 0 && (
+        {!approved && prerequisitesMet && failCount > 0 && (
           <span className="data-chip" data-tone="danger">{failCount} check{failCount !== 1 ? 's' : ''} failing</span>
         )}
       </div>
 
       <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Field label="DAO registry entries" value={String(DAO_DESTINATION_REGISTRY.length)} />
+        <Field label="DAO registry" value={<span className="data-chip text-[9px]">{DAO_DESTINATION_REGISTRY[0]?.destinationRegistryVersion ?? 'Missing'} · {DAO_DESTINATION_REGISTRY.length} entries</span>} />
         <Field label="Required approvals" value={String(progress.requiredCount)} />
         <Field label="Approved venues" value={String(progress.approvedCount)} />
         <Field label="Destination approval" value={approved ? 'approved' : 'pending'} />
@@ -3540,29 +3605,27 @@ function DestinationApprovalSection({
         >
           <ListChecks size={14} />
           {showChecklist ? 'Hide' : 'Show'} Checklist
-          {!approved && failCount > 0 && <span className="ml-1 rounded bg-rose-900/60 px-1 text-[10px] text-rose-300">{failCount}</span>}
+          {!approved && prerequisitesMet && failCount > 0 && <span className="ml-1 rounded bg-rose-900/60 px-1 text-[10px] text-rose-300">{failCount}</span>}
         </button>
       </div>
 
-      {!authorityBindingValid && !approved ? (
+      {!phase6Complete && (!authorityBindingValid ? (
         <div className="mb-4 rounded-lg border border-[rgba(236,86,86,0.34)] bg-[rgba(60,20,20,0.42)] p-3 text-xs leading-6 text-rose-100">
           {getBatchAuthorityBindingValidation(batch).blockingReason ?? 'Batch authority binding is missing or invalid.'}
         </div>
-      ) : !allocationAttached && !approved ? (
+      ) : !allocationAttached ? (
         <div className="mb-4 rounded-lg border border-slate-700/50 bg-slate-900/35 p-3 text-xs leading-6 text-amber-200">
-          {batch.aaaAllocation.status === 'computed'
-            ? 'AAA allocation computed — pending on-chain anchor.'
-            : 'AAA allocation must be validated against the on-chain attachment before destination approval.'}
+          AAA allocation must be anchored on-chain before destination approval.
         </div>
       ) : !fundingVerified ? (
         <div className="mb-4 rounded-lg border border-slate-700/50 bg-slate-900/35 p-3 text-xs leading-6 text-amber-200">
           Funding must be verified before DAO approval.
         </div>
-      ) : blockingReason && !approved ? (
+      ) : blockingReason ? (
         <div className="mb-4 rounded-lg border border-slate-700/50 bg-slate-900/35 p-3 text-xs leading-6 text-amber-200">
           <span className="font-semibold">Blocking Reason:</span> {blockingReason}
         </div>
-      ) : null}
+      ) : null)}
 
       {showChecklist && (
         <div className="mb-4 rounded-lg border border-slate-700/40 bg-slate-900/40 p-4">
@@ -3632,29 +3695,55 @@ function DestinationApprovalSection({
 
 function DeploymentApprovalSection({
   batch,
-  onApproveDeployment,
-  isApprovingDeployment = false,
-  deploymentApprovalError = null,
+  evidence = {},
+  currentPhase = 0,
 }: {
   batch: EscrowBatch;
-  onApproveDeployment: (batch: EscrowBatch) => void;
-  isApprovingDeployment?: boolean;
-  deploymentApprovalError?: string | null;
+  evidence?: Record<number, import('../BatchLifecycleCard').PhaseEvidenceRow>;
+  currentPhase?: number;
 }) {
-  const approved = hasDeploymentApproval(batch);
-  const blockingReason = approved ? null : getDeploymentApprovalBlockingReason(batch);
-  const mismatchReason = getExistingDeploymentApprovalMismatch(batch);
-  const approval = batch.deploymentApproval;
-  const payload = approval.payload;
-  const canApprove = canApproveDeployment(batch);
+  const p7Evidence = evidence[7];
+  const p7ev = p7Evidence?.evidence_json as Record<string, unknown> | undefined;
+  const phase7Complete = currentPhase >= 7;
+  const phase7EvidencePresent = Boolean(p7Evidence);
+
+  // Phase 7 complete but evidence missing: integrity fault
+  if (phase7Complete && !phase7EvidencePresent) {
+    return (
+      <SectionCard title="Deployment Approval" icon={<ShieldCheck size={18} />}>
+        <EvidenceIntegrityFault phase={7} label="Phase 7 (Deployment Approval)" currentPhase={currentPhase} />
+      </SectionCard>
+    );
+  }
+
+  const approved = phase7Complete ? true : hasDeploymentApproval(batch);
+  // Suppress browser-side mismatch check when Phase 7 evidence is present.
+  // The server-side canonicalKeccak schema for destinationApprovalHash differs from the
+  // browser-side getBatchDestinationApprovalHash schema, so comparison always returns a
+  // false positive. Integrity is verified server-side in the Phase 7 executor and Phase 8
+  // checklist/executor cross-phase guards.
+  const mismatchReason = phase7EvidencePresent ? null : getExistingDeploymentApprovalMismatch(batch);
+  // When Phase 7 evidence exists, read canonical hashes from it instead of batch object
+  const approval = phase7EvidencePresent && p7ev ? {
+    ...batch.deploymentApproval,
+    deploymentApprovalHash: (p7ev.deploymentApprovalHash as string | undefined) ?? batch.deploymentApproval.deploymentApprovalHash,
+    destinationApprovalHash: (p7ev.destinationApprovalHash as string | undefined) ?? batch.deploymentApproval.destinationApprovalHash,
+    allocationPlanHash: (p7ev.allocationPlanHash as string | undefined) ?? batch.deploymentApproval.allocationPlanHash,
+    policyContextHash: (p7ev.policyContextHash as string | undefined) ?? batch.deploymentApproval.policyContextHash,
+    destinationRegistryVersion: (p7ev.destinationRegistryVersion as string | undefined) ?? batch.deploymentApproval.destinationRegistryVersion,
+    approvedBy: (p7ev.approvedBy as string | undefined) ?? batch.deploymentApproval.approvedBy,
+    approvedAt: p7ev.approvedAt != null ? new Date(Number(p7ev.approvedAt) * 1000).toISOString() : batch.deploymentApproval.approvedAt,
+  } : batch.deploymentApproval;
+  const payload = approval.payload ?? batch.deploymentApproval.payload;
 
   return (
     <SectionCard title="Deployment Approval" icon={<ShieldCheck size={18} />}>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <StatusBadge
           label={approved ? 'Deployment Approved' : 'Deployment Approval Pending'}
-          tone={approved ? 'success' : blockingReason ? 'warning' : 'purple'}
+          tone={approved ? 'success' : 'purple'}
         />
+        {phase7EvidencePresent && <span className="data-chip text-[9px] text-emerald-300">phase7_evidence</span>}
         <span className="data-chip">Destinations Approved = routes are allowed</span>
         <span className="data-chip">Deployment Approved = batch authorized</span>
         <span className="data-chip">Deployed = funds moved</span>
@@ -3671,32 +3760,11 @@ function DeploymentApprovalSection({
         <Field label="Approved at" value={formatDateTime(approval.approvedAt)} />
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          className="action-button action-button--primary inline-flex items-center gap-2"
-          disabled={!canApprove || approved || isApprovingDeployment}
-          aria-disabled={!canApprove || approved || isApprovingDeployment}
-          onClick={() => onApproveDeployment(batch)}
-        >
-          <CheckCircle2 size={16} />
-          {isApprovingDeployment ? 'Saving…' : approved ? 'Deployment Approved' : 'Approve Deployment'}
-        </button>
-      </div>
-
-      {deploymentApprovalError ? (
-        <div className="mb-4 rounded-lg border border-[rgba(236,86,86,0.34)] bg-[rgba(60,20,20,0.42)] p-3 text-xs leading-6 text-rose-100">
-          <span className="font-semibold">Save Error:</span> {deploymentApprovalError}
-        </div>
-      ) : mismatchReason ? (
+      {mismatchReason && (
         <div className="mb-4 rounded-lg border border-[rgba(236,86,86,0.34)] bg-[rgba(60,20,20,0.42)] p-3 text-xs leading-6 text-rose-100">
           <span className="font-semibold">Approval Mismatch:</span> {mismatchReason}
         </div>
-      ) : blockingReason && !approved ? (
-        <div className="mb-4 rounded-lg border border-slate-700/50 bg-slate-900/35 p-3 text-xs leading-6 text-amber-200">
-          <span className="font-semibold">Blocking Reason:</span> {blockingReason}
-        </div>
-      ) : null}
+      )}
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[980px] text-sm">
@@ -3863,21 +3931,51 @@ function SigningControlSection({
 
 function DeploymentExecutionSection({
   batch,
-  onExecuteDeployment,
-  isExecuting = false,
-  deploymentExecutionError = null,
+  evidence = {},
+  currentPhase = 0,
 }: {
   batch: EscrowBatch;
-  onExecuteDeployment: (batch: EscrowBatch) => void;
-  isExecuting?: boolean;
-  deploymentExecutionError?: string | null;
+  evidence?: Record<number, import('../BatchLifecycleCard').PhaseEvidenceRow>;
+  currentPhase?: number;
 }) {
+  const p8Evidence = evidence[8];
+  const p8ev = p8Evidence?.evidence_json as Record<string, unknown> | undefined;
+  const phase8Complete = currentPhase >= 8;
+  const phase8EvidencePresent = Boolean(p8Evidence);
+
+  // Phase 8 complete but evidence missing: integrity fault
+  if (phase8Complete && !phase8EvidencePresent) {
+    return (
+      <SectionCard title="Deployment Execution" icon={<Layers size={18} />}>
+        <EvidenceIntegrityFault phase={8} label="Phase 8 (Deployment Execution)" currentPhase={currentPhase} />
+      </SectionCard>
+    );
+  }
+
   const latestExecution = getLatestDeploymentExecution(batch);
-  const deploymentStatus = getDeploymentExecutionStatus(batch);
-  const blockingReason = getDeploymentExecutionBlockingReason(batch);
-  const deploymentReady = canExecuteDeployment(batch);
+  // When Phase 8 evidence exists, derive status from it rather than batch object
+  const p8Legs = phase8EvidencePresent && p8ev ? (Array.isArray(p8ev.legs) ? p8ev.legs as Array<{ legId: string; status: string; txHash?: string; executedAt?: number }> : []) : null;
+  const allP8LegsExecuted = p8Legs ? p8Legs.every(l => l.status === 'executed') : false;
+  const deploymentStatus = phase8EvidencePresent
+    ? (allP8LegsExecuted ? 'deployed' : 'partial')
+    : getDeploymentExecutionStatus(batch);
   const legResults = latestExecution?.deploymentLegResults ?? [];
   const latestLegResult = [...legResults].sort((left, right) => right.deployedAt.localeCompare(left.deployedAt))[0];
+  const p7ev8 = evidence[7]?.evidence_json as Record<string, unknown> | undefined;
+  const p6ev8 = evidence[6]?.evidence_json as Record<string, unknown> | undefined;
+  const p8ApprovalHashDisplay = (p8ev?.deploymentApprovalHash as string | undefined)
+    ?? (p7ev8?.deploymentApprovalHash as string | undefined)
+    ?? batch.deploymentApproval.deploymentApprovalHash;
+  const p8DestApprovalHash = (p8ev?.destinationApprovalHash as string | undefined)
+    ?? (p6ev8?.destinationApprovalHash as string | undefined)
+    ?? batch.deploymentApproval.destinationApprovalHash;
+  const p8TxHash = p8Legs && p8Legs.length > 0
+    ? (p8Legs[0].txHash ?? latestExecution?.deploymentTxHash)
+    : latestExecution?.deploymentTxHash;
+  const p8ExecutedBy = (p8ev?.executedBy as string | undefined) ?? latestExecution?.executedBy;
+  const p8ExecutedAt = p8ev?.executedAt != null
+    ? new Date(Number(p8ev.executedAt) * 1000).toISOString()
+    : latestExecution?.executedAt;
 
   return (
     <SectionCard title="Deployment Execution" icon={<Layers size={18} />}>
@@ -3886,16 +3984,17 @@ function DeploymentExecutionSection({
           label={titleCase(deploymentStatus)}
           tone={deploymentStatus === 'monitoring' || deploymentStatus === 'deployed' ? 'success' : deploymentStatus === 'failed' ? 'danger' : 'warning'}
         />
-        <span className="data-chip">{hasDeploymentApproval(batch) ? 'Deployment Approved' : 'Approval Pending'}</span>
+        {phase8EvidencePresent && <span className="data-chip text-[9px] text-emerald-300">phase8_evidence</span>}
+        <span className="data-chip">{(phase8EvidencePresent || hasDeploymentApproval(batch)) ? 'Deployment Approved' : 'Approval Pending'}</span>
       </div>
 
       <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Field label="Deployment status" value={titleCase(deploymentStatus)} />
-        <Field label="Deployment approval hash" value={<span className="font-mono">{shortHash(batch.deploymentApproval.deploymentApprovalHash)}</span>} />
-        <Field label="Destination approval hash" value={<span className="font-mono">{shortHash(batch.deploymentApproval.destinationApprovalHash)}</span>} />
-        <Field label="Deployment tx hash" value={<span className="font-mono">{shortHash(latestExecution?.deploymentTxHash)}</span>} />
-        <Field label="Executed by" value={latestExecution?.executedBy ?? 'Pending'} />
-        <Field label="Executed at" value={formatDateTime(latestExecution?.executedAt)} />
+        <Field label="Deployment approval hash" value={<span className="font-mono">{shortHash(p8ApprovalHashDisplay)}</span>} />
+        <Field label="Destination approval hash" value={<span className="font-mono">{shortHash(p8DestApprovalHash)}</span>} />
+        <Field label="Deployment tx hash" value={<span className="font-mono">{shortHash(p8TxHash)}</span>} />
+        <Field label="Executed by" value={p8ExecutedBy ?? 'Pending'} />
+        <Field label="Executed at" value={formatDateTime(p8ExecutedAt)} />
         <Field label="Leg result status" value={latestLegResult ? titleCase(latestLegResult.status) : 'Pending'} />
         <Field label="Execution source" value={latestLegResult?.signingSource === 'signer_services' ? 'Treasury + Escrow signer services' : 'Pending'} />
         <Field label="Treasury signer" value={latestLegResult?.treasurySignerAddress ? <span className="font-mono">{shortHash(latestLegResult.treasurySignerAddress)}</span> : 'Pending'} />
@@ -3907,30 +4006,6 @@ function DeploymentExecutionSection({
         } />
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          className="action-button action-button--primary inline-flex items-center gap-2"
-          disabled={!deploymentReady || isExecuting}
-          aria-disabled={!deploymentReady || isExecuting}
-          onClick={() => onExecuteDeployment(batch)}
-        >
-          <ArrowRight size={16} />
-          {isExecuting ? 'Executing…' : 'Deploy Batch'}
-        </button>
-      </div>
-
-      {deploymentExecutionError ? (
-        <div className="mb-4 rounded-lg border border-[rgba(236,86,86,0.34)] bg-[rgba(60,20,20,0.42)] p-3 text-xs leading-6 text-rose-100">
-          <span className="font-semibold">Execution Error:</span> {deploymentExecutionError}
-        </div>
-      ) : null}
-
-      {blockingReason && deploymentStatus !== 'monitoring' ? (
-        <div className="mb-4 rounded-lg border border-slate-700/50 bg-slate-900/35 p-3 text-xs leading-6 text-amber-200">
-          <span className="font-semibold">Blocking Reason:</span> {blockingReason}
-        </div>
-      ) : null}
 
       {legResults.length === 0 ? (
         <div className="panel-note">Deployment leg results will appear after provider deployment execution.</div>
@@ -3982,6 +4057,47 @@ function DeploymentExecutionSection({
   );
 }
 
+function PhaseLocked({ message, requiredPhase }: { message: string; requiredPhase: number }) {
+  return (
+    <div className="rounded-lg border border-slate-700/40 bg-slate-900/30 p-6 text-center">
+      <Lock size={20} className="mx-auto mb-3 text-slate-600" />
+      <p className="text-sm text-slate-400">{message}</p>
+      <p className="mt-1 text-xs text-slate-600">Available after Phase {requiredPhase}</p>
+    </div>
+  );
+}
+
+function EvidenceIntegrityFault({
+  phase,
+  label,
+  currentPhase,
+  missingPhases,
+}: {
+  phase?: number;
+  label: string;
+  currentPhase: number;
+  missingPhases?: number[];
+}) {
+  const phases = missingPhases ?? (phase != null ? [phase] : []);
+  return (
+    <div className="rounded-lg border border-rose-700/50 bg-rose-950/30 p-4">
+      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-rose-300">
+        <span>⚠</span>
+        <span>Evidence chain incomplete</span>
+      </div>
+      <div className="space-y-1 text-xs text-rose-200">
+        {phases.map(p => (
+          <div key={p}>• Missing Phase {p} {p === 5 ? 'AAA allocation' : p === 6 ? 'destination approval' : p === 7 ? 'deployment approval' : p === 8 ? 'deployment execution' : ''} evidence</div>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-rose-300/70">
+        current_phase = {currentPhase}. {label} is complete on-chain but the lifecycle evidence record is absent.
+        This batch requires admin investigation before proceeding.
+      </p>
+    </div>
+  );
+}
+
 type BatchDetailTab =
   | 'overview'
   | 'deposits'
@@ -4009,12 +4125,15 @@ function walletDisplay(batch: EscrowBatch) {
 
 function BatchDetail({
   batch,
+  evidence = {},
+  allAttempts = [],
+  lcRow,
+  chainKey,
+  sourceBatchId,
   onVerifyFunding,
   onManualConfirmFunding,
   isVerifyingFunding,
   fundingVerificationError,
-  onApproveDestinations,
-  onApproveDeployment,
   onCreateDeploymentSigningRequest,
   onApproveSigningRequest,
   onExecuteDeployment,
@@ -4025,30 +4144,22 @@ function BatchDetail({
   onCreateBatchWallet,
   isCreatingWallet,
   walletCreationError,
-  onSetCustodyMode,
   signingAuthorityRole,
   signingAuthorityError,
   onChainRoleAuthorities,
   onRoleAuthoritiesInitialized,
   signerServicesConfigured,
-  onRequestAaaAllocation,
-  isRequestingAllocation,
-  allocationRequestError,
-  onRecoverAllocationPlan,
-  isRecoveringPlan,
-  planRecoveryError,
-  isApprovingDeployment,
-  deploymentApprovalError,
-  isExecutingDeployment,
-  deploymentExecutionError,
 }: {
   batch: EscrowBatch;
+  evidence?: Record<number, PhaseEvidenceRow>;
+  allAttempts?: PhaseAttemptRow[];
+  lcRow?: LifecycleRow;
+  chainKey?: string;
+  sourceBatchId?: string;
   onVerifyFunding: (batch: EscrowBatch) => void;
   onManualConfirmFunding: (batch: EscrowBatch, observedAmountUsd: number, fundingTxHash: string) => void;
   isVerifyingFunding: boolean;
   fundingVerificationError: string | null;
-  onApproveDestinations: (batch: EscrowBatch) => void;
-  onApproveDeployment: (batch: EscrowBatch) => void;
   onCreateDeploymentSigningRequest: (batch: EscrowBatch) => void;
   onApproveSigningRequest: (batch: EscrowBatch, authorityRole: 'treasury' | 'escrow' | 'continuity') => void;
   onExecuteDeployment: (batch: EscrowBatch) => void;
@@ -4059,205 +4170,359 @@ function BatchDetail({
   onCreateBatchWallet: (batch: EscrowBatch) => void;
   isCreatingWallet: boolean;
   walletCreationError: string | null;
-  onSetCustodyMode: (batch: EscrowBatch, mode: 'escrow_contract_custody' | 'batch_wallet_custody') => void;
   signingAuthorityRole?: string;
   signingAuthorityError?: string | null;
   onChainRoleAuthorities: OnChainRoleAuthorities | null;
   onRoleAuthoritiesInitialized?: () => void;
   signerServicesConfigured?: { treasury: boolean; escrow: boolean };
-  onRequestAaaAllocation: (batch: EscrowBatch) => void;
-  isRequestingAllocation: boolean;
-  allocationRequestError: string | null;
-  onRecoverAllocationPlan: (batch: EscrowBatch) => void;
-  isRecoveringPlan: boolean;
-  planRecoveryError: string | null;
-  isApprovingDeployment: boolean;
-  deploymentApprovalError: string | null;
-  isExecutingDeployment: boolean;
-  deploymentExecutionError: string | null;
 }) {
   const [activeTab, setActiveTab] = useState<BatchDetailTab>('overview');
-  const primaryAction = getPrimaryAction(batch);
-  const blockingReason = getBatchBlockingReason(batch);
-  const canAdvance = canAdvanceBatch(batch);
+
+  // Reconciliation status — fetched once Phase 9 evidence is present
+  type ReconRow = {
+    reconciliation_id: string;
+    term_position_id: string;
+    origin_institution_id: string;
+    institution_display_name: string | null;
+    principal_usd6: string;
+    user_payout_usd6: string;
+    realized_pnl_usd6: string;
+    realized_pnl_bps: number;
+    deposit_share_bps: number;
+    settlement_scenario: string | null;
+    fineract_writeback_status: 'pending' | 'posted' | 'failed' | 'skipped';
+    error_code: string | null;
+    posted_at: string | null;
+    created_at: string;
+  };
+  type ReconSummary = {
+    total: number; posted: number; failed: number; pending: number; skipped: number;
+    lastPostedAt: string | null;
+  };
+  const [reconRows, setReconRows] = React.useState<ReconRow[]>([]);
+  const [reconSummary, setReconSummary] = React.useState<ReconSummary | null>(null);
+  React.useEffect(() => {
+    if (!evidence[9]) { setReconRows([]); setReconSummary(null); return; }
+    let cancelled = false;
+    fetch(`/api/banking/escrow/reconciliation-status?escrowBatchId=${encodeURIComponent(batch.batchId)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { rows?: ReconRow[]; summary?: ReconSummary | null } | null) => {
+        if (cancelled || !data) return;
+        setReconRows(data.rows ?? []);
+        setReconSummary(data.summary ?? null);
+      })
+      .catch(() => { /* reconciliation table may not exist yet in dev */ });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batch.batchId, Boolean(evidence[9])]);
+
+  // On-chain audit trail — fetched when the Audit Trail tab is active
+  type BatchAuditEvent = {
+    id: string; phase: number | null; eventKind: string; movementType: string;
+    sourceAuthority: string; txHash: string | null; blockNumber: number | null;
+    fromAddress: string | null; toAddress: string | null; assetSymbol: string | null;
+    amountDisplay: string | null; evidenceHash: string | null;
+    occurredAt: string | null; status: string; notes: string | null;
+  };
+  type AuditReconciliationCheck = {
+    checkName: string; status: 'pass' | 'fail' | 'missing' | 'warning';
+    expected: string | null; observed: string | null; tolerance: string | null;
+    sourceA: string; sourceB: string; resolutionHint: string | null;
+  };
+  type BatchAuditSummary = {
+    overallAuditStatus: 'verified' | 'missing_proof' | 'mismatch' | 'incomplete';
+    confirmedOnchainTxCount: number; missingProofCount: number; mismatchCount: number;
+    internalRecordCount: number; simulatedDevCount: number;
+  };
+  type BatchAuditTrail = {
+    escrowBatchId: string; sourceBatchId: string; generatedAt: string;
+    summary: BatchAuditSummary;
+    events: BatchAuditEvent[];
+    reconciliationChecks: AuditReconciliationCheck[];
+  };
+  const [auditTrail, setAuditTrail] = React.useState<BatchAuditTrail | null>(null);
+  const [auditLoading, setAuditLoading] = React.useState(false);
+  const [auditError, setAuditError] = React.useState<string | null>(null);
+  const [internalCollapsed, setInternalCollapsed] = React.useState(true);
+
+  React.useEffect(() => {
+    if (activeTab !== 'audit') return;
+    let cancelled = false;
+    const escrowBatchId = lcRow?.escrow_batch_id ?? batch.batchId;
+    if (!escrowBatchId) return;
+    setAuditLoading(true);
+    setAuditError(null);
+    fetch(`/api/banking/escrow/audit-onchain/${encodeURIComponent(escrowBatchId)}`)
+      .then(r => r.ok ? r.json() : r.json().then((e: { error?: string }) => Promise.reject(e.error ?? 'Server error')))
+      .then((data: BatchAuditTrail) => { if (!cancelled) { setAuditTrail(data); setAuditLoading(false); } })
+      .catch((err: string) => { if (!cancelled) { setAuditError(String(err)); setAuditLoading(false); } });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, lcRow?.escrow_batch_id, batch.batchId]);
+
+  // Dev scenario picker — active when Phase >= 8 and Phase 9 not yet begun
+  const SCENARIO_OPTIONS = [
+    { id: 'target_yield',    label: 'Target Yield'      },
+    { id: 'high_yield',      label: 'High Yield'        },
+    { id: 'principal_return',label: 'Principal Return'  },
+    { id: 'loss_covered',    label: 'Loss Covered'      },
+    { id: 'loss_uncovered',  label: 'Loss Uncovered'    },
+  ] as const;
+  type ScenarioId = typeof SCENARIO_OPTIONS[number]['id'];
+  const [selectedScenario, setSelectedScenario] = React.useState<ScenarioId>('target_yield');
+  const [simulating, setSimulating]             = React.useState(false);
+  const [simResult, setSimResult]               = React.useState<{ ok: boolean; message: string } | null>(null);
+
+  const handleSimulateLegReturns = React.useCallback(async () => {
+    const escrowBatchId = lcRow?.escrow_batch_id ?? batch.batchId;
+    if (!escrowBatchId) return;
+    setSimulating(true);
+    setSimResult(null);
+    try {
+      const resp = await fetch('/api/banking/escrow/admin/simulate-leg-returns', {
+        method: 'POST',
+        // No credential is attached here. NEXT_PUBLIC_ADMIN_API_TOKEN used to be
+        // sent from this call site, which inlined the administrator credential
+        // into the client bundle for anyone to read. Authority now comes from the
+        // wallet session cookie, which the browser sends automatically and cannot
+        // read.
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ escrowBatchId, scenarioId: selectedScenario, mode: 'mark_and_return' }),
+      });
+      const data = await resp.json() as { success?: boolean; error?: string; legs?: unknown[] };
+      if (!resp.ok) throw new Error(data.error ?? `HTTP ${resp.status}`);
+      setSimResult({ ok: true, message: `${data.legs?.length ?? 0} legs simulated · scenario: ${selectedScenario}` });
+    } catch (err: any) {
+      setSimResult({ ok: false, message: String(err?.message ?? err) });
+    } finally {
+      setSimulating(false);
+    }
+  }, [lcRow?.escrow_batch_id, batch.batchId, selectedScenario]);
+
+  // Dev leg positions — fetched when Phase >= 8 and Phase 9 not yet complete (dev-only)
+  const [devLegPositions, setDevLegPositions] = React.useState<DevLegPositionRecord[]>([]);
+  React.useEffect(() => {
+    const phase = lcRow?.current_phase ?? 0;
+    const escrowBatchId = lcRow?.escrow_batch_id ?? '';
+    if (phase < 8 || evidence[9] || !escrowBatchId) {
+      setDevLegPositions([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch(`/api/banking/escrow/admin/dev/leg-positions/${encodeURIComponent(escrowBatchId)}`, {
+          credentials: 'same-origin',
+        });
+        if (!resp.ok || cancelled) return;
+        const data = await resp.json() as { legs?: DevLegPositionRecord[] };
+        if (!cancelled) setDevLegPositions(data.legs ?? []);
+      } catch { /* dev endpoint not available — silently skip */ }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lcRow?.escrow_batch_id, lcRow?.current_phase, Boolean(evidence[9])]);
+
+  const model = React.useMemo(
+    () => buildEscrowBatchDisplayModel(batch, lcRow, evidence, devLegPositions.length > 0 ? devLegPositions : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [batch.batchId, batch.status, lcRow?.current_phase, lcRow?.status, lcRow?.wallet_address, Object.keys(evidence).join(','), devLegPositions],
+  );
   const manifestValidation = getManifestValidation(batch);
   const fundingValidation = getFundingValidation(batch);
   const computedDepositTotal = getComputedDepositTotal(batch);
   const walletCreated = Boolean(walletDisplay(batch)) && batch.wallet.fundingStatus !== 'not_created';
-  const isVerifyFundingAction = primaryAction === 'Verify Funding';
-  const isRequestAaaAllocationAction = ['Request AAA Allocation', 'Anchor AAA Allocation'].includes(primaryAction);
-  const isApproveDestinationAction = primaryAction === 'Approve Destination';
-  const isApproveDeploymentAction = primaryAction === 'Approve Deployment';
-  const isCreateDeploymentSigningRequestAction = primaryAction === 'Create Deployment Signing Request';
-  const isExecuteDeploymentAction = primaryAction === 'Execute Deployment' || primaryAction === 'Deploy Batch';
-  const primaryActionEnabled =
-    isVerifyFundingAction ||
-    isRequestAaaAllocationAction ||
-    isApproveDestinationAction ||
-    isApproveDeploymentAction ||
-    isCreateDeploymentSigningRequestAction ||
-    isExecuteDeploymentAction ||
-    canAdvance;
 
-  const runPrimaryAction = () => {
-    if (isVerifyFundingAction) onVerifyFunding(batch);
-    if (isRequestAaaAllocationAction) onRequestAaaAllocation(batch);
-    if (isApproveDestinationAction) onApproveDestinations(batch);
-    if (isApproveDeploymentAction) onApproveDeployment(batch);
-    if (isCreateDeploymentSigningRequestAction) onCreateDeploymentSigningRequest(batch);
-    if (isExecuteDeploymentAction) onExecuteDeployment(batch);
-  };
+  const lcPhase = lcRow?.current_phase ?? 0;
+  const lcFundingLabel = lcPhase >= 4
+    ? 'Wallet Funded'
+    : lcPhase >= 3
+    ? 'Wallet Created — Pending Funding'
+    : fundingStatusLabel(batch);
 
   return (
     <section className="sagitta-cell">
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <StatusBadge label={batchStatusLabel(batch)} tone={statusTone(batch)} />
-            <span className="data-chip">{batch.termMonths}M Term</span>
-            <span className="data-chip">{batch.deposits.length} Deposits</span>
-          </div>
-          <h2 className="text-2xl font-bold">{batch.batchId}</h2>
-          <p className="mt-2 max-w-3xl text-sm text-slate-400">
-            Batch container for Treasury-sent funds, wallet binding, funding verification, DAO approval,
-            deployment, settlement, performance, and audit evidence.
-          </p>
+      <div className="mb-5">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <span className="data-chip">{fmtTerm(model.termMonths)} Term</span>
+          <span className="data-chip">{batch.deposits.length} Deposits</span>
+          {lcRow && <span className="data-chip">Phase {lcRow.current_phase} / 9</span>}
         </div>
-        <div className="flex flex-col items-start gap-2 sm:items-end">
-          <button
-            type="button"
-            className="action-button action-button--primary inline-flex items-center gap-2"
-            data-can-advance={primaryActionEnabled}
-            aria-disabled={!primaryActionEnabled}
-            onClick={runPrimaryAction}
-          >
-            <Activity size={16} />
-            {primaryAction}
-          </button>
-          {blockingReason && !isApproveDestinationAction && !isApproveDeploymentAction && !isCreateDeploymentSigningRequestAction && !isExecuteDeploymentAction && !(isVerifyFundingAction && fundingValidation.state !== 'mismatch') ? (
-            <div className="max-w-md text-left text-xs text-amber-200 sm:text-right">
-              <span className="font-semibold">Blocking Reason:</span> {blockingReason}
-            </div>
-          ) : null}
-        </div>
+        <h2 className="text-2xl font-bold break-all">{batch.batchId}</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Source Batch #{batch.sourceBatchId ?? lcRow?.source_batch_id ?? '—'}
+          {lcRow && <> · {lcRow.chain_key} ({lcRow.chain_id})</>}
+          {lcRow?.opened_at_unix ? <> · opened {new Date(lcRow.opened_at_unix * 1000).toLocaleString()}</> : null}
+        </p>
       </div>
 
       <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Field label="Wallet" value={<span className="font-mono">{shortHash(walletDisplay(batch))}</span>} />
-        <Field label="Funding" value={fundingStatusLabel(batch)} />
+        <Field label="Wallet" value={
+          model.walletStatus === 'created_bound' && model.walletAddress
+            ? <span className="font-mono">{shortHash(model.walletAddress)}</span>
+            : model.walletStatus === 'predicted' && model.predictedAddress
+            ? <span className="flex items-center gap-1"><span className="font-mono text-amber-400/80">{shortHash(model.predictedAddress)}</span><span className="data-chip text-[9px]">Predicted</span></span>
+            : <span className="text-slate-500">—</span>
+        } />
+        <Field label="Funding" value={lcFundingLabel} />
         <Field label="Deployment" value={deploymentExecutionLabel(batch)} />
-        {batch.batchAuthorityBinding ? (
+        {model.currentPhase >= 2 && batch.batchAuthorityBinding ? (
           <Field
             label="Authority Binding"
             value={
               <div className="flex flex-col gap-1.5">
                 <span className="font-mono text-xs text-[var(--gold-300)]">{shortHash(batch.batchAuthorityBinding.batchAuthorityBindingHash)}</span>
                 <div className="flex flex-wrap gap-1">
-                  <StatusBadge label={`T:${batch.batchAuthorityBinding.treasurySignatureStatus}`} tone={sigStatusTone(batch.batchAuthorityBinding.treasurySignatureStatus)} />
-                  <StatusBadge label={`E:${batch.batchAuthorityBinding.escrowSignatureStatus}`} tone={sigStatusTone(batch.batchAuthorityBinding.escrowSignatureStatus)} />
-                  <span className="data-chip" data-tone={batch.batchAuthorityBinding.anchorStatus === 'anchored' ? 'success' : batch.batchAuthorityBinding.anchorStatus === 'binding_mismatch' ? 'danger' : 'purple'}>
-                    {batch.batchAuthorityBinding.anchorStatus === 'anchored' ? 'Anchored' : batch.batchAuthorityBinding.anchorStatus === 'binding_mismatch' ? 'Binding Mismatch' : 'Pending Anchor'}
-                  </span>
+                  <StatusBadge
+                    label={`T:${batch.batchAuthorityBinding.treasurySignatureStatus.toUpperCase()}`}
+                    tone={sigStatusTone(batch.batchAuthorityBinding.treasurySignatureStatus)}
+                  />
+                  <StatusBadge
+                    label={`E:${batch.batchAuthorityBinding.escrowSignatureStatus.toUpperCase()}`}
+                    tone={sigStatusTone(batch.batchAuthorityBinding.escrowSignatureStatus)}
+                  />
+                  {(() => {
+                    const anchorStatus = batch.batchAuthorityBinding.anchorStatus;
+                    return (
+                      <span className="data-chip" data-tone={anchorStatus === 'anchored' ? 'success' : anchorStatus === 'binding_mismatch' ? 'danger' : 'purple'}>
+                        {anchorStatus === 'anchored' ? 'Anchored' : anchorStatus === 'binding_mismatch' ? 'Binding Mismatch' : 'Pending Anchor'}
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
             }
           />
+        ) : model.currentPhase < 2 ? (
+          <Field label="Authority Binding" value={<span className="text-slate-500 text-xs">Not created — available after Phase 1</span>} />
         ) : null}
       </div>
 
-      <div className="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="Selected batch container sections">
-        {BATCH_DETAIL_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === tab.id}
-            className={`data-chip data-chip--btn ${activeTab === tab.id ? 'border-[rgba(148,98,232,0.58)] bg-[rgba(80,40,160,0.22)] text-slate-100' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {/* Phase rail — full width */}
+      {chainKey && sourceBatchId ? (
+        <div className="mb-5 rounded-lg border border-slate-700/40 bg-slate-800/20 px-4 py-3">
+          <BatchLifecycleCard
+            key={lcRow?.escrow_batch_id ?? `${chainKey}:${sourceBatchId}`}
+            variant="rail"
+            escrowBatchId={lcRow?.escrow_batch_id}
+            chainKey={chainKey}
+            sourceBatchId={sourceBatchId}
+          />
+        </div>
+      ) : null}
+
+      {/* Dev scenario picker — Phase 8 complete, Phase 9 not yet started */}
+      {(lcRow?.current_phase ?? 0) >= 8 && !evidence[9] && (
+        <div className="mb-5 rounded-lg border border-violet-700/30 bg-violet-950/20 px-4 py-3">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-400">Dev Settlement Scenario</span>
+            <span className="data-chip text-[9px] text-violet-400">dev-only</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={selectedScenario}
+              onChange={e => { setSelectedScenario(e.target.value as ScenarioId); setSimResult(null); }}
+              className="rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 focus:border-violet-500 focus:outline-none"
+            >
+              {SCENARIO_OPTIONS.map(opt => (
+                <option key={opt.id} value={opt.id}>{opt.label}</option>
+              ))}
+            </select>
+            <button
+              onClick={handleSimulateLegReturns}
+              disabled={simulating}
+              className={`action-button ${simulating ? 'opacity-50 cursor-not-allowed' : 'action-button--primary'}`}
+            >
+              {simulating
+                ? <><span className="inline-block h-3 w-3 animate-spin rounded-full border border-slate-400 border-t-transparent mr-1" />Simulating…</>
+                : 'Simulate Leg Returns'}
+            </button>
+            {simResult && (
+              <span className={`text-xs ${simResult.ok ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {simResult.ok ? '✓' : '✗'} {simResult.message}
+              </span>
+            )}
+          </div>
+          <p className="mt-2 text-[10px] text-slate-500">
+            Scenario: <span className="text-slate-300 font-medium">{SCENARIO_OPTIONS.find(o => o.id === selectedScenario)?.label}</span>
+            {' '}· Simulates leg P&amp;L without advancing the phase. Advance to Phase 9 separately after reviewing results.
+          </p>
+        </div>
+      )}
+
+      {/* Tabs — full width */}
+      <div>
+          <div className="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="Selected batch container sections">
+            {BATCH_DETAIL_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                className={`data-chip data-chip--btn ${activeTab === tab.id ? 'border-[rgba(148,98,232,0.58)] bg-[rgba(80,40,160,0.22)] text-slate-100' : ''}`}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
       {activeTab === 'overview' ? (
-        <div className="space-y-4">
-          {batch.exception ? (
-            <div className="rounded-lg border border-[rgba(236,86,86,0.34)] bg-[rgba(60,20,20,0.42)] p-4 text-sm text-rose-100">
-              <div className="mb-1 flex items-center gap-2 font-semibold">
-                <AlertTriangle size={16} />
-                Exception: {batch.exception.type}
-              </div>
-              <p className="mb-4 text-rose-100/90">{batch.exceptionReason}</p>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <Field label="Expected amount" value={fmtUsd(batch.exception.expectedAmountUsd)} />
-                <Field label="Observed amount" value={fmtUsd(batch.exception.observedAmountUsd)} />
-                <Field label="Blocking step" value={batch.exception.blockingStep} />
-                <Field label="Resolution action" value={batch.exception.resolutionAction} />
-              </div>
-            </div>
-          ) : null}
-
-          <LifecycleTimeline batch={batch} />
-          <BatchReadinessPanel batch={batch} />
-
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <SectionCard title="Overview" icon={<Database size={18} />}>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <Field label="Batch ID" value={batch.batchId} />
-                <Field label="Total amount" value={fmtUsd(batch.totalAmountUsd)} />
-                <Field label="Status" value={batchStatusLabel(batch)} />
-                <Field label="Primary action" value={primaryAction} />
-              </div>
-            </SectionCard>
-
-            <SectionCard title="Custody Mode" icon={<Wallet size={18} />}>
-              {(() => {
-                const binding = batch.batchAuthorityBinding;
-                const canChange = !binding ||
-                  (binding.treasurySignatureStatus === 'pending' && binding.escrowSignatureStatus === 'pending');
-                const isBatchWallet = batch.custodyMode === 'batch_wallet_custody';
-                return (
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <Field label="Current mode" value={isBatchWallet ? 'Batch Wallet Custody' : 'Escrow Contract Custody'} />
-                      <Field label="Wallet creation" value={isBatchWallet ? 'Required after anchor' : 'Not required'} />
-                    </div>
-                    {canChange ? (
-                      <div className="space-y-2">
-                        <p className="text-xs text-slate-400">
-                          {isBatchWallet
-                            ? 'Batch wallet custody: funds move to a 2-of-3 multisig wallet after anchor.'
-                            : 'Escrow contract custody: funds remain in InvestmentEscrow. Switch to batch wallet custody to enable multisig wallet creation after anchor.'}
-                        </p>
-                        <button
-                          type="button"
-                          className="action-button action-button--primary"
-                          onClick={() => onSetCustodyMode(batch, isBatchWallet ? 'escrow_contract_custody' : 'batch_wallet_custody')}
-                        >
-                          Switch to {isBatchWallet ? 'Escrow Contract Custody' : 'Batch Wallet Custody'}
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="panel-note text-xs">
-                        Custody mode is locked once signing begins. Current mode: <strong>{isBatchWallet ? 'Batch Wallet Custody' : 'Escrow Contract Custody'}</strong>.
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-            </SectionCard>
-
-            <SectionCard title="Treasury Reconciliation" icon={<Landmark size={18} />}>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <Field label="Treasury state" value={batch.treasuryHandoff.approvedByTreasury ? 'Sent by Treasury' : 'Pending Treasury send'} />
-                <Field label="Sent at" value={formatDateTime(batch.treasuryHandoff.approvedAt)} />
-                <Field label="Source wallet" value={<span className="font-mono">{shortHash(batch.treasuryHandoff.treasurySourceWallet)}</span>} />
-                <Field label="Manifest hash" value={<span className="font-mono">{shortHash(batch.treasuryHandoff.depositManifestHash)}</span>} />
-              </div>
-            </SectionCard>
+        <SectionCard title="Batch Details" icon={<Database size={18} />}>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+            <Field label="Total amount" value={
+              <span className="flex items-center gap-1.5">
+                {fmtUsd(model.principalUsd)}
+                <span className={`data-chip text-[9px] ${model.principalSource === 'phase1_evidence' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {model.principalSource === 'phase1_evidence' ? 'phase1_evidence' : 'order_estimate'}
+                </span>
+              </span>
+            } />
+            <Field label="Asset" value={model.asset} />
+            <Field label="Term" value={fmtTerm(model.termMonths)} />
+            <Field label="Deposits" value={String(batch.deposits.length)} />
+            <Field label="Wallet" value={
+              model.walletStatus === 'created_bound' && model.walletAddress
+                ? <span className="flex items-center gap-1.5">
+                    <span className="font-mono text-[11px]">{shortHash(model.walletAddress)}</span>
+                    <span className="data-chip text-[9px] text-emerald-400">phase3_evidence</span>
+                  </span>
+                : model.walletStatus === 'predicted' && model.predictedAddress
+                ? <span className="flex items-center gap-1.5">
+                    <span className="font-mono text-[11px] text-amber-400/80">{shortHash(model.predictedAddress)}</span>
+                    <span className="data-chip text-[9px] text-amber-400">predicted</span>
+                  </span>
+                : <span className="text-slate-500">—</span>
+            } />
+            <Field label="Treasury state" value={batch.treasuryHandoff.approvedByTreasury ? 'Sent by Treasury' : 'Pending Treasury send'} />
+            <Field label="Treasury sent at" value={formatDateTime(model.treasurySentAt ?? undefined)} />
+            {model.openedAt && (
+              <Field label="Registered at" value={
+                <span className="flex items-center gap-1.5">
+                  {formatDateTime(model.openedAt)}
+                  <span className="data-chip text-[9px] text-emerald-400">lifecycle</span>
+                </span>
+              } />
+            )}
+            <Field label="Source batch ID" value={
+              <span className="flex items-center gap-1.5">
+                <span className="font-mono text-[11px]">{model.sourceBatchId || '—'}</span>
+                {model.sourceBatchId && lcRow?.source_batch_id === model.sourceBatchId && (
+                  <span className="data-chip text-[9px] text-emerald-400">lifecycle</span>
+                )}
+              </span>
+            } />
+            <Field label="Source wallet" value={<span className="font-mono">{shortHash(batch.treasuryHandoff.treasurySourceWallet) || '—'}</span>} />
+            <Field label="Manifest hash" value={<span className="font-mono">{shortHash(batch.treasuryHandoff.depositManifestHash)}</span>} />
+            {model.treasuryAddress && (
+              <Field label="Treasury contract" value={<span className="font-mono">{shortHash(model.treasuryAddress)}</span>} />
+            )}
+            {model.chainId && (
+              <Field label="Chain" value={`${model.chainKey} (${model.chainId})`} />
+            )}
           </div>
-        </div>
+        </SectionCard>
       ) : null}
 
       {activeTab === 'deposits' ? (
@@ -4273,30 +4538,64 @@ function BatchDetail({
           <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
             <Field label="Deposit count" value={String(batch.deposits.length)} />
             <Field label="Total amount" value={fmtUsd(batch.totalAmountUsd)} />
-            <Field label="Term" value={`${batch.termMonths}M`} />
+            <Field label="Term" value={fmtTerm(model.termMonths)} />
             <Field label="Asset" value={batch.asset ?? 'USDC'} />
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
+            <table className="w-full min-w-[900px] text-xs">
               <thead>
-                <tr className="border-b border-slate-700/50 text-left text-[10px] uppercase tracking-[0.16em] text-slate-500">
-                  <th className="pb-2 pr-4">Deposit</th>
+                <tr className="border-b border-slate-700/50 text-left text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                  <th className="pb-2 pr-4">Deposit ID</th>
+                  <th className="pb-2 pr-4">Origin Bank</th>
                   <th className="pb-2 pr-4">Adapter</th>
+                  <th className="pb-2 pr-4">Bank Ref</th>
+                  <th className="pb-2 pr-4">Account Ref</th>
                   <th className="pb-2 pr-4 text-right">Amount</th>
                   <th className="pb-2 pr-4 text-right">Term</th>
                   <th className="pb-2 text-right">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {batch.deposits.map((deposit) => (
-                  <tr key={deposit.depositId} className="border-b border-slate-800/60">
-                    <td className="py-3 pr-4 font-mono text-slate-100">{deposit.depositId}</td>
-                    <td className="py-3 pr-4 text-slate-400">{titleCase(deposit.adapterType)}</td>
-                    <td className="py-3 pr-4 text-right font-mono">{fmtUsd(deposit.amountUsd)}</td>
-                    <td className="py-3 pr-4 text-right font-mono">{deposit.termMonths}M</td>
-                    <td className="py-3 text-right">{titleCase(deposit.status)}</td>
-                  </tr>
-                ))}
+                {batch.deposits.map((deposit) => {
+                  const wireMatched = Boolean(deposit.bankClientRef);
+                  return (
+                    <tr key={deposit.depositId} className="border-b border-slate-800/60 hover:bg-slate-800/20">
+                      <td className="py-2.5 pr-4 font-mono text-[11px] text-slate-300" title={deposit.depositId}>
+                        {deposit.depositId.length > 14
+                          ? `${deposit.depositId.slice(0, 8)}…`
+                          : deposit.depositId}
+                      </td>
+                      <td className="py-2.5 pr-4 text-slate-300">{deposit.originBank || '—'}</td>
+                      <td className="py-2.5 pr-4 text-slate-400">{titleCase(deposit.adapterType)}</td>
+                      <td className="py-2.5 pr-4" title={deposit.bankClientRef ?? ''}>
+                        {deposit.bankClientRef ? (
+                          <span className="flex items-center gap-1.5">
+                            <span className="font-mono text-[11px] text-slate-300" style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
+                              {deposit.bankClientRef}
+                            </span>
+                            <span className="shrink-0 text-emerald-400" title="Wire reference matched">✓</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 pr-4 font-mono text-[11px] text-slate-400" title={deposit.depositAccountRef ?? ''}>
+                        {deposit.depositAccountRef
+                          ? deposit.depositAccountRef.length > 16
+                            ? `${deposit.depositAccountRef.slice(0, 12)}…`
+                            : deposit.depositAccountRef
+                          : <span className="text-slate-600">—</span>}
+                      </td>
+                      <td className="py-2.5 pr-4 text-right font-mono">{fmtUsd(deposit.amountUsd)}</td>
+                      <td className="py-2.5 pr-4 text-right font-mono">{fmtTerm(deposit.termMonths)}</td>
+                      <td className="py-2.5 text-right">
+                        <span className={`data-chip text-[9px] ${deposit.status === 'settled' || deposit.status === 'funded' || deposit.status === 'active' ? 'text-emerald-400' : deposit.status === 'exception' ? 'text-rose-400' : ''}`}>
+                          {titleCase(deposit.status)}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -4331,14 +4630,31 @@ function BatchDetail({
                   <span className="data-chip">Observed {fmtUsd(fundingValidation.observedAmountUsd)}</span>
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <Field label="Wallet address" value={<span className="font-mono">{walletDisplay(batch)}</span>} />
+                  <Field label="Wallet address" value={
+                    model.walletAddress
+                      ? <span className="flex items-center gap-1.5"><span className="font-mono">{model.walletAddress}</span><span className="data-chip text-[9px]" data-tone="success">phase3_evidence</span></span>
+                      : model.predictedAddress
+                      ? <span className="flex items-center gap-1.5"><span className="font-mono text-amber-400/80">{model.predictedAddress}</span><span className="data-chip text-[9px]">Predicted</span></span>
+                      : <span className="text-slate-500">Pending (Phase 3 incomplete)</span>
+                  } />
                   <Field label="Wallet type" value="2-of-3 Multisig" />
                   <Field label="Threshold" value={`${batch.wallet.threshold ?? 2} of 3`} />
                   <Field label="Signers" value="Treasury / Escrow / Continuity SCE" />
                   <Field label="Owner Treasury" value={<span className="font-mono">{shortHash(batch.wallet.owners?.treasury)}</span>} />
                   <Field label="Owner Escrow" value={<span className="font-mono">{shortHash(batch.wallet.owners?.escrow)}</span>} />
                   <Field label="Owner Continuity" value={<span className="font-mono">{shortHash(batch.wallet.owners?.continuity)}</span>} />
-                  <Field label="Chain" value={titleCase(batch.wallet.chain)} />
+                  <Field label="Chain" value={
+                    model.chainKey
+                      ? <span className="flex items-center gap-1.5">
+                          {model.chainKey} ({model.chainId})
+                          {batch.wallet.chain && batch.wallet.chain !== model.chainKey && (
+                            <span className="data-chip text-[9px] text-amber-400" title={`Registry profile: ${batch.wallet.chain}`}>
+                              registry: {batch.wallet.chain}
+                            </span>
+                          )}
+                        </span>
+                      : titleCase(batch.wallet.chain)
+                  } />
                   <Field label="Created at" value={formatDateTime(batch.wallet.createdAt)} />
                   <Field label="Funding status" value={fundingStatusLabel(batch)} />
                   <Field
@@ -4394,30 +4710,47 @@ function BatchDetail({
             )}
           </SectionCard>
 
-          <BatchWalletBindingSection batch={batch} />
+          {model.currentPhase >= 2 ? (
+            <BatchWalletBindingSection batch={batch} />
+          ) : (
+            <SectionCard title="Batch Wallet Binding" icon={<KeyRound size={18} />}>
+              <div className="panel-note">
+                Wallet binding is not available yet. Authority binding must be anchored (Phase 2) before wallet binding is created.
+              </div>
+            </SectionCard>
+          )}
 
           <div className="xl:col-span-2">
             <RoleAuthorityRegistrySection />
           </div>
 
           <div className="xl:col-span-2">
-            <BatchAuthorityBindingSection
-              batch={batch}
-              onSignAsRole={onSignAuthorityBinding}
-              onAnchorBinding={onAnchorBinding}
-              isAnchoring={isAnchoring}
-              anchorError={anchorError}
-              signingRole={signingAuthorityRole}
-              signingError={signingAuthorityError}
-              onChainRoleAuthorities={onChainRoleAuthorities}
-              onRoleAuthoritiesInitialized={onRoleAuthoritiesInitialized}
-              signerServicesConfigured={signerServicesConfigured}
-            />
+            {model.currentPhase >= 2 ? (
+              <BatchAuthorityBindingSection
+                batch={batch}
+                onSignAsRole={onSignAuthorityBinding}
+                onAnchorBinding={onAnchorBinding}
+                isAnchoring={isAnchoring}
+                anchorError={anchorError}
+                signingRole={signingAuthorityRole}
+                signingError={signingAuthorityError}
+                onChainRoleAuthorities={onChainRoleAuthorities}
+                onRoleAuthoritiesInitialized={onRoleAuthoritiesInitialized}
+                signerServicesConfigured={signerServicesConfigured}
+              />
+            ) : (
+              <SectionCard title="Batch Authority Binding" icon={<Lock size={18} />}>
+                <div className="panel-note">
+                  Authority binding is not created yet. Advance to Phase 1 (register treasury handoff) before authority binding can be built.
+                </div>
+              </SectionCard>
+            )}
           </div>
 
           <div className="xl:col-span-2">
             <TreasuryFundingSection
               batch={batch}
+              currentPhase={model.currentPhase}
               onVerifyFunding={onVerifyFunding}
               onManualConfirmFunding={onManualConfirmFunding}
               isVerifying={isVerifyingFunding}
@@ -4428,69 +4761,214 @@ function BatchDetail({
       ) : null}
 
       {activeTab === 'aaa' ? (
-        <AaaAllocationSection
-          batch={batch}
-          onRequestAllocation={onRequestAaaAllocation}
-          isRequesting={isRequestingAllocation}
-          requestError={allocationRequestError}
-          onRecoverPlan={onRecoverAllocationPlan}
-          isRecovering={isRecoveringPlan}
-          recoveryError={planRecoveryError}
-        />
+        model.currentPhase < 4
+          ? <PhaseLocked message="AAA allocation unavailable until wallet funding is verified (Phase 4)." requiredPhase={4} />
+          : <AaaAllocationSection
+              batch={batch}
+              evidence={evidence}
+              currentPhase={model.currentPhase}
+            />
       ) : null}
 
       {activeTab === 'deployment' ? (
-        <div className="space-y-4">
-          <DestinationApprovalSection batch={batch} onApproveDestinations={onApproveDestinations} />
+        model.currentPhase < 5
+          ? <PhaseLocked message="Deployment unavailable until funding is verified and AAA allocation is complete." requiredPhase={5} />
+          : <div className="space-y-4">
+          <DestinationApprovalSection batch={batch} evidence={evidence} currentPhase={model.currentPhase} />
           <DeploymentApprovalSection
             batch={batch}
-            onApproveDeployment={onApproveDeployment}
-            isApprovingDeployment={isApprovingDeployment}
-            deploymentApprovalError={deploymentApprovalError}
+            evidence={evidence}
+            currentPhase={model.currentPhase}
           />
           <DeploymentExecutionSection
             batch={batch}
-            onExecuteDeployment={onExecuteDeployment}
-            isExecuting={isExecutingDeployment}
-            deploymentExecutionError={deploymentExecutionError}
+            evidence={evidence}
+            currentPhase={model.currentPhase}
           />
           <SectionCard title="Deployment Legs" icon={<Layers size={18} />}>
-            <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-              <Field label="Deployment approval" value={deploymentApprovalLabel(batch)} />
-              <Field label="Deployment execution" value={deploymentExecutionLabel(batch)} />
-              <Field label="Approved by" value={batch.deploymentApproval.approvedBy ?? 'Pending'} />
-            </div>
-            {getDeploymentLegsForDestinationApproval(batch).length === 0 ? (
+            {/* ── Execution summary banner ── */}
+            {(() => {
+              const exec = getLatestDeploymentExecution(batch);
+              const p7evSum = evidence[7]?.evidence_json as Record<string, unknown> | undefined;
+              const p8evSum = evidence[8]?.evidence_json as Record<string, unknown> | undefined;
+              const approvedByDisplay = (p7evSum?.approvedBy as string | undefined) ?? batch.deploymentApproval.approvedBy;
+              const p8LegsSum = p8evSum && Array.isArray(p8evSum.legs)
+                ? p8evSum.legs as Array<{ legId: string; status: string; txHash?: string; executedAt?: number }>
+                : null;
+              const executedByDisplay = (p8evSum?.executedBy as string | undefined) ?? exec?.executedBy;
+              const executedAtDisplay = p8evSum?.executedAt != null
+                ? new Date(Number(p8evSum.executedAt) * 1000).toISOString()
+                : exec?.executedAt;
+              const execTxHash = (p8LegsSum && p8LegsSum.length > 0 ? p8LegsSum[0].txHash : null) ?? exec?.deploymentTxHash;
+              const totalDeployed = model.deploymentLegs.reduce((s, l) => s + l.amountUsd, 0);
+              const totalReturned = model.deploymentLegs.every(l => l.settledAmountUsd != null)
+                ? model.deploymentLegs.reduce((s, l) => s + (l.settledAmountUsd ?? 0), 0)
+                : null;
+              return (
+                <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <Field label="Deployment approval" value={deploymentApprovalLabel(batch)} />
+                  <Field label="Deployment execution" value={deploymentExecutionLabel(batch)} />
+                  <Field label="Approved by" value={approvedByDisplay ?? 'Pending'} />
+                  {executedByDisplay && <Field label="Executed by" value={executedByDisplay} />}
+                  {executedAtDisplay && <Field label="Executed at" value={formatDateTime(executedAtDisplay)} />}
+                  {execTxHash && (
+                    <Field label="Execution tx" value={<span className="font-mono text-[11px]">{shortHash(execTxHash)}</span>} />
+                  )}
+                  <Field label="Total deployed" value={fmtUsd(totalDeployed)} />
+                  {totalReturned != null && (
+                    <Field label="Total returned" value={fmtUsd(totalReturned)} />
+                  )}
+                  {model.pnlUsd != null && (
+                    <Field label="Overall P&L" value={
+                      <span className={model.pnlUsd >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                        {model.pnlUsd >= 0 ? '+' : ''}{fmtUsd(model.pnlUsd)}
+                        {model.pnlPct != null && ` (${model.pnlPct >= 0 ? '+' : ''}${model.pnlPct.toFixed(2)}%)`}
+                      </span>
+                    } />
+                  )}
+                </div>
+              );
+            })()}
+            {model.deploymentLegs.length === 0 ? (
               <div className="panel-note">No deployment legs are attached. Verify funding before deployment planning.</div>
             ) : (
               <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-                {getDeploymentLegsForDestinationApproval(batch).map((leg) => (
-                  <div key={leg.legId} className="rounded-lg border border-slate-700/50 bg-slate-900/35 p-4">
-                    <div className="mb-3 flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{PROVIDER_LABELS[leg.provider]}</div>
-                        <div className="mt-1 font-semibold text-slate-100">{leg.asset}</div>
+                {model.deploymentLegs.map((leg) => {
+                  const isExecuted = ['executed', 'deployed', 'monitoring', 'settled'].includes(leg.status);
+                  const isSettledLeg = leg.status === 'settled' || leg.settledAmountUsd != null;
+                  return (
+                    <div key={leg.legId} className="rounded-lg border border-slate-700/50 bg-slate-900/35 p-4">
+                      <div className="mb-3 flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                            {PROVIDER_LABELS[leg.provider as keyof typeof PROVIDER_LABELS] ?? leg.provider}
+                          </div>
+                          <div className="mt-1 font-semibold text-slate-100">{leg.asset}</div>
+                        </div>
+                        <StatusBadge
+                          label={titleCase(leg.status)}
+                          tone={leg.status === 'exception' ? 'danger' : isExecuted ? 'success' : 'warning'}
+                        />
                       </div>
-                      <StatusBadge label={titleCase(leg.status)} tone={leg.status === 'exception' ? 'danger' : ['executed', 'deployed', 'monitoring', 'settled'].includes(leg.status) ? 'success' : 'warning'} />
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        {leg.phase7Warning && (
+                          <div className="col-span-2 rounded border border-amber-500/30 bg-amber-950/30 px-2 py-1 text-[10px] text-amber-400">
+                            {leg.phase7Warning}
+                          </div>
+                        )}
+                        <Field label="Allocation" value={
+                          leg.allocationPercent > 0 || leg.plannedSource === 'phase7_evidence'
+                            ? <span className="flex items-center gap-1">
+                                {fmtPct(leg.allocationPercent)}
+                                {leg.plannedSource === 'phase7_evidence' && <span className="data-chip text-[9px] text-emerald-300">phase7_evidence</span>}
+                              </span>
+                            : <span className="text-amber-400 text-[10px]">Unavailable</span>
+                        } />
+                        <Field label="Amount" value={
+                          <span className="flex items-center gap-1">
+                            {fmtUsd(leg.amountUsd)}
+                            {leg.plannedAmountUsd6 && <span className="data-chip text-[9px] text-emerald-300">phase7_evidence</span>}
+                          </span>
+                        } />
+                        <Field label="Target yield" value={
+                          leg.targetYieldBps > 0 || leg.plannedSource === 'phase7_evidence'
+                            ? <span className="flex items-center gap-1">
+                                {leg.targetYieldBps} bps
+                                {leg.plannedSource === 'phase7_evidence' && <span className="data-chip text-[9px] text-emerald-300">phase7_evidence</span>}
+                              </span>
+                            : <span className="text-amber-400 text-[10px]">Unavailable</span>
+                        } />
+                        <Field label="Adapter" value={titleCase(leg.strategyType)} />
+                        <Field label="Destination" value={leg.destinationName ?? 'Pending'} />
+                        <Field label="Destination type" value={leg.destinationType ?? '—'} />
+                        {leg.deploymentTxHash && (
+                          <div className="col-span-2">
+                            <Field label="Deploy tx" value={
+                              <span className="flex items-center gap-1.5">
+                                <span className="font-mono text-[11px]">{shortHash(leg.deploymentTxHash)}</span>
+                                <span className="data-chip text-[9px] text-emerald-300">phase8_evidence</span>
+                              </span>
+                            } />
+                          </div>
+                        )}
+                        {leg.deployedAt && (
+                          <div className="col-span-2">
+                            <Field label="Deployed at" value={
+                              <span className="flex items-center gap-1.5">
+                                {formatDateTime(leg.deployedAt)}
+                                <span className="data-chip text-[9px] text-emerald-300">phase8_evidence</span>
+                              </span>
+                            } />
+                          </div>
+                        )}
+                        {isSettledLeg && (
+                          <>
+                            <Field label="Returned" value={
+                              leg.settledAmountUsd != null
+                                ? <span className="flex items-center gap-1.5">
+                                    {fmtUsd(leg.settledAmountUsd)}
+                                    <span className="data-chip text-[9px] text-emerald-300">phase9_evidence</span>
+                                  </span>
+                                : '—'
+                            } />
+                            <Field label="Leg P&L" value={
+                              leg.legPnlUsd != null
+                                ? <span className={leg.legPnlUsd >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                                    {leg.legPnlUsd >= 0 ? '+' : ''}{fmtUsd(leg.legPnlUsd)}
+                                    {leg.legPnlPct != null && ` (${leg.legPnlPct >= 0 ? '+' : ''}${leg.legPnlPct.toFixed(2)}%)`}
+                                  </span>
+                                : '—'
+                            } />
+                          </>
+                        )}
+                        {!isExecuted && leg.currentValueUsd != null && (
+                          <Field label="Current" value={fmtUsd(leg.currentValueUsd)} />
+                        )}
+                        {leg.isDevSimulated && (
+                          <>
+                            <div className="col-span-2 flex items-center gap-2 rounded border border-violet-500/30 bg-violet-950/30 px-2 py-1 text-[10px]">
+                              <span className="data-chip text-[9px] text-violet-300">dev_simulation</span>
+                              <span className="text-violet-300">
+                                {leg.devLegStatus === 'returned' ? 'Returned (settlement pending)' :
+                                 leg.devLegStatus === 'marked' ? 'Marked (unrealized P&L)' :
+                                 'Deployed (position open)'}
+                              </span>
+                              {devLegPositions.find(p => p.leg_id === leg.legId)?.simulation_scenario && (
+                                <span className="data-chip text-[9px] text-violet-300 capitalize">
+                                  {(devLegPositions.find(p => p.leg_id === leg.legId)?.simulation_scenario ?? '').replace(/_/g, ' ')}
+                                </span>
+                              )}
+                            </div>
+                            {leg.devLegStatus !== 'deployed' && leg.currentValueUsd6Dev != null && (
+                              <Field label="Current (dev)" value={
+                                <span className="flex items-center gap-1 text-violet-300">
+                                  {fmtUsd(Number(leg.currentValueUsd6Dev) / 1_000_000)}
+                                  {leg.unrealizedPnlBpsDev != null && (
+                                    <span className={leg.unrealizedPnlBpsDev >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                                      ({leg.unrealizedPnlBpsDev >= 0 ? '+' : ''}{leg.unrealizedPnlBpsDev} bps)
+                                    </span>
+                                  )}
+                                </span>
+                              } />
+                            )}
+                          </>
+                        )}
+                        <div className="col-span-2">
+                          <Field label="Destination address" value={
+                            leg.destinationAddress
+                              ? <span className="font-mono text-[11px]">{shortHash(leg.destinationAddress)}</span>
+                              : 'Pending'
+                          } />
+                        </div>
+                        {leg.providerReferenceId && (
+                          <div className="col-span-2">
+                            <Field label="Provider reference" value={leg.providerReferenceId} />
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <Field label="Asset" value={leg.asset} />
-                      <Field label="Allocation" value={fmtPct(leg.allocationPercent)} />
-                      <Field label="Amount" value={fmtUsd(leg.amountUsd)} />
-                      <Field label="Target yield" value={`${leg.targetYieldBps} bps`} />
-                      <Field label="Destination" value={leg.destinationName ?? 'Pending'} />
-                      <Field label="Destination type" value={leg.destinationType ?? titleCase(leg.strategyType)} />
-                      <Field label="Status" value={titleCase(leg.status)} />
-                      <Field label="Current" value={leg.currentValueUsd == null ? 'Pending' : fmtUsd(leg.currentValueUsd)} />
-                      <div className="col-span-2">
-                        <Field label="Destination address" value={leg.destinationAddress ? <span className="font-mono text-[11px]">{shortHash(leg.destinationAddress)}</span> : 'Pending'} />
-                      </div>
-                      <div className="col-span-2">
-                        <Field label="Provider reference" value={leg.providerReferenceId ?? 'Pending'} />
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </SectionCard>
@@ -4498,60 +4976,793 @@ function BatchDetail({
       ) : null}
 
       {activeTab === 'settlement' ? (
-        <SectionCard title="Settlement" icon={<FileCheck size={18} />}>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <Field label="Maturity date" value={formatDateTime(batch.settlement.maturityDate)} />
-            <Field label="Settlement status" value={titleCase(batch.settlement.status)} />
-            <Field label="Expected return" value={batch.settlement.expectedReturnUsd == null ? 'Pending' : fmtUsd(batch.settlement.expectedReturnUsd)} />
-            <Field label="Returned amount" value={batch.settlement.returnedAmountUsd == null ? 'Pending' : fmtUsd(batch.settlement.returnedAmountUsd)} />
-            <Field label="Bank repayment amount" value={batch.settlement.bankRepaymentAmountUsd == null ? 'Pending' : fmtUsd(batch.settlement.bankRepaymentAmountUsd)} />
-            <Field label="Surplus / spread" value={batch.settlement.surplusUsd == null ? 'Pending' : fmtUsd(batch.settlement.surplusUsd)} />
-            <Field label="Settlement tx" value={<span className="font-mono">{shortHash(batch.settlement.settlementTxHash)}</span>} />
-            <Field label="Wallet retirement status" value={walletRetirementLabel(batch)} />
+        model.currentPhase < 8
+          ? <PhaseLocked message="Settlement unavailable until deployment legs execute (Phase 8)." requiredPhase={8} />
+          : <SectionCard title="Settlement" icon={<FileCheck size={18} />}>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className={`data-chip text-[9px] ${model.settlementSource === 'phase9_evidence' ? 'text-emerald-400' : model.settlementSource === 'batch_object' ? 'text-amber-400' : 'text-slate-500'}`}>
+              {model.settlementSource === 'phase9_evidence' ? 'phase9_evidence' : model.settlementSource === 'batch_object' ? 'batch_object (unconfirmed)' : 'pending'}
+            </span>
+            {model.settlementEvidenceHash && (
+              <span className="data-chip text-[9px]" title={model.settlementEvidenceHash}>Phase 9 evidence hash: {shortHash(model.settlementEvidenceHash)}</span>
+            )}
           </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <Field label="Maturity date" value={formatDateTime(model.maturityDate ?? undefined)} />
+            <Field label="Settlement status" value={model.isSettled ? 'Settled' : titleCase(batch.settlement.status)} />
+            <Field label="Expected return" value={model.expectedReturnUsd == null ? 'Pending' : fmtUsd(model.expectedReturnUsd)} />
+            <Field label="Returned amount" value={model.returnedAmountUsd == null ? 'Pending' : fmtUsd(model.returnedAmountUsd)} />
+            <Field label="Bank repayment amount" value={model.bankRepaymentAmountUsd == null ? 'Pending' : fmtUsd(model.bankRepaymentAmountUsd)} />
+            <Field label="Surplus / spread" value={model.surplusUsd == null ? 'Pending' : fmtUsd(model.surplusUsd)} />
+            <Field label="P&L" value={
+              model.pnlUsd == null
+                ? 'Pending'
+                : <span className={model.pnlUsd >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                    {model.pnlUsd >= 0 ? '+' : ''}{fmtUsd(model.pnlUsd)}
+                    {model.pnlPct != null && ` (${model.pnlPct >= 0 ? '+' : ''}${model.pnlPct.toFixed(2)}%)`}
+                  </span>
+            } />
+            {model.settlementTxHash ? (
+              <Field label="Settlement tx" value={<span className="font-mono text-[11px]">{shortHash(model.settlementTxHash)}</span>} />
+            ) : model.settlementReference ? (
+              <Field label="Settlement ref" value={
+                <span className="flex items-center gap-1.5">
+                  <span className="font-mono text-[11px]">{shortHash(model.settlementReference)}</span>
+                  <span className={`data-chip text-[9px] ${model.settlementReferenceType === 'treasury_notification' ? 'text-sky-400' : 'text-amber-400'}`}>
+                    {model.settlementReferenceType ?? 'ref'}
+                  </span>
+                </span>
+              } />
+            ) : null}
+            {model.custodySettlementStatus && (
+              <Field label="Treasury USDC" value={
+                <span className="flex items-center gap-1.5 flex-wrap">
+                  {model.custodySettlementStatus === 'funds_returned' ? (
+                    <>
+                      <span className="data-chip text-[9px] text-emerald-400">USDC returned on-chain</span>
+                      {model.depositReturnTxHash && (
+                        <span className="font-mono text-[11px] text-slate-400">{shortHash(model.depositReturnTxHash)}</span>
+                      )}
+                    </>
+                  ) : model.custodySettlementStatus === 'simulated_only' ? (
+                    <span className="data-chip text-[9px] text-amber-400">SIMULATED — no real USDC returned · Treasury balance NOT updated</span>
+                  ) : (
+                    <span className="data-chip text-[9px] text-sky-400">on_chain (returned before Phase 9)</span>
+                  )}
+                </span>
+              } />
+            )}
+            <Field label="Settled at" value={formatDateTime(model.settledAt ?? undefined)} />
+            <Field label="Wallet retirement" value={model.isSettled ? 'Settled' : walletRetirementLabel(batch)} />
+          </div>
+          {model.deploymentLegs.length > 0 && (
+            <div className="mt-4">
+              <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                Per-leg Settlement
+                {model.deploymentLegs[0]?.legSettlementMethod && (
+                  <span className="data-chip text-[9px] text-amber-400 normal-case">
+                    {model.deploymentLegs[0].legSettlementMethod}
+                  </span>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[600px] text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-700/50 text-left text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                      <th className="pb-2 pr-4">Leg</th>
+                      <th className="pb-2 pr-4 text-right">Deployed</th>
+                      <th className="pb-2 pr-4 text-right">Returned</th>
+                      <th className="pb-2 pr-4 text-right">P&L</th>
+                      <th className="pb-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {model.deploymentLegs.map(leg => (
+                      <tr key={leg.legId} className="border-b border-slate-800/60">
+                        <td className="py-2 pr-4 text-slate-300">{leg.destinationName ?? leg.provider}</td>
+                        <td className="py-2 pr-4 text-right font-mono">{fmtUsd(leg.amountUsd)}</td>
+                        <td className="py-2 pr-4 text-right font-mono">{leg.settledAmountUsd != null ? fmtUsd(leg.settledAmountUsd) : '—'}</td>
+                        <td className="py-2 pr-4 text-right font-mono">
+                          {leg.legPnlUsd != null
+                            ? <span className={leg.legPnlUsd >= 0 ? 'text-emerald-400' : 'text-red-400'}>{leg.legPnlUsd >= 0 ? '+' : ''}{fmtUsd(leg.legPnlUsd)}</span>
+                            : '—'}
+                        </td>
+                        <td className="py-2">{titleCase(leg.status)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </SectionCard>
       ) : null}
 
       {activeTab === 'performance' ? (
-        <SectionCard title="Performance" icon={<LineChart size={18} />}>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <Field label="Projected yield" value={fmtUsd(batch.performance.projectedYieldUsd)} />
-            <Field label="Realized yield" value={batch.performance.realizedYieldUsd == null ? 'Pending' : fmtUsd(batch.performance.realizedYieldUsd)} />
-            <Field label="Current value" value={fmtUsd(batch.performance.currentValueUsd)} />
-            <Field label="Variance" value={`${batch.performance.varianceBps ?? 0} bps`} />
-            <Field label="Last updated" value={formatDateTime(batch.performance.lastUpdatedAt)} />
-          </div>
+        model.currentPhase < 5 && !model.isSettled
+          ? <PhaseLocked message="Performance unavailable until allocation and deployment begin (Phase 5)." requiredPhase={5} />
+          : <SectionCard title="Performance" icon={<LineChart size={18} />}>
+          {model.isSettled ? (
+            /* ── Settled: Phase 9 evidence is canonical ── */
+            <div className="space-y-4">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className={`data-chip text-[9px] ${model.settlementSource === 'phase9_evidence' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {model.settlementSource === 'phase9_evidence' ? 'phase9_evidence' : 'batch_object (unconfirmed)'}
+                </span>
+                {model.settlementScenarioLabel && (
+                  <span className="data-chip text-[9px] text-violet-300">
+                    Scenario: {model.settlementScenarioLabel}
+                  </span>
+                )}
+                {model.termMonthsEvidence != null && (
+                  <span className="data-chip text-[9px] text-slate-400">
+                    {model.termMonthsEvidence}M term
+                  </span>
+                )}
+                {model.annualYieldBps != null && model.annualYieldBps > 0 && (
+                  <span className="data-chip text-[9px] text-slate-400">
+                    {(model.annualYieldBps / 100).toFixed(2)}% APR
+                    {model.termAdjustedYieldBps != null && model.termAdjustedYieldBps !== model.annualYieldBps
+                      ? ` → ${(model.termAdjustedYieldBps / 100).toFixed(2)}% term`
+                      : ''}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <Field label="Principal" value={
+                  <span className="flex items-center gap-1.5">
+                    {fmtUsd(model.principalUsd)}
+                    <span className={`data-chip text-[9px] ${model.principalSource === 'phase1_evidence' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {model.principalSource}
+                    </span>
+                  </span>
+                } />
+                <Field label="Returned" value={
+                  model.returnedAmountUsd != null
+                    ? <span className="flex items-center gap-1.5">
+                        {fmtUsd(model.returnedAmountUsd)}
+                        <span className="data-chip text-[9px] text-emerald-400">{model.settlementSource}</span>
+                      </span>
+                    : 'Pending'
+                } />
+                <Field label="P&L" value={
+                  model.pnlUsd != null
+                    ? <span className="flex items-center gap-1.5">
+                        <span className={model.pnlUsd >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                          {model.pnlUsd >= 0 ? '+' : ''}{fmtUsd(model.pnlUsd)}
+                          {model.pnlPct != null && ` (${model.pnlPct >= 0 ? '+' : ''}${model.pnlPct.toFixed(2)}%)`}
+                        </span>
+                        <span className="data-chip text-[9px] text-emerald-400">{model.settlementSource}</span>
+                      </span>
+                    : 'Pending'
+                } />
+                <Field label="Settled at" value={formatDateTime(model.settledAt ?? undefined)} />
+                {model.termAdjustedYieldBps != null && model.termAdjustedYieldBps > 0 && model.grossReturnBpsForTerm != null && (
+                  <Field label="Return vs promised" value={
+                    <span className="flex items-center gap-1.5 text-xs">
+                      <span className={model.grossReturnBpsForTerm >= model.termAdjustedYieldBps ? 'text-emerald-400' : 'text-amber-400'}>
+                        {model.grossReturnBpsForTerm >= 0 ? '+' : ''}{(model.grossReturnBpsForTerm / 100).toFixed(2)}% actual
+                      </span>
+                      <span className="text-slate-500">vs {(model.termAdjustedYieldBps / 100).toFixed(2)}% promised</span>
+                    </span>
+                  } />
+                )}
+                {model.treasurySurplusUsd != null && model.treasurySurplusUsd > 0 && (
+                  <Field label="Treasury surplus" value={
+                    <span className="flex items-center gap-1.5">
+                      <span className="text-emerald-400">{fmtUsd(model.treasurySurplusUsd)}</span>
+                      <span className="data-chip text-[9px] text-emerald-300">phase9_evidence</span>
+                    </span>
+                  } />
+                )}
+                {model.reserveCoverageUsd != null && model.reserveCoverageUsd > 0 && (
+                  <Field label="Reserve coverage" value={
+                    <span className="flex items-center gap-1.5">
+                      <span className="text-amber-400">{fmtUsd(model.reserveCoverageUsd)}</span>
+                      <span className="data-chip text-[9px] text-amber-300">phase9_evidence</span>
+                    </span>
+                  } />
+                )}
+                {model.uncoveredShortfallUsd != null && model.uncoveredShortfallUsd > 0 && (
+                  <Field label="Uncovered shortfall" value={
+                    <span className="flex items-center gap-1.5">
+                      <span className="text-rose-400">{fmtUsd(model.uncoveredShortfallUsd)}</span>
+                      <span className="data-chip text-[9px] text-rose-300">phase9_evidence</span>
+                    </span>
+                  } />
+                )}
+                {batch.performance.realizedYieldUsd != null && model.pnlUsd != null &&
+                  Math.abs(batch.performance.realizedYieldUsd - model.pnlUsd) > 0.01 && (
+                  <Field label="Realized yield (batch object)" value={
+                    <span className="flex items-center gap-1.5">
+                      <span className="text-amber-400">{fmtUsd(batch.performance.realizedYieldUsd)}</span>
+                      <span className="data-chip text-[9px] text-amber-400">unconfirmed</span>
+                    </span>
+                  } />
+                )}
+              </div>
+              {model.deploymentLegs.length > 0 && (
+                <div>
+                  <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-slate-500">Per-leg Breakdown</div>
+                  <div className="overflow-x-auto rounded-lg border border-slate-700/40">
+                    <table className="w-full min-w-[520px] text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-700/50 bg-slate-900/60 text-left text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                          <th className="px-3 py-2">Leg</th>
+                          <th className="px-3 py-2 text-right">Deployed</th>
+                          <th className="px-3 py-2 text-right">Returned</th>
+                          <th className="px-3 py-2 text-right">P&L</th>
+                          <th className="px-3 py-2 text-right">P&L %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {model.deploymentLegs.map(leg => (
+                          <tr key={leg.legId} className="border-b border-slate-800/40 hover:bg-slate-800/20">
+                            <td className="px-3 py-2 text-slate-300">
+                              {leg.destinationName ?? PROVIDER_LABELS[leg.provider as keyof typeof PROVIDER_LABELS] ?? leg.provider}
+                              <span className="ml-1.5 text-slate-500">{leg.asset}</span>
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono">{fmtUsd(leg.amountUsd)}</td>
+                            <td className="px-3 py-2 text-right font-mono">
+                              {leg.settledAmountUsd != null ? fmtUsd(leg.settledAmountUsd) : <span className="text-slate-500">—</span>}
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono">
+                              {leg.legPnlUsd != null
+                                ? <span className={leg.legPnlUsd >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                                    {leg.legPnlUsd >= 0 ? '+' : ''}{fmtUsd(leg.legPnlUsd)}
+                                  </span>
+                                : <span className="text-slate-500">—</span>}
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono">
+                              {leg.legPnlPct != null
+                                ? <span className={leg.legPnlPct >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                                    {leg.legPnlPct >= 0 ? '+' : ''}{leg.legPnlPct.toFixed(2)}%
+                                  </span>
+                                : <span className="text-slate-500">—</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* ── Active: server valuation snapshot ── */
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <Field label="Principal" value={
+                  <span className="flex items-center gap-1.5">
+                    {fmtUsd(model.principalUsd)}
+                    <span className={`data-chip text-[9px] ${model.principalSource === 'phase1_evidence' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {model.principalSource}
+                    </span>
+                  </span>
+                } />
+                <Field label="Projected yield" value={fmtUsd(batch.performance.projectedYieldUsd)} />
+                <Field label="Projected return at maturity" value={fmtUsd(model.principalUsd + batch.performance.projectedYieldUsd)} />
+                <Field label="Current value" value={
+                  batch.performance.currentValueUsd != null
+                    ? fmtUsd(batch.performance.currentValueUsd)
+                    : 'Pending'
+                } />
+                {batch.performance.varianceBps != null && (
+                  <Field label="Variance" value={`${batch.performance.varianceBps} bps`} />
+                )}
+                <Field label="Last marked at" value={formatDateTime(batch.performance.lastUpdatedAt)} />
+              </div>
+              {model.deploymentLegs.some(l => l.currentValueUsd != null) && (
+                <div>
+                  <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-slate-500">Per-leg Mark-to-Market</div>
+                  <div className="overflow-x-auto rounded-lg border border-slate-700/40">
+                    <table className="w-full min-w-[480px] text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-700/50 bg-slate-900/60 text-left text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                          <th className="px-3 py-2">Leg</th>
+                          <th className="px-3 py-2 text-right">Deployed</th>
+                          <th className="px-3 py-2 text-right">Current Value</th>
+                          <th className="px-3 py-2 text-right">Unrealized</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {model.deploymentLegs.map(leg => {
+                          const unrealized = leg.currentValueUsd != null ? leg.currentValueUsd - leg.amountUsd : null;
+                          return (
+                            <tr key={leg.legId} className="border-b border-slate-800/40 hover:bg-slate-800/20">
+                              <td className="px-3 py-2 text-slate-300">
+                                {leg.destinationName ?? PROVIDER_LABELS[leg.provider as keyof typeof PROVIDER_LABELS] ?? leg.provider}
+                                <span className="ml-1.5 text-slate-500">{leg.asset}</span>
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono">{fmtUsd(leg.amountUsd)}</td>
+                              <td className="px-3 py-2 text-right font-mono">
+                                {leg.currentValueUsd != null ? fmtUsd(leg.currentValueUsd) : <span className="text-slate-500">—</span>}
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono">
+                                {unrealized != null
+                                  ? <span className={unrealized >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                                      {unrealized >= 0 ? '+' : ''}{fmtUsd(unrealized)}
+                                    </span>
+                                  : <span className="text-slate-500">—</span>}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </SectionCard>
       ) : null}
 
-      {activeTab === 'audit' ? (
-        <SectionCard title="Audit Trail" icon={<Lock size={18} />}>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
-              <thead>
-                <tr className="border-b border-slate-700/50 text-left text-[10px] uppercase tracking-[0.16em] text-slate-500">
-                  <th className="pb-2 pr-4">Timestamp</th>
-                  <th className="pb-2 pr-4">Actor</th>
-                  <th className="pb-2 pr-4">Event Type</th>
-                  <th className="pb-2 pr-4">Description</th>
-                  <th className="pb-2">Tx Hash / Reference</th>
-                </tr>
-              </thead>
-              <tbody>
-                {batch.auditTrail.map((event) => (
-                  <tr key={event.eventId} className="border-b border-slate-800/60">
-                    <td className="py-3 pr-4 whitespace-nowrap text-xs text-slate-400">{formatDateTime(event.timestamp)}</td>
-                    <td className="py-3 pr-4 text-slate-300">{event.actor}</td>
-                    <td className="py-3 pr-4 font-semibold text-slate-100">{event.eventType}</td>
-                    <td className="py-3 pr-4 text-slate-400">{event.description}</td>
-                    <td className="py-3 font-mono text-xs text-slate-400">{shortHash(event.txHash ?? event.reference)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {/* Banking reconciliation — only shown when Phase 9 evidence is present */}
+      {evidence[9] && (
+        <SectionCard title="Banking Reconciliation" icon={<Database size={18} />}>
+          {reconSummary ? (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                {model.settlementScenarioLabel && (
+                  <span className="data-chip text-[9px] text-violet-300">
+                    Scenario: {model.settlementScenarioLabel}
+                  </span>
+                )}
+                {reconSummary.posted > 0 && (
+                  <span className="data-chip text-emerald-400 text-[10px]">
+                    {reconSummary.posted} posted
+                  </span>
+                )}
+                {reconSummary.pending > 0 && (
+                  <span className="data-chip text-amber-400 text-[10px]">
+                    {reconSummary.pending} pending
+                  </span>
+                )}
+                {reconSummary.failed > 0 && (
+                  <span className="data-chip text-rose-400 text-[10px]">
+                    {reconSummary.failed} failed
+                  </span>
+                )}
+                {reconSummary.skipped > 0 && (
+                  <span className="data-chip text-slate-400 text-[10px]">
+                    {reconSummary.skipped} skipped
+                  </span>
+                )}
+                {reconSummary.lastPostedAt && (
+                  <span className="text-[10px] text-slate-500">
+                    last posted {new Date(reconSummary.lastPostedAt).toLocaleString()}
+                  </span>
+                )}
+              </div>
+              {reconRows.length > 0 && (
+                <div className="overflow-x-auto rounded-lg border border-slate-700/40">
+                  <table className="w-full min-w-[520px] text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-700/50 bg-slate-900/60 text-left text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                        <th className="px-3 py-2">Institution</th>
+                        <th className="px-3 py-2 text-right">Principal</th>
+                        <th className="px-3 py-2 text-right">Payout</th>
+                        <th className="px-3 py-2 text-right">P&L</th>
+                        <th className="px-3 py-2">Status</th>
+                        <th className="px-3 py-2">Scenario</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reconRows.map(row => {
+                        const principal = Number(row.principal_usd6) / 1_000_000;
+                        const payout    = Number(row.user_payout_usd6) / 1_000_000;
+                        const pnl       = Number(row.realized_pnl_usd6) / 1_000_000;
+                        const statusColor =
+                          row.fineract_writeback_status === 'posted'  ? 'text-emerald-400' :
+                          row.fineract_writeback_status === 'failed'  ? 'text-rose-400' :
+                          row.fineract_writeback_status === 'pending' ? 'text-amber-400' :
+                          'text-slate-400';
+                        return (
+                          <tr key={row.reconciliation_id} className="border-b border-slate-800/40 hover:bg-slate-800/20">
+                            <td className="px-3 py-2 text-slate-300">
+                              {row.institution_display_name ?? row.origin_institution_id}
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono">{fmtUsd(principal)}</td>
+                            <td className="px-3 py-2 text-right font-mono">{fmtUsd(payout)}</td>
+                            <td className="px-3 py-2 text-right font-mono">
+                              <span className={pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                                {pnl >= 0 ? '+' : ''}{fmtUsd(pnl)}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className={`data-chip text-[9px] ${statusColor}`}>
+                                {row.fineract_writeback_status}
+                              </span>
+                              {row.error_code && (
+                                <span className="ml-1 text-[9px] text-rose-400" title={row.error_code}>
+                                  {row.error_code}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-slate-400 text-[10px]">
+                              {row.settlement_scenario ?? '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span>No reconciliation records yet.</span>
+              <span className="data-chip text-[9px]">Run POST /banking/escrow/reconcile-settlements to populate.</span>
+            </div>
+          )}
         </SectionCard>
-      ) : null}
+      )}
+
+      {activeTab === 'audit' ? (() => {
+        // ── Helpers ──────────────────────────────────────────────────────────
+        const STATUS_COLOR: Record<string, string> = {
+          confirmed:       'text-emerald-400',
+          observed:        'text-sky-400',
+          simulated_dev:   'text-amber-400',
+          internal_record: 'text-slate-400',
+          missing:         'text-red-400',
+          mismatch:        'text-red-400',
+        };
+        const KIND_CHIP: Record<string, string> = {
+          ONCHAIN_TRANSACTION: 'text-emerald-300',
+          TOKEN_TRANSFER:      'text-emerald-300',
+          CONTRACT_EVENT:      'text-emerald-300',
+          PHASE_EVIDENCE:      'text-sky-400',
+          DEV_SIMULATION_RECORD:    'text-amber-400',
+          TREASURY_ACCOUNTING_RECORD: 'text-slate-400',
+          TERM_POSITION_UPDATE:     'text-slate-400',
+          FINERACT_RECEIPT:    'text-purple-400',
+          CLIENT_SESSION_PREVIEW: 'text-slate-500',
+        };
+        const isOnChainProof = (e: BatchAuditEvent) =>
+          ['ONCHAIN_TRANSACTION', 'TOKEN_TRANSFER', 'CONTRACT_EVENT'].includes(e.eventKind);
+        const isInternalOrDev = (e: BatchAuditEvent) =>
+          ['DEV_SIMULATION_RECORD', 'TREASURY_ACCOUNTING_RECORD', 'TERM_POSITION_UPDATE',
+           'FINERACT_RECEIPT', 'CLIENT_SESSION_PREVIEW', 'PHASE_EVIDENCE'].includes(e.eventKind);
+        const RECON_STATUS_COLOR: Record<string, string> = {
+          pass:    'text-emerald-400',
+          fail:    'text-red-400',
+          missing: 'text-amber-400',
+          warning: 'text-amber-400',
+        };
+        const OVERALL_STATUS_STYLE: Record<string, { color: string; label: string }> = {
+          verified:      { color: 'text-emerald-400', label: 'Verified' },
+          missing_proof: { color: 'text-amber-400',   label: 'Missing Proof' },
+          mismatch:      { color: 'text-red-400',     label: 'Mismatch' },
+          incomplete:    { color: 'text-slate-400',   label: 'Incomplete' },
+        };
+        const explorerBase = process.env.NEXT_PUBLIC_BLOCK_EXPLORER_URL ?? '';
+        const explorerLink = (hash: string | null) =>
+          explorerBase && hash ? `${explorerBase.replace(/\/$/, '')}/tx/${hash}` : null;
+
+        const exportAudit = () => {
+          if (!auditTrail) return;
+          const blob = new Blob([JSON.stringify(auditTrail, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `audit-onchain-${batch.batchId.slice(0, 8)}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+        };
+
+        const onChainEvents = auditTrail?.events.filter(isOnChainProof) ?? [];
+        const moneyMovement = auditTrail?.events.filter(
+          e => ['treasury_to_escrow_transfer', 'escrow_batch_received', 'wallet_funded',
+                 'leg_deployed', 'leg_returned', 'settlement_finalized', 'treasury_return_recorded'].includes(e.movementType)
+        ) ?? [];
+        const internalDevEvents = auditTrail?.events.filter(isInternalOrDev) ?? [];
+
+        const summary = auditTrail?.summary;
+        const overallStyle = summary ? (OVERALL_STATUS_STYLE[summary.overallAuditStatus] ?? OVERALL_STATUS_STYLE.incomplete) : null;
+
+        return (
+          <div className="space-y-4">
+            {/* Header row */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Lock size={16} className="text-slate-400" />
+                <span className="text-sm font-semibold text-slate-200">On-Chain Audit Trail</span>
+                {summary && overallStyle && (
+                  <span className={`data-chip text-[10px] font-bold ${overallStyle.color}`}>
+                    {overallStyle.label}
+                  </span>
+                )}
+                {auditLoading && <span className="text-[10px] text-slate-500 animate-pulse">Loading…</span>}
+              </div>
+              <button type="button" className="text-[11px] text-slate-400 hover:text-slate-200" onClick={exportAudit} disabled={!auditTrail}>
+                Export JSON
+              </button>
+            </div>
+
+            {auditError && (
+              <div className="rounded border border-red-500/30 bg-red-900/20 px-3 py-2 text-xs text-red-400">
+                Audit load error: {auditError}
+              </div>
+            )}
+
+            {/* ── Section 1: Verification Summary ─────────────────────────── */}
+            {summary && (
+              <SectionCard title="Verification Summary" icon={<ShieldCheck size={16} />}>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  {[
+                    { label: 'Status',            value: overallStyle?.label ?? '—', color: overallStyle?.color ?? 'text-slate-400' },
+                    { label: 'Chain Txs Confirmed', value: String(summary.confirmedOnchainTxCount), color: summary.confirmedOnchainTxCount > 0 ? 'text-emerald-400' : 'text-slate-400' },
+                    { label: 'Missing Proof',      value: String(summary.missingProofCount),    color: summary.missingProofCount > 0 ? 'text-red-400' : 'text-emerald-400' },
+                    { label: 'Mismatches',         value: String(summary.mismatchCount),         color: summary.mismatchCount > 0 ? 'text-red-400' : 'text-emerald-400' },
+                    { label: 'Internal / Dev',     value: String(summary.internalRecordCount + summary.simulatedDevCount), color: 'text-slate-400' },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="rounded border border-slate-700/40 bg-slate-800/30 p-2 text-center">
+                      <div className={`text-base font-bold ${color}`}>{value}</div>
+                      <div className="mt-0.5 text-[9px] uppercase tracking-widest text-slate-500">{label}</div>
+                    </div>
+                  ))}
+                </div>
+                {summary.overallAuditStatus === 'mismatch' && (
+                  <div className="mt-3 rounded border border-red-500/30 bg-red-900/10 px-3 py-2 text-xs text-red-400">
+                    Financial mismatch detected. Batch cannot be considered audit-verified.
+                    Check Accounting Reconciliation section below for details.
+                  </div>
+                )}
+                {summary.overallAuditStatus === 'missing_proof' && (
+                  <div className="mt-3 rounded border border-amber-500/30 bg-amber-900/10 px-3 py-2 text-xs text-amber-400">
+                    Expected on-chain transaction proof is missing. See On-chain Transactions below for missing rows.
+                  </div>
+                )}
+              </SectionCard>
+            )}
+
+            {/* ── Section 2: On-chain Transactions ─────────────────────────── */}
+            <SectionCard title="On-chain Transactions" icon={<Database size={16} />}>
+              {auditLoading && <div className="py-4 text-center text-xs text-slate-500 animate-pulse">Loading audit data…</div>}
+              {!auditLoading && onChainEvents.length === 0 && (
+                <div className="py-4 text-center text-xs text-slate-500">
+                  No on-chain transaction proof collected yet.
+                  {!auditTrail && ' Audit trail not loaded — open this tab to fetch.'}
+                </div>
+              )}
+              {onChainEvents.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[900px] text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-700/50 text-left text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                        <th className="pb-2 pr-3">Phase</th>
+                        <th className="pb-2 pr-3">Movement</th>
+                        <th className="pb-2 pr-3">From → To</th>
+                        <th className="pb-2 pr-3">Amount</th>
+                        <th className="pb-2 pr-3">Tx Hash</th>
+                        <th className="pb-2 pr-3">Block</th>
+                        <th className="pb-2 pr-3">Kind</th>
+                        <th className="pb-2">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {onChainEvents.map(e => {
+                        const link = explorerLink(e.txHash);
+                        return (
+                          <tr key={e.id} className={`border-b border-slate-800/40 hover:bg-slate-800/20 ${e.status === 'missing' ? 'bg-red-900/10' : ''}`}>
+                            <td className="py-2 pr-3 text-slate-400">{e.phase != null ? `P${e.phase}` : '—'}</td>
+                            <td className="py-2 pr-3 text-slate-300 font-medium">{e.movementType.replace(/_/g, ' ')}</td>
+                            <td className="py-2 pr-3 font-mono text-[10px] text-slate-500">
+                              {e.fromAddress ? shortHash(e.fromAddress) : '—'}
+                              {(e.fromAddress || e.toAddress) ? ' → ' : ''}
+                              {e.toAddress ? shortHash(e.toAddress) : '—'}
+                            </td>
+                            <td className="py-2 pr-3 text-slate-300">{e.amountDisplay ?? '—'}</td>
+                            <td className="py-2 pr-3 font-mono text-[10px]">
+                              {e.txHash ? (
+                                link
+                                  ? <a href={link} target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:underline flex items-center gap-1">{shortHash(e.txHash)}<ExternalLink size={10}/></a>
+                                  : <span className="text-slate-300">{shortHash(e.txHash)}</span>
+                              ) : (
+                                <span className="text-red-400 italic">missing</span>
+                              )}
+                            </td>
+                            <td className="py-2 pr-3 text-slate-500">{e.blockNumber ?? '—'}</td>
+                            <td className="py-2 pr-3">
+                              <span className={`data-chip text-[9px] ${KIND_CHIP[e.eventKind] ?? 'text-slate-400'}`}>{e.eventKind}</span>
+                            </td>
+                            <td className="py-2">
+                              <span className={`data-chip text-[9px] ${STATUS_COLOR[e.status] ?? 'text-slate-400'}`}>{e.status}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </SectionCard>
+
+            {/* ── Section 3: Money Movement ─────────────────────────────────── */}
+            <SectionCard title="Money Movement" icon={<ArrowRight size={16} />}>
+              {moneyMovement.length === 0 ? (
+                <div className="py-4 text-center text-xs text-slate-500">No money movement events collected.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[700px] text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-700/50 text-left text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                        <th className="pb-2 pr-3">Phase</th>
+                        <th className="pb-2 pr-3">Movement</th>
+                        <th className="pb-2 pr-3">From → To</th>
+                        <th className="pb-2 pr-3">Asset</th>
+                        <th className="pb-2 pr-3">Amount</th>
+                        <th className="pb-2 pr-3">Source Authority</th>
+                        <th className="pb-2">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {moneyMovement.map(e => (
+                        <tr key={e.id} className={`border-b border-slate-800/40 hover:bg-slate-800/20 ${e.status === 'missing' ? 'bg-red-900/10' : ''}`}>
+                          <td className="py-2 pr-3 text-slate-400">{e.phase != null ? `P${e.phase}` : '—'}</td>
+                          <td className="py-2 pr-3 text-slate-300">{e.movementType.replace(/_/g, ' ')}</td>
+                          <td className="py-2 pr-3 font-mono text-[10px] text-slate-500">
+                            {e.fromAddress ? shortHash(e.fromAddress) : '—'}
+                            {(e.fromAddress || e.toAddress) ? ' → ' : ''}
+                            {e.toAddress ? shortHash(e.toAddress) : '—'}
+                          </td>
+                          <td className="py-2 pr-3 text-slate-400">{e.assetSymbol ?? '—'}</td>
+                          <td className="py-2 pr-3 text-slate-300 font-medium">{e.amountDisplay ?? '—'}</td>
+                          <td className="py-2 pr-3">
+                            <span className="data-chip text-[9px] text-slate-400">{e.sourceAuthority}</span>
+                          </td>
+                          <td className="py-2">
+                            <span className={`data-chip text-[9px] ${STATUS_COLOR[e.status] ?? 'text-slate-400'}`}>{e.status}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </SectionCard>
+
+            {/* ── Section 4: Accounting Reconciliation ─────────────────────── */}
+            <SectionCard title="Accounting Reconciliation" icon={<FileCheck size={16} />}>
+              {!auditTrail || auditTrail.reconciliationChecks.length === 0 ? (
+                <div className="py-4 text-center text-xs text-slate-500">No reconciliation checks available.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[800px] text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-700/50 text-left text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                        <th className="pb-2 pr-3">Check</th>
+                        <th className="pb-2 pr-3">Status</th>
+                        <th className="pb-2 pr-3">Expected (Source A)</th>
+                        <th className="pb-2 pr-3">Observed (Source B)</th>
+                        <th className="pb-2 pr-3">Tolerance</th>
+                        <th className="pb-2">Resolution Hint</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditTrail.reconciliationChecks.map(c => (
+                        <tr key={c.checkName} className={`border-b border-slate-800/40 hover:bg-slate-800/20 ${c.status === 'fail' ? 'bg-red-900/10' : c.status === 'missing' ? 'bg-amber-900/10' : ''}`}>
+                          <td className="py-2 pr-3 font-mono text-[10px] text-slate-300">{c.checkName}</td>
+                          <td className="py-2 pr-3">
+                            <span className={`data-chip text-[9px] font-bold ${RECON_STATUS_COLOR[c.status] ?? 'text-slate-400'}`}>
+                              {c.status.toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="py-2 pr-3 text-slate-400">
+                            <div className="font-mono text-[10px]">{c.expected != null ? (Number(c.expected) / 1e6).toFixed(2) : '—'}</div>
+                            <div className="text-[9px] text-slate-600 truncate max-w-[180px]" title={c.sourceA}>{c.sourceA}</div>
+                          </td>
+                          <td className="py-2 pr-3 text-slate-400">
+                            <div className="font-mono text-[10px]">{c.observed != null ? (Number(c.observed) / 1e6).toFixed(2) : '—'}</div>
+                            <div className="text-[9px] text-slate-600 truncate max-w-[180px]" title={c.sourceB}>{c.sourceB}</div>
+                          </td>
+                          <td className="py-2 pr-3 text-slate-500 font-mono text-[10px]">
+                            {c.tolerance != null ? `±${(Number(c.tolerance) / 1e6).toFixed(2)}` : '—'}
+                          </td>
+                          <td className="py-2 text-[10px] text-slate-500 max-w-[200px]">{c.resolutionHint ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </SectionCard>
+
+            {/* ── Section 5: Internal / Dev / Client Records (collapsed) ─────── */}
+            <div>
+              <button
+                type="button"
+                className="flex items-center gap-2 text-xs text-slate-500 hover:text-slate-300 mb-2"
+                onClick={() => setInternalCollapsed(v => !v)}
+              >
+                {internalCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                Internal / Dev / Client Records ({internalDevEvents.length})
+                <span className="data-chip text-[9px] text-slate-500">phase_evidence · dev_simulation · fineract · client_session</span>
+              </button>
+              {!internalCollapsed && (
+                <SectionCard title="" icon={null}>
+                  <div className="mb-2 rounded border border-amber-700/30 bg-amber-900/10 px-3 py-2 text-[10px] text-amber-500">
+                    These records are NOT on-chain proof. Dev simulation records, internal accounting rows,
+                    and client-session events are shown for context only.
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[800px] text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-700/50 text-left text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                          <th className="pb-2 pr-3">Phase</th>
+                          <th className="pb-2 pr-3">Kind</th>
+                          <th className="pb-2 pr-3">Movement</th>
+                          <th className="pb-2 pr-3">Amount</th>
+                          <th className="pb-2 pr-3">Authority</th>
+                          <th className="pb-2 pr-3">Status</th>
+                          <th className="pb-2">Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {internalDevEvents.map(e => (
+                          <tr key={e.id} className="border-b border-slate-800/40 hover:bg-slate-800/20">
+                            <td className="py-2 pr-3 text-slate-500">{e.phase != null ? `P${e.phase}` : '—'}</td>
+                            <td className="py-2 pr-3">
+                              <span className={`data-chip text-[9px] ${KIND_CHIP[e.eventKind] ?? 'text-slate-500'}`}>{e.eventKind}</span>
+                            </td>
+                            <td className="py-2 pr-3 text-slate-400">{e.movementType.replace(/_/g, ' ')}</td>
+                            <td className="py-2 pr-3 text-slate-400">{e.amountDisplay ?? '—'}</td>
+                            <td className="py-2 pr-3">
+                              <span className="data-chip text-[9px] text-slate-500">{e.sourceAuthority}</span>
+                            </td>
+                            <td className="py-2 pr-3">
+                              <span className={`data-chip text-[9px] ${STATUS_COLOR[e.status] ?? 'text-slate-400'}`}>{e.status}</span>
+                            </td>
+                            <td className="py-2 text-[10px] text-slate-500 max-w-[260px] truncate" title={e.notes ?? undefined}>{e.notes ?? '—'}</td>
+                          </tr>
+                        ))}
+                        {internalDevEvents.length === 0 && (
+                          <tr><td colSpan={7} className="py-4 text-center text-slate-500">No internal records.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </SectionCard>
+              )}
+            </div>
+
+            {/* Legacy phase evidence / admin events / client session — preserved below internal section */}
+            {batch.auditTrail.length > 0 && !internalCollapsed && (
+              <SectionCard title="Client Session Events" icon={<Clock3 size={16} />}>
+                <div className="mb-2 rounded border border-slate-700/30 bg-slate-800/20 px-3 py-2 text-[10px] text-slate-500">
+                  CLIENT_SESSION_PREVIEW only — not proof of any on-chain action.
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[700px] text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-700/50 text-left text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                        <th className="pb-2 pr-3">Timestamp</th>
+                        <th className="pb-2 pr-3">Event</th>
+                        <th className="pb-2 pr-3">Actor</th>
+                        <th className="pb-2">Ref</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {batch.auditTrail.map(ev => (
+                        <tr key={ev.eventId} className="border-b border-slate-800/40 hover:bg-slate-800/20 opacity-60">
+                          <td className="py-2 pr-3 whitespace-nowrap text-slate-500">{formatDateTime(ev.timestamp)}</td>
+                          <td className="py-2 pr-3 text-slate-400">{ev.eventType}</td>
+                          <td className="py-2 pr-3 text-slate-500">{ev.actor ?? '—'}</td>
+                          <td className="py-2 font-mono text-[10px] text-slate-600">{shortHash(ev.txHash ?? ev.reference ?? undefined)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </SectionCard>
+            )}
+          </div>
+        );
+      })() : null}
+      </div>{/* tabs */}
     </section>
   );
 }
@@ -4753,11 +5964,11 @@ function blendedYieldBpsFromPlan(plan: AaaTickResponse) {
   const roleByAsset = plan.role_by_asset ?? {};
   const roleYield: Record<string, number> = {
     core: 800, liquidity: 400, satellite: 600, defensive: 300,
-    speculative: 1200, yield_fund: 700, external: 500,
+    speculative: 1200, yield_fund: 700, external: 900,
   };
   return Math.round(
     Object.entries(weights).reduce(
-      (sum, [symbol, weight]) => sum + Number(weight) * (roleYield[roleByAsset[symbol] ?? ''] ?? 500),
+      (sum, [symbol, weight]) => sum + Number(weight) * (roleYield[roleByAsset[symbol] ?? ''] ?? 900),
       0,
     )
   );
@@ -4802,11 +6013,1020 @@ function markHydrationAttempt(state: HydrationAttemptState, bucket: HydrationAtt
   state[bucket].add(key);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Escrow Batch Management Table — row model + pure helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function deriveBatchOrigin(batch: EscrowBatch): 'Vault' | 'Bank' | 'Unknown' {
+  // originBanks is always populated (it mirrors deposit.originBank), so it is NOT a reliable Bank signal.
+  // Only trust adapter type (set by the ingestion layer, not derived) and explicit origin strings.
+  if (batch.deposits.some(d =>
+    d.adapterType === 'fineract' || d.adapterType === 'core_adapter' || d.adapterType === 'fintech_partner'
+  )) return 'Bank';
+  // On-chain bank lots use 'bank-receipt-' / 'bank-lot-' / 'bank-batch-' deposit ID prefixes
+  if (batch.deposits.some(d =>
+    d.depositId?.toLowerCase().startsWith('bank-receipt-') ||
+    d.depositId?.toLowerCase().startsWith('bank-lot-') ||
+    d.depositId?.toLowerCase().startsWith('bank-batch-')
+  )) return 'Bank';
+  if (batch.deposits.some(d =>
+    d.depositId?.toLowerCase().includes('vault') ||
+    d.originBank?.toLowerCase() === 'vault'
+  )) return 'Vault';
+  // Cannot determine origin reliably — do not guess; wrong origin is operationally dangerous
+  return 'Unknown';
+}
+
+interface EscrowBatchManagementRow {
+  batchId: string;
+  sourceBatchId: string;
+  escrowBatchIdShort: string;
+  origin: 'Vault' | 'Bank' | 'Unknown';
+  // wallet: typed source-of-truth field. walletAddress is only non-null when status === 'created_bound'.
+  wallet: {
+    status: 'not_created' | 'predicted' | 'created_bound';
+    address?: string;
+    source: 'phase3_evidence' | 'metadata_predicted' | 'none';
+  };
+  walletAddress: string | null;  // Derived from wallet; null unless Phase 3 evidence confirmed
+  // amount: source-of-truth field for original principal.
+  amount: {
+    value: number;
+    source: 'phase1_evidence' | 'execution_order_fallback';
+    mismatch?: boolean;
+  };
+  originalAmountUsd: number;  // Derived from amount.value
+  termMonths: number;
+  depositSummaries: Array<{
+    depositId: string;
+    originBank: string;
+    adapterType: string;
+    amountUsd: number;
+    bankClientRef?: string;
+    depositAccountRef?: string;
+    status: string;
+    termMonths: number;
+  }>;
+  currentPhase: number;
+  lcStatus: LifecycleRow['status'] | undefined;
+  isSettled: boolean;
+  isBlocked: boolean;
+  isFailed: boolean;
+  settlement: {
+    batchStatus: string;
+    returnedAmountUsd: number | null;
+    pnlUsd: number | null;
+    pnlPct: number | null;
+    settlementTxHash?: string;
+    source: 'phase9_evidence' | 'none';
+  };
+  blockingReason: string | null;
+  nextActionLabel: string | null;
+  deploymentLegs: Array<{
+    legId: string;
+    provider: string;
+    asset: string;
+    deployedUsd: number;
+    currentValueUsd: number | null;
+    settledAmountUsd: number | null;
+    pnlUsd: number | null;
+    pnlPct: number | null;
+    status: string;
+    destinationName?: string;
+    destinationAddress?: string;
+    deploymentTxHash?: string;
+  }>;
+}
+
+// ── Lifecycle evidence hydration ─────────────────────────────────────────────
+// Applies server-authoritative phase evidence onto a local EscrowBatch.
+// Called whenever handoffs or lifecycle evidence changes.
+// Non-destructive: only sets fields when evidence supplies authoritative values.
+function hydrateEscrowBatchFromLifecycleEvidence(
+  batch: EscrowBatch,
+  evidence: Record<number, PhaseEvidenceRow>,
+): EscrowBatch {
+  let h = { ...batch };
+
+  // Phase 2 — authority binding anchored
+  const e2 = evidence[2]?.evidence_json;
+  if (e2 && h.batchAuthorityBinding) {
+    h = {
+      ...h,
+      batchAuthorityBinding: {
+        ...h.batchAuthorityBinding,
+        treasurySignatureStatus: 'signed',
+        escrowSignatureStatus: 'signed',
+        anchorStatus: 'anchored',
+        anchorTxHash: String(e2.txHash ?? h.batchAuthorityBinding.anchorTxHash ?? ''),
+        treasurySignerAddress: String(e2.treasurySignerAddress ?? (h.batchAuthorityBinding as any).treasurySignerAddress ?? ''),
+        escrowSignerAddress: String(e2.escrowSignerAddress ?? (h.batchAuthorityBinding as any).escrowSignerAddress ?? ''),
+      },
+    };
+  }
+
+  // Phase 3 — multisig wallet created and bound on-chain
+  const e3 = evidence[3]?.evidence_json;
+  if (e3) {
+    const walletAddr = String(e3.walletAddress ?? h.wallet.walletAddress ?? h.wallet.address ?? '');
+    h = {
+      ...h,
+      wallet: {
+        ...h.wallet,
+        walletAddress: walletAddr,
+        address: walletAddr,
+        boundAuthorityBindingHash: String(e3.batchAuthorityBindingHash ?? h.wallet.boundAuthorityBindingHash ?? ''),
+        creationTxHash: String(e3.creationTxHash ?? h.wallet.creationTxHash ?? ''),
+        fundingStatus: h.wallet.fundingStatus === 'not_created' ? 'created' : h.wallet.fundingStatus,
+      },
+    };
+  }
+
+  // Phase 4 — wallet funded (only advance; never overwrite 'verified')
+  if (evidence[4] && (h.wallet.fundingStatus === 'not_created' || h.wallet.fundingStatus === 'created')) {
+    h = { ...h, wallet: { ...h.wallet, fundingStatus: 'funded' } };
+  }
+
+  // Phase 5 — AAA allocation computed and anchored on-chain
+  const e5 = evidence[5]?.evidence_json;
+  if (e5) {
+    const attachedAtRaw = e5.attachedAt as number | string | undefined;
+    const attachedAtIso = attachedAtRaw != null
+      ? (typeof attachedAtRaw === 'number'
+        ? new Date((attachedAtRaw as number) * 1000).toISOString()
+        : String(attachedAtRaw))
+      : undefined;
+    h = {
+      ...h,
+      aaaAllocation: {
+        ...h.aaaAllocation,
+        allocationPlanHash: String(e5.allocationPlanHash ?? h.aaaAllocation.allocationPlanHash ?? ''),
+        policyContextHash: String(e5.policyContextHash ?? h.aaaAllocation.policyContextHash ?? ''),
+        portfolioRegistryVersion: String(e5.portfolioRegistryVersion ?? h.aaaAllocation.portfolioRegistryVersion ?? ''),
+        attachedAt: attachedAtIso ?? h.aaaAllocation.attachedAt,
+        attachTxHash: e5.attachTxHash != null ? String(e5.attachTxHash) : h.aaaAllocation.attachTxHash,
+        allocationPlan: (e5.allocationPlanJson as any) ?? h.aaaAllocation.allocationPlan,
+        // 'validated' satisfies hasValidatedAaaAllocation; Phase 5 evidence only exists on success
+        status: 'validated',
+      },
+    };
+  }
+
+  // Phase 6 — destination approvals created
+  const e6 = evidence[6]?.evidence_json;
+  if (e6) {
+    const rawLegApprovals = (e6.legApprovals ?? []) as Array<{
+      legId: string;
+      destinationAddress?: string;
+      amountUsd6?: string | number;
+      approvalStatus?: string;
+    }>;
+    const approvedAtRaw = e6.approvedAt as number | string | undefined;
+    const approvedAtIso = approvedAtRaw != null
+      ? (typeof approvedAtRaw === 'number'
+        ? new Date((approvedAtRaw as number) * 1000).toISOString()
+        : String(approvedAtRaw))
+      : evidence[6].created_at;
+    const destApprovalHash = String(e6.destinationApprovalHash ?? '');
+    const destRegVersion = String(e6.destinationRegistryVersion ?? e5?.portfolioRegistryVersion ?? '');
+    const alloPlanHash = String(e6.allocationPlanHash ?? e5?.allocationPlanHash ?? '');
+    const policyCtxHash = String(e5?.policyContextHash ?? '');
+
+    if (rawLegApprovals.length > 0 && (!h.destinationApprovals || h.destinationApprovals.length === 0)) {
+      h = {
+        ...h,
+        destinationApprovals: rawLegApprovals.map((leg) => ({
+          approvalId: `lc-phase6-${leg.legId}`,
+          batchId: h.batchId,
+          legId: leg.legId,
+          sourceBatchId: h.sourceBatchId ?? h.batchId,
+          escrowBatchId: h.batchId,
+          walletAddress: h.wallet?.walletAddress ?? h.wallet?.address ?? '',
+          assetSymbol: 'USDC',
+          amount: Number(leg.amountUsd6 ?? 0) / 1_000_000,
+          weight: 0,
+          destinationId: leg.legId,
+          destinationName: leg.legId,
+          destinationType: 'liquidity',
+          destinationAddress: String(leg.destinationAddress ?? ''),
+          aaaAllocationHash: alloPlanHash,
+          amountUsd: Number(leg.amountUsd6 ?? 0) / 1_000_000,
+          asset: 'USDC',
+          chain: h.wallet?.chain ?? 'arc_testnet',
+          allocationPlanHash: alloPlanHash,
+          policyContextHash: policyCtxHash,
+          destinationRegistryVersion: destRegVersion,
+          destinationApprovalHash: destApprovalHash,
+          approvalStatus: (leg.approvalStatus === 'approved' ? 'approved' : 'pending') as 'approved' | 'pending',
+          reviewedBy: 'lifecycle-controller',
+          reviewedAt: approvedAtIso,
+          approvedBy: 'lifecycle-controller',
+          approvedAt: approvedAtIso,
+        })),
+      };
+    }
+  }
+
+  // Phase 7 — deployment approved (evidence has hashes; no full payload available here)
+  const e7 = evidence[7]?.evidence_json;
+  if (e7 && h.deploymentApproval.status !== 'approved') {
+    h = {
+      ...h,
+      deploymentApproval: {
+        ...h.deploymentApproval,
+        status: 'approved',
+        deploymentApprovalHash: String(e7.deploymentApprovalHash ?? ''),
+        destinationApprovalHash: String(e7.destinationApprovalHash ?? ''),
+        allocationPlanHash: String(e7.allocationPlanHash ?? ''),
+        policyContextHash: String(e7.policyContextHash ?? ''),
+        destinationRegistryVersion: String(e7.destinationRegistryVersion ?? ''),
+        approvedBy: String(e7.approvedBy ?? 'lifecycle-controller'),
+        approvedAt: String(e7.approvedAt ? new Date(Number(e7.approvedAt) * 1000).toISOString() : evidence[7].created_at),
+      },
+    };
+  }
+
+  // Phase 8 — deployment legs executed
+  const e8 = evidence[8]?.evidence_json;
+  if (e8) {
+    const rawLegs = (e8.legs ?? []) as Array<{
+      legId: string;
+      txHash?: string;
+      destination?: string;
+      amountUsd6?: string | number;
+      executedAt?: number;
+      status?: string;
+    }>;
+
+    // Build a Phase 7 planned-leg lookup so stubs can be hydrated with approved intent
+    const p7PlannedLegsRaw = (e7?.plannedLegs ?? []) as Array<Record<string, unknown>>;
+    const p7ByLegId = new Map(p7PlannedLegsRaw.map(l => [String(l.legId ?? ''), l]));
+
+    // Populate deploymentLegs if empty — Phase 8 evidence confirms execution;
+    // overlay with Phase 7 planned fields when available.
+    if (h.deploymentLegs.length === 0 && rawLegs.length > 0) {
+      h = {
+        ...h,
+        deploymentLegs: rawLegs.map((leg) => {
+          const p7 = p7ByLegId.get(leg.legId);
+          // Phase 7 provider uses AAA role names (core/satellite/liquidity…); batch type
+          // expects a narrower set. Cast is safe: display model overlays Phase 7 anyway.
+          return {
+            legId: leg.legId,
+            provider: ((p7?.provider as string | undefined) ?? 'liquidity') as 'liquidity',
+            asset: (p7?.assetSymbol as string | undefined) ?? 'USDC',
+            strategyType: ((p7?.strategyType as string | undefined) ?? 'liquidity') as 'liquidity',
+            amountUsd: p7?.amountUsd6 != null
+              ? Number(p7.amountUsd6) / 1_000_000
+              : Number(leg.amountUsd6 ?? 0) / 1_000_000,
+            allocationPercent: (p7?.allocationPercent as number | undefined) ?? 0,
+            targetYieldBps: (p7?.targetYieldBps as number | undefined) ?? 0,
+            destinationAddress: (p7?.destinationAddress as string | undefined) ?? String(leg.destination ?? ''),
+            deploymentTxHash: leg.txHash ? String(leg.txHash) : undefined,
+            status: 'executed' as const,
+          };
+        }),
+      };
+    } else if (h.deploymentLegs.length > 0 && rawLegs.length > 0) {
+      // Legs already loaded from DB (status='planned' or 'approved') — update status and
+      // tx hash from Phase 8 evidence without replacing the enriched planned fields.
+      const p8ByLegId = new Map(rawLegs.map(l => [l.legId, l]));
+      h = {
+        ...h,
+        deploymentLegs: h.deploymentLegs.map((leg) => {
+          const p8 = p8ByLegId.get(leg.legId);
+          if (!p8) return leg;
+          return {
+            ...leg,
+            status: (p8.status === 'executed' ? 'executed' : leg.status) as typeof leg.status,
+            deploymentTxHash: p8.txHash ? String(p8.txHash) : leg.deploymentTxHash,
+          };
+        }),
+      };
+    }
+
+    // Add deployment execution with status 'deployed' if none exists yet
+    if (!h.deploymentExecutions?.length) {
+      const execAt = e8.executedAt
+        ? new Date(Number(e8.executedAt) * 1000).toISOString()
+        : evidence[8].created_at;
+      h = {
+        ...h,
+        deploymentExecutions: [{
+          deploymentId: `lc-phase8-${h.sourceBatchId ?? h.batchId}`,
+          batchId: h.batchId,
+          signingRequestId: `lc-phase8-${h.sourceBatchId ?? h.batchId}`,
+          status: 'deployed' as const,
+          executedBy: 'lifecycle-controller',
+          executedAt: execAt,
+          deploymentTxHash: rawLegs[0]?.txHash ? String(rawLegs[0].txHash) : undefined,
+          deploymentLegResults: rawLegs.map((leg) => {
+            const p7 = p7ByLegId.get(leg.legId);
+            return {
+              legId: leg.legId,
+              provider: ((p7?.provider as string | undefined) ?? 'liquidity') as 'liquidity',
+              asset: (p7?.assetSymbol as string | undefined) ?? 'USDC',
+              amountUsd: p7?.amountUsd6 != null
+                ? Number(p7.amountUsd6) / 1_000_000
+                : Number(leg.amountUsd6 ?? 0) / 1_000_000,
+              allocationPercent: (p7?.allocationPercent as number | undefined) ?? 0,
+              targetYieldBps: (p7?.targetYieldBps as number | undefined) ?? 0,
+              status: 'deployed' as const,
+              providerReferenceId: leg.legId,
+              deploymentTxHash: leg.txHash ? String(leg.txHash) : '',
+              deployedAt: leg.executedAt
+                ? new Date(Number(leg.executedAt) * 1000).toISOString()
+                : execAt,
+              destinationAddress: (p7?.destinationAddress as string | undefined) ?? String(leg.destination ?? ''),
+            };
+          }),
+        }],
+      };
+    }
+  }
+
+  // Phase 9 — settlement finalized; mark legs as settled
+  const e9 = evidence[9]?.evidence_json;
+  if (e9) {
+    const legSettlementResults = (e9.legSettlementResults ?? {}) as Record<string, unknown>;
+    const settledLegIds = new Set(Object.keys(legSettlementResults));
+    if (settledLegIds.size > 0 && h.deploymentLegs.length > 0) {
+      h = {
+        ...h,
+        deploymentLegs: h.deploymentLegs.map((leg) =>
+          settledLegIds.has(leg.legId)
+            ? { ...leg, status: 'settled' as const }
+            : leg
+        ),
+      };
+    }
+  }
+
+  return h;
+}
+
+function buildEscrowBatchManagementRow(
+  batch: EscrowBatch,
+  lcRow: LifecycleRow | undefined,
+  evidence: Record<number, PhaseEvidenceRow> = {},
+): EscrowBatchManagementRow {
+  const m = buildEscrowBatchDisplayModel(batch, lcRow, evidence);
+
+  const wallet: EscrowBatchManagementRow['wallet'] = {
+    status: m.walletStatus,
+    address: m.walletAddress ?? m.predictedAddress ?? undefined,
+    source: m.walletSource,
+  };
+
+  const amount: EscrowBatchManagementRow['amount'] = {
+    value: m.principalUsd,
+    source: m.principalSource === 'phase1_evidence' ? 'phase1_evidence' : 'execution_order_fallback',
+  };
+
+  const deploymentLegs = m.deploymentLegs.map(leg => ({
+    legId: leg.legId,
+    provider: leg.provider,
+    asset: leg.asset,
+    deployedUsd: leg.amountUsd,
+    currentValueUsd: leg.currentValueUsd ?? null,
+    settledAmountUsd: leg.settledAmountUsd,
+    pnlUsd: leg.legPnlUsd,
+    pnlPct: leg.legPnlPct,
+    status: leg.status,
+    destinationName: leg.destinationName,
+    destinationAddress: leg.destinationAddress,
+    deploymentTxHash: leg.deploymentTxHash,
+  }));
+
+  let blockingReason: string | null = null;
+  let nextActionLabel: string | null = null;
+  if (!m.isSettled) {
+    if (m.isFailed) {
+      blockingReason = m.blockingReason ?? 'Unknown failure';
+    } else if (m.isBlocked) {
+      blockingReason = m.blockingReason ?? 'Blocked';
+    } else if (m.currentPhase === 0) {
+      nextActionLabel = 'Register Treasury handoff';
+    } else {
+      const nextPhase = Math.min(m.currentPhase + 1, 9);
+      nextActionLabel = PHASE_NAMES[nextPhase] ?? PHASE_NAMES[m.currentPhase] ?? '—';
+    }
+  }
+
+  return {
+    batchId: m.batchId,
+    sourceBatchId: m.sourceBatchId,
+    escrowBatchIdShort: m.escrowBatchIdShort,
+    origin: m.origin,
+    wallet,
+    walletAddress: m.walletAddress,
+    amount,
+    originalAmountUsd: m.principalUsd,
+    termMonths: m.termMonths,
+    depositSummaries: batch.deposits.map(d => ({
+      depositId: d.depositId,
+      originBank: d.originBank,
+      adapterType: d.adapterType,
+      amountUsd: d.amountUsd,
+      bankClientRef: d.bankClientRef,
+      depositAccountRef: d.depositAccountRef,
+      status: d.status,
+      termMonths: d.termMonths,
+    })),
+    currentPhase: m.currentPhase,
+    lcStatus: m.lcStatus ?? undefined,
+    isSettled: m.isSettled,
+    isBlocked: m.isBlocked,
+    isFailed: m.isFailed,
+    settlement: {
+      batchStatus: batch.settlement.status,
+      returnedAmountUsd: m.returnedAmountUsd,
+      pnlUsd: m.pnlUsd,
+      pnlPct: m.pnlPct,
+      settlementTxHash: m.settlementTxHash ?? undefined,
+      source: m.settlementSource === 'none' ? 'none' : 'phase9_evidence',
+    },
+    blockingReason,
+    nextActionLabel,
+    deploymentLegs,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Escrow header stats — pure derivation, unit-testable
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CRITICAL_INTEGRITY_CODES = [
+  'principal_mismatch',
+  'zero_execution_context_hash',
+  'hash_mismatch',
+  'wallet_balance_mismatch',
+  'signer_mismatch',
+  'registry_mismatch',
+  'destination_not_approved',
+  'settlement_overdue',
+  'settlement_impossible',
+];
+
+function buildEscrowHeaderStats(
+  lifecycleBatches: LifecycleRow[],
+  batches: EscrowBatch[],
+  signerConfig: { treasurySignerUrl: string | null; escrowSignerUrl: string | null },
+  escrowContractBalanceUsd: number | null,
+  bankingApiUrl: string | null,
+) {
+  // Lifecycle Health counts — cross-referenced against on-chain batches so stale DB rows
+  // from prior contract deployments don't inflate counts when the chain is clean.
+  const knownLifecycleKeys = new Set(batches.flatMap((batch) => getBatchLifecycleLookupKeys(batch)));
+  const knownLifecycleBatches = lifecycleBatches.filter((lc) =>
+    getLifecycleRowLookupKeys(lc).some((key) => knownLifecycleKeys.has(key))
+  );
+  const lc_active  = knownLifecycleBatches.filter(lc => lc.status === 'active' || lc.status === 'running').length;
+  const lc_blocked = knownLifecycleBatches.filter(lc => lc.status === 'blocked' || lc.status === 'admin_hold').length;
+  const lc_failed  = knownLifecycleBatches.filter(lc => lc.status === 'failed').length;
+  const lc_settled = knownLifecycleBatches.filter(lc => lc.status === 'settled').length;
+
+  // Open Exposure: sum of principal for non-settled batches
+  const settledLifecycleKeys = new Set(
+    knownLifecycleBatches
+      .filter((lc) => lc.status === 'settled')
+      .flatMap((lc) => getLifecycleRowLookupKeys(lc))
+  );
+  const openBatches = batches.filter((batch) =>
+    !getBatchLifecycleLookupKeys(batch).some((key) => settledLifecycleKeys.has(key))
+  );
+  const openExposureUsd = openBatches.reduce((sum, b) => sum + (b.totalAmountUsd ?? 0), 0);
+
+  // Custody Health: expected = escrow-custody batches not yet deployed (phase < 8) and not settled
+  const lcByKey = new Map<string, LifecycleRow>();
+  for (const lc of lifecycleBatches) {
+    for (const key of getLifecycleRowLookupKeys(lc)) {
+      lcByKey.set(key, lc);
+    }
+  }
+  const expectedCustodyUsd = batches.reduce((sum, b) => {
+    if (b.custodyMode !== 'escrow_contract_custody') return sum;
+    const lc = findLifecycleBatchForBatch(lcByKey, b);
+    if (!lc || lc.status === 'settled' || lc.current_phase >= 8) return sum;
+    return sum + (b.totalAmountUsd ?? 0);
+  }, 0);
+
+  const custodyDeltaUsd = escrowContractBalanceUsd !== null
+    ? escrowContractBalanceUsd - expectedCustodyUsd
+    : null;
+  // Surplus = actual > expected (unexplained funds in escrow — warning, not danger).
+  // Deficit  = actual < expected (funds missing from escrow — danger).
+  const custodyHealthLabel: 'Unknown' | 'No Custody Expected' | 'Balanced' | 'Surplus' | 'Deficit' =
+    escrowContractBalanceUsd === null ? 'Unknown' :
+    expectedCustodyUsd === 0 && escrowContractBalanceUsd === 0 ? 'No Custody Expected' :
+    custodyDeltaUsd! > 0.02 ? 'Surplus' :
+    custodyDeltaUsd! < -0.02 ? 'Deficit' :
+    'Balanced';
+
+  // Integrity Checks: blocked/failed batches with recognised critical error codes
+  const criticalBatches = knownLifecycleBatches.filter(lc => {
+    if (lc.status !== 'blocked' && lc.status !== 'failed') return false;
+    return lc.last_error_code
+      ? CRITICAL_INTEGRITY_CODES.some(c => lc.last_error_code!.includes(c))
+      : false;
+  });
+  const criticalCount = criticalBatches.length;
+  const warnCount = knownLifecycleBatches.filter(lc => {
+    if (lc.status !== 'blocked' && lc.status !== 'failed') return false;
+    if (!lc.last_error_code) return true;
+    return !CRITICAL_INTEGRITY_CODES.some(c => lc.last_error_code!.includes(c));
+  }).length;
+  // Short reason string surfaced directly on the card so operator doesn't need to hunt.
+  const uniqueCriticalCodes = [
+    ...new Set(criticalBatches.map(lc => lc.last_error_code).filter(Boolean)),
+  ] as string[];
+  const integrityReason =
+    criticalCount > 0
+      ? uniqueCriticalCodes.length > 0
+        ? uniqueCriticalCodes.slice(0, 2).map(c => c.replace(/_/g, ' ')).join(', ')
+        : `${criticalCount} batch${criticalCount > 1 ? 'es' : ''} failed`
+      : warnCount > 0
+      ? `${warnCount} batch${warnCount > 1 ? 'es' : ''} blocked`
+      : 'All invariants passing';
+
+  // Settlement Health
+  const settlementPending = knownLifecycleBatches.filter(
+    lc => lc.current_phase >= 8 && lc.status !== 'settled'
+  ).length;
+
+  // Authority Health — tracks the three protocol services: Treasury signer, Escrow signer, Banking server.
+  const treasuryOk = Boolean(signerConfig.treasurySignerUrl);
+  const escrowOk   = Boolean(signerConfig.escrowSignerUrl);
+  const bankingOk  = Boolean(bankingApiUrl);
+  const servicesHealthy = (treasuryOk ? 1 : 0) + (escrowOk ? 1 : 0) + (bankingOk ? 1 : 0);
+  const authorityLabel =
+    servicesHealthy === 3 ? '3/3 role signers' : `${servicesHealthy}/3 role signers`;
+
+  return {
+    escrowContractBalanceUsd,
+    expectedCustodyUsd,
+    custodyDeltaUsd,
+    custodyHealthLabel,
+    openExposureUsd,
+    openBatchCount: openBatches.length,
+    lc_active,
+    lc_blocked,
+    lc_failed,
+    lc_settled,
+    criticalCount,
+    warnCount,
+    integrityReason,
+    settledCount: lc_settled,
+    settlementPending,
+    servicesHealthy,
+    authorityLabel,
+    treasuryOk,
+    escrowOk,
+    bankingOk,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Escrow Batch Management Table — inline panel sub-components
+// ─────────────────────────────────────────────────────────────────────────────
+
+function DepositsPanel({
+  deposits,
+  origin,
+}: {
+  deposits: EscrowBatchManagementRow['depositSummaries'];
+  origin: EscrowBatchManagementRow['origin'];
+}) {
+  if (deposits.length === 0) {
+    return <div className="border-t border-slate-800/60 bg-slate-900/40 px-4 pb-3 pt-2 text-xs text-slate-500">Details unavailable</div>;
+  }
+  return (
+    <div className="border-t border-slate-800/60 bg-slate-900/40 px-4 py-3 space-y-2">
+      {deposits.map(d => (
+        <div key={d.depositId} className="rounded-lg border border-slate-700/40 bg-slate-800/30 p-2.5 text-xs">
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {origin === 'Vault' ? (
+              <>
+                <span><span className="text-slate-500">Lot ref:</span> <span className="font-mono text-slate-300">{d.depositId}</span></span>
+                <span><span className="text-slate-500">Amount:</span> <span className="text-slate-200">{fmtUsd(d.amountUsd)}</span></span>
+                <span><span className="text-slate-500">Term:</span> <span className="text-slate-300">{fmtTerm(d.termMonths)}</span></span>
+                <span><span className="text-slate-500">Status:</span> <span className="text-slate-300">{d.status}</span></span>
+                <span className="text-slate-500">Origin: Vault</span>
+              </>
+            ) : (
+              <>
+                {d.depositAccountRef && <span><span className="text-slate-500">Account:</span> <span className="font-mono text-slate-300">{d.depositAccountRef}</span></span>}
+                {d.bankClientRef && <span><span className="text-slate-500">Client ref:</span> <span className="font-mono text-slate-300">{d.bankClientRef}</span></span>}
+                <span><span className="text-slate-500">Bank:</span> <span className="text-slate-300">{d.originBank || '—'}</span></span>
+                <span><span className="text-slate-500">Amount:</span> <span className="text-slate-200">{fmtUsd(d.amountUsd)}</span></span>
+                <span><span className="text-slate-500">Term:</span> <span className="text-slate-300">{fmtTerm(d.termMonths)}</span></span>
+                <span><span className="text-slate-500">Status:</span> <span className="text-slate-300">{d.status}</span></span>
+              </>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PnlPanel({
+  settlement,
+  legs,
+}: {
+  settlement: EscrowBatchManagementRow['settlement'];
+  legs: EscrowBatchManagementRow['deploymentLegs'];
+}) {
+  const hasLegs = legs.length > 0 && legs.some(l => l.deployedUsd > 0);
+  return (
+    <div className="border-t border-slate-800/60 bg-slate-900/40 px-4 py-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Settlement Summary</div>
+        {settlement.source === 'none' && (
+          <span className="text-[9px] text-slate-600 italic">Phase 9 evidence pending</span>
+        )}
+      </div>
+      <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        {settlement.returnedAmountUsd !== null ? (
+          <span><span className="text-slate-500">Returned:</span> <span className="text-slate-200">{fmtUsd(settlement.returnedAmountUsd)}</span></span>
+        ) : (
+          <span className="text-slate-500">Not yet returned</span>
+        )}
+        {settlement.pnlUsd !== null && (
+          <span>
+            <span className="text-slate-500">P&L:</span>{' '}
+            <span className={settlement.pnlUsd >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+              {settlement.pnlUsd >= 0 ? '+' : ''}{fmtUsd(settlement.pnlUsd)}
+              {settlement.pnlPct !== null && ` (${settlement.pnlPct >= 0 ? '+' : ''}${settlement.pnlPct.toFixed(2)}%)`}
+            </span>
+          </span>
+        )}
+      </div>
+      {hasLegs ? (
+        <>
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Deployment Legs</div>
+          {legs.map(leg => (
+            <div key={leg.legId} className="rounded-lg border border-slate-700/40 bg-slate-800/30 p-2.5 text-xs">
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                <span><span className="text-slate-500">Provider:</span> <span className="text-slate-300">{leg.provider}</span></span>
+                <span><span className="text-slate-500">Asset:</span> <span className="text-slate-300">{leg.asset}</span></span>
+                {leg.destinationName
+                  ? <span><span className="text-slate-500">Destination:</span> <span className="text-slate-300">{leg.destinationName}</span></span>
+                  : leg.destinationAddress
+                  ? <span><span className="text-slate-500">Destination:</span> <span className="font-mono text-slate-300">{leg.destinationAddress}</span></span>
+                  : null}
+                {leg.deploymentTxHash && <span><span className="text-slate-500">Tx:</span> <span className="font-mono text-slate-400">{shortHash(leg.deploymentTxHash)}</span></span>}
+                <span><span className="text-slate-500">Deployed:</span> <span className="text-slate-200">{fmtUsd(leg.deployedUsd)}</span></span>
+                {(leg.settledAmountUsd ?? leg.currentValueUsd) !== null
+                  ? <span><span className="text-slate-500">Returned:</span> <span className="text-slate-200">{fmtUsd((leg.settledAmountUsd ?? leg.currentValueUsd)!)}</span></span>
+                  : <span className="text-slate-500">Not yet returned</span>
+                }
+                {leg.pnlUsd !== null && (
+                  <span>
+                    <span className="text-slate-500">P&L:</span>{' '}
+                    <span className={leg.pnlUsd >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                      {leg.pnlUsd >= 0 ? '+' : ''}{fmtUsd(leg.pnlUsd)}
+                      {leg.pnlPct !== null && ` (${leg.pnlPct >= 0 ? '+' : ''}${leg.pnlPct.toFixed(2)}%)`}
+                    </span>
+                  </span>
+                )}
+                <span><span className="text-slate-500">Status:</span> <span className="text-slate-300">{leg.status}</span></span>
+              </div>
+            </div>
+          ))}
+        </>
+      ) : (
+        <div className="text-xs text-slate-500">No deployment leg data available</div>
+      )}
+    </div>
+  );
+}
+
+function BatchManagementRow({
+  row,
+  isSelected,
+  onSelect,
+  explorerUrl,
+}: {
+  row: EscrowBatchManagementRow;
+  isSelected: boolean;
+  onSelect: () => void;
+  explorerUrl: string;
+}) {
+  const [openPanel, setOpenPanel] = useState<'deposits' | 'pnl' | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  function copyText(text: string, field: string) {
+    navigator.clipboard.writeText(text).catch(() => {});
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 1500);
+  }
+
+  function togglePanel(panel: 'deposits' | 'pnl') {
+    setOpenPanel(prev => (prev === panel ? null : panel));
+  }
+
+  const nextPhase = Math.min(row.currentPhase + 1, 9);
+
+  const lcStatusClass =
+    row.lcStatus === 'settled'    ? 'bg-green-900/40 text-green-300' :
+    row.lcStatus === 'running'    ? 'bg-yellow-900/40 text-yellow-300' :
+    row.lcStatus === 'blocked'    ? 'bg-orange-900/40 text-orange-300' :
+    row.lcStatus === 'admin_hold' ? 'bg-purple-900/40 text-purple-300' :
+    row.isFailed                  ? 'bg-red-900/40 text-red-300' :
+                                    'bg-blue-900/40 text-blue-300';
+
+  const originBadgeClass =
+    row.origin === 'Vault'   ? 'bg-purple-900/40 text-purple-300' :
+    row.origin === 'Bank'    ? 'bg-blue-900/40 text-blue-300' :
+                               'bg-slate-800 text-slate-500';
+
+  // Single compact summary line proves settlement at a glance; popover handles leg detail.
+  const settlementSummary = (() => {
+    if (row.isSettled) {
+      const returned = row.settlement.returnedAmountUsd;
+      const pnl      = row.settlement.pnlUsd;
+      if (returned !== null && pnl !== null) {
+        const pnlSign = pnl >= 0 ? '+' : '';
+        const node = (
+          <span>
+            <span className="text-slate-300">{fmtUsd(returned)} returned</span>
+            <span className="text-slate-500"> · </span>
+            {pnl >= 0
+              ? <span className="text-green-400 font-medium">{pnlSign}{fmtUsd(pnl)} P&amp;L</span>
+              : <span className="text-red-400 font-medium">{pnlSign}{fmtUsd(pnl)} P&amp;L</span>}
+          </span>
+        );
+        return { text: `${fmtUsd(returned)} returned · ${pnlSign}${fmtUsd(pnl)} P&L`, node, tone: 'settled' as const };
+      }
+      if (returned !== null) {
+        return { text: `${fmtUsd(returned)} returned`, node: null, tone: 'settled' as const };
+      }
+      return { text: 'Settled · P&L unavailable', node: null, tone: 'settled' as const };
+    }
+    if (row.settlement.batchStatus === 'pending')
+      return { text: 'Settlement pending', node: null, tone: 'pending' as const };
+    if (row.currentPhase >= 8)
+      return { text: 'Waiting external return', node: null, tone: 'pending' as const };
+    return { text: 'Not settled', node: null, tone: 'none' as const };
+  })();
+  const settlementTone =
+    settlementSummary.tone === 'settled' ? 'text-emerald-300' :
+    settlementSummary.tone === 'pending'  ? 'text-yellow-400' :
+    'text-slate-500';
+
+  const depositLabel = (() => {
+    const n = row.depositSummaries.length;
+    if (n === 0) return 'No details';
+    if (row.origin === 'Vault') return n === 1 ? '1 vault lot' : `${n} vault lots`;
+    return n === 1 ? '1 deposit' : `${n} deposits`;
+  })();
+
+  const blockingNext = (() => {
+    if (row.isSettled) return null;
+    if (row.isFailed)  return { prefix: 'Failed',  reason: row.blockingReason, tone: 'failed'  as const };
+    if (row.isBlocked) return { prefix: 'Blocked', reason: row.blockingReason, tone: 'blocked' as const };
+    if (row.nextActionLabel) return { prefix: 'Next', reason: row.nextActionLabel, tone: 'next' as const };
+    return null;
+  })();
+
+  const showPnlTrigger = row.isSettled || row.deploymentLegs.length > 0;
+
+  return (
+    <div>
+      {/* ── Main row ── */}
+      <div
+        className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors hover:bg-slate-800/30 ${
+          isSelected ? 'bg-indigo-950/25 ring-inset ring-1 ring-indigo-700/20' : ''
+        } ${row.isBlocked && !isSelected ? 'bg-orange-950/10' : ''} ${
+          row.isFailed && !isSelected ? 'bg-red-950/10' : ''
+        }`}
+        onClick={onSelect}
+      >
+        {/* Batch: number · origin · short id */}
+        <div className="w-36 shrink-0 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="font-semibold text-sm text-slate-100">
+              {row.sourceBatchId ? `#${row.sourceBatchId}` : '—'}
+            </span>
+            <span className={`inline-flex shrink-0 rounded px-1.5 py-0 text-[9px] font-bold leading-4 ${originBadgeClass}`}>
+              {row.origin}
+            </span>
+          </div>
+          <div className="mt-0.5 flex items-center gap-1">
+            <span className="font-mono text-[10px] text-slate-500 truncate">{row.escrowBatchIdShort}</span>
+            <button
+              type="button"
+              title="Copy batch ID"
+              className="shrink-0 text-slate-600 hover:text-slate-400 transition-colors"
+              onClick={e => { e.stopPropagation(); copyText(row.batchId, 'id'); }}
+            >
+              {copiedField === 'id'
+                ? <CheckCircle2 size={9} className="text-emerald-400" />
+                : <Copy size={9} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Wallet address — source-of-truth gated */}
+        <div className="hidden w-32 shrink-0 md:block">
+          {row.wallet.status === 'created_bound' && row.walletAddress ? (
+            <>
+              <div className="flex items-center gap-1">
+                <span className="font-mono text-[11px] text-slate-300">{shortHash(row.walletAddress)}</span>
+                <button
+                  type="button"
+                  title="Copy wallet address"
+                  className="shrink-0 text-slate-600 hover:text-slate-400 transition-colors"
+                  onClick={e => { e.stopPropagation(); copyText(row.walletAddress!, 'wallet'); }}
+                >
+                  {copiedField === 'wallet'
+                    ? <CheckCircle2 size={9} className="text-emerald-400" />
+                    : <Copy size={9} />}
+                </button>
+                {explorerUrl && (
+                  <a
+                    href={`${explorerUrl}/address/${row.walletAddress}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="View on explorer"
+                    className="shrink-0 text-slate-600 hover:text-slate-400 transition-colors"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <ExternalLink size={9} />
+                  </a>
+                )}
+              </div>
+              <div className="mt-0.5 text-[10px] text-slate-600">{fmtTerm(row.termMonths)} term</div>
+            </>
+          ) : row.wallet.status === 'predicted' ? (
+            // Precomputed/factory address exists but Phase 3 not yet confirmed on-chain.
+            // Show "Predicted" label only — never treat as confirmed wallet state.
+            <div>
+              <span
+                className="text-[11px] text-amber-400/60 cursor-default"
+                title={`Predicted address — not created or bound on-chain.\nAddress: ${row.wallet.address ?? 'unknown'}`}
+              >
+                Predicted
+              </span>
+              <div className="mt-0.5 text-[10px] text-slate-600">{fmtTerm(row.termMonths)} term</div>
+            </div>
+          ) : (
+            <span className="text-[11px] text-slate-500">Not created</span>
+          )}
+        </div>
+
+        {/* Original amount + deposits trigger */}
+        <div className="w-28 shrink-0">
+          <div className="font-mono text-xs text-slate-200">{fmtUsd(row.originalAmountUsd)}</div>
+          <button
+            type="button"
+            className={`mt-0.5 flex items-center gap-0.5 text-[10px] transition-colors hover:text-slate-300 ${
+              openPanel === 'deposits' ? 'text-blue-400' : 'text-slate-500'
+            }`}
+            onClick={e => { e.stopPropagation(); togglePanel('deposits'); }}
+          >
+            {depositLabel}
+            <ChevronDown size={9} className={`transition-transform ${openPanel === 'deposits' ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
+
+        {/* Batch state: phase name + mini bar + lc status */}
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[11px] text-slate-300">
+            {row.isSettled
+              ? <><span className="text-emerald-300 font-medium">Settled</span> <span className="text-slate-500">· Phase {row.currentPhase} complete</span></>
+              : row.currentPhase === 0
+              ? <span className="text-yellow-400">Pending Registration</span>
+              : `Phase ${row.currentPhase} · ${PHASE_NAMES[row.currentPhase] ?? '—'}`}
+          </div>
+          <div className="mt-1 flex items-center gap-px">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(phase => {
+              const done = row.isSettled || phase <= row.currentPhase;
+              const cur  = !row.isSettled && phase === nextPhase;
+              return (
+                <div
+                  key={phase}
+                  title={`Phase ${phase}: ${PHASE_NAMES[phase]}`}
+                  className={`h-1 w-3 rounded-full ${
+                    done ? 'bg-emerald-500' :
+                    cur  ? row.isFailed ? 'bg-red-500' : row.isBlocked ? 'bg-orange-500' : 'bg-blue-500' :
+                    'bg-slate-700'
+                  }`}
+                />
+              );
+            })}
+          </div>
+          {row.lcStatus && (
+            <span className={`mt-1 inline-flex rounded-full px-1.5 py-0 text-[9px] font-semibold leading-4 ${lcStatusClass}`}>
+              {row.lcStatus}
+            </span>
+          )}
+        </div>
+
+        {/* Settlement / P&L */}
+        <div className="hidden w-36 shrink-0 lg:block">
+          <div className={`text-[11px] leading-snug ${settlementTone}`}>{settlementSummary.node ?? settlementSummary.text}</div>
+          {showPnlTrigger && (
+            <button
+              type="button"
+              className={`mt-0.5 flex items-center gap-0.5 text-[10px] transition-colors hover:text-slate-300 ${
+                openPanel === 'pnl' ? 'text-blue-400' : 'text-slate-500'
+              }`}
+              onClick={e => { e.stopPropagation(); togglePanel('pnl'); }}
+            >
+              P&amp;L details
+              <ChevronDown size={9} className={`transition-transform ${openPanel === 'pnl' ? 'rotate-180' : ''}`} />
+            </button>
+          )}
+        </div>
+
+        {/* Blocking / Next */}
+        <div className="hidden w-36 shrink-0 xl:block">
+          {blockingNext ? (
+            <div className="flex items-start gap-1">
+              {(blockingNext.tone === 'failed' || blockingNext.tone === 'blocked') && (
+                <AlertTriangle
+                  size={10}
+                  className={`mt-0.5 shrink-0 ${blockingNext.tone === 'failed' ? 'text-red-400' : 'text-orange-400'}`}
+                />
+              )}
+              <div className="min-w-0">
+                <div className={`text-[10px] font-semibold ${
+                  blockingNext.tone === 'failed'  ? 'text-red-400' :
+                  blockingNext.tone === 'blocked' ? 'text-orange-400' :
+                  'text-slate-500'
+                }`}>
+                  {blockingNext.prefix}:
+                </div>
+                <div className="line-clamp-2 text-[10px] leading-tight text-slate-400">
+                  {blockingNext.reason}
+                </div>
+              </div>
+            </div>
+          ) : row.isSettled ? (
+            <span className="text-[11px] font-medium text-emerald-400">Complete</span>
+          ) : null}
+        </div>
+
+        {/* Actions */}
+        <div className="w-24 shrink-0 flex flex-col items-end gap-1">
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-slate-400 transition-colors hover:bg-slate-700/60 hover:text-slate-200"
+              onClick={e => { e.stopPropagation(); onSelect(); }}
+            >
+              <ArrowRight size={11} />
+              View
+            </button>
+            <button
+              type="button"
+              disabled
+              title="Export audit packet — not yet available"
+              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-slate-600 cursor-not-allowed"
+              onClick={e => e.stopPropagation()}
+            >
+              <FileCheck size={11} />
+              Export
+            </button>
+          </div>
+          {row.isFailed && (
+            <button
+              type="button"
+              disabled
+              title={`Recovery unavailable${row.blockingReason ? ': ' + row.blockingReason : ' — batch evidence invalid'}`}
+              className="inline-flex items-center gap-1 rounded border border-slate-700/50 px-2 py-0.5 text-[10px] text-slate-600 cursor-not-allowed"
+              onClick={e => e.stopPropagation()}
+            >
+              Recover (disabled)
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Inline deposit details panel */}
+      {openPanel === 'deposits' && (
+        <DepositsPanel deposits={row.depositSummaries} origin={row.origin} />
+      )}
+
+      {/* Inline P&L panel */}
+      {openPanel === 'pnl' && (
+        <PnlPanel settlement={row.settlement} legs={row.deploymentLegs} />
+      )}
+    </div>
+  );
+}
+
 export default function EscrowTab() {
   const { selectedChain } = useProtocolChain();
   const [handoffs, setHandoffs] = useState<TreasuryHandoffPackage[]>([]);
   const [batches, setBatches] = useState<EscrowBatch[]>([]);
   const [lifecycleBatches, setLifecycleBatches] = useState<LifecycleRow[]>([]);
+  const [lifecycleEvidenceByBatchId, setLifecycleEvidenceByBatchId] = useState<Map<string, Record<number, PhaseEvidenceRow>>>(new Map());
+  const [selectedBatchEvidence, setSelectedBatchEvidence] = useState<Record<number, PhaseEvidenceRow>>({});
+  const [selectedBatchAllAttempts, setSelectedBatchAllAttempts] = useState<PhaseAttemptRow[]>([]);
+  const [escrowContractBalanceUsd, setEscrowContractBalanceUsd] = useState<number | null>(null);
   const [selectedBatchId, setSelectedBatchId] = useState<string>('');
   const [verifyingFundingBatchId, setVerifyingFundingBatchId] = useState<string>('');
   const [fundingVerificationError, setFundingVerificationError] = useState<string | null>(null);
@@ -4843,9 +7063,41 @@ export default function EscrowTab() {
     allocation: new Set<string>(),
   });
 
+  // ── Batch management table — sort + filter state ──────────────────────────
+  type SortColumn = 'batch' | 'principal' | 'phase' | 'settlement';
+  const [sortCol, setSortCol] = useState<SortColumn | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [filterOrigin, setFilterOrigin] = useState<'' | 'Vault' | 'Bank'>('');
+  const [filterStatus, setFilterStatus] = useState<'' | 'active' | 'blocked' | 'failed' | 'settled'>('');
+  const [institutionNames, setInstitutionNames] = useState<Map<string, string>>(new Map());
+
+  function handleSort(col: SortColumn) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir('asc'); }
+  }
+
+  useEffect(() => {
+    fetchInstitutions().then((list) => {
+      setInstitutionNames(new Map(list.map((i) => [i.institutionId, i.displayName])));
+    }).catch(() => {});
+  }, []);
+
   const selectedBatch = useMemo(
     () => batches.find((batch) => batch.batchId === selectedBatchId) ?? batches[0],
     [batches, selectedBatchId]
+  );
+
+  const lifecycleBatchByKey = useMemo(
+    () => {
+      const next = new Map<string, LifecycleRow>();
+      for (const lc of lifecycleBatches) {
+        for (const key of getLifecycleRowLookupKeys(lc)) {
+          next.set(key, lc);
+        }
+      }
+      return next;
+    },
+    [lifecycleBatches]
   );
 
   useEffect(() => {
@@ -5010,38 +7262,80 @@ export default function EscrowTab() {
     }
   }, [handoffs, selectedChain?.key]);
 
-  // Convert handoffs → EscrowBatch objects for the table.
-  // Merges new handoffs into batches without overwriting existing hydrated state.
+  // Convert handoffs → EscrowBatch objects, then apply lifecycle evidence hydration.
+  // lifecycleEvidenceByBatchId dependency ensures re-hydration when new evidence arrives.
   useEffect(() => {
     if (handoffs.length === 0) return;
     setBatches((current) => {
       const currentById = new Map(current.map((b) => [b.batchId, b]));
-      const next = handoffs.map((handoff) => {
+      return handoffs.map((handoff) => {
         const created = createEscrowBatchFromHandoff(handoff);
         const existing = currentById.get(created.batchId);
-        return existing ?? created;
+        const base = existing ?? created;
+        const evidence = findLifecycleEvidenceForBatch(lifecycleEvidenceByBatchId, base);
+        return evidence && Object.keys(evidence).length > 0
+          ? hydrateEscrowBatchFromLifecycleEvidence(base, evidence)
+          : base;
       });
-      return next;
     });
-  }, [handoffs]);
+  }, [handoffs, lifecycleEvidenceByBatchId]);
 
-  // Load lifecycle batch list from server — drives the MetricCard count.
-  // Polls every 5 s so newly registered batches appear without a full page reload.
+  // Load lifecycle batch list + phase evidence from server.
+  // Polls every 5 s so newly completed phases appear without a full page reload.
   useEffect(() => {
     if (!selectedChain?.key) return;
     let cancelled = false;
     async function loadLifecycleBatches() {
       try {
-        const res = await fetch(`/api/banking/escrow/lifecycle/list?chainKey=${encodeURIComponent(selectedChain.key)}`);
+        const treasuryAddr = getRuntimeAddress('Treasury');
+        const escrowAddr   = getRuntimeAddress('InvestmentEscrow');
+        const qs = new URLSearchParams({ chainKey: selectedChain.key });
+        if (isValidAddress(treasuryAddr)) qs.set('treasuryAddress', treasuryAddr!.toLowerCase());
+        if (isValidAddress(escrowAddr))   qs.set('escrowAddress',   escrowAddr!.toLowerCase());
+        const res = await fetch(`/api/banking/escrow/lifecycle/list?${qs.toString()}`);
         if (!res.ok || cancelled) return;
-        const rows = await res.json();
-        if (!cancelled) setLifecycleBatches(Array.isArray(rows) ? rows : []);
+        const data = await res.json();
+        if (cancelled) return;
+        const items: Array<{ lifecycle: LifecycleRow; evidence: Record<number, PhaseEvidenceRow> }> = Array.isArray(data) ? data : [];
+        const lcRows: LifecycleRow[] = [];
+        const evidenceMap = new Map<string, Record<number, PhaseEvidenceRow>>();
+        for (const item of items) {
+          const lc: LifecycleRow = item.lifecycle ?? (item as unknown as LifecycleRow);
+          const ev: Record<number, PhaseEvidenceRow> = item.evidence ?? {};
+          lcRows.push(lc);
+          for (const key of getLifecycleRowLookupKeys(lc)) {
+            evidenceMap.set(key, ev);
+          }
+        }
+        setLifecycleBatches(lcRows);
+        setLifecycleEvidenceByBatchId(evidenceMap);
       } catch { /* non-fatal */ }
     }
     loadLifecycleBatches();
     const interval = setInterval(loadLifecycleBatches, 5000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [selectedChain?.key]);
+
+  // Read-only: poll ERC20 balance of the InvestmentEscrow contract to drive Custody Health card.
+  useEffect(() => {
+    if (!selectedChain?.rpcUrl) return;
+    const escrowAddress = getRuntimeAddress('InvestmentEscrow');
+    const usdcAddress   = getRuntimeAddress('MockUSDC');
+    if (!isValidAddress(escrowAddress) || !isValidAddress(usdcAddress)) return;
+
+    let cancelled = false;
+    async function fetchEscrowBalance() {
+      try {
+        const provider = new JsonRpcProvider(selectedChain.rpcUrl);
+        const usdc = new Contract(usdcAddress, ERC20_BALANCE_READER_ABI, provider);
+        const raw: bigint = await usdc.balanceOf(escrowAddress);
+        if (!cancelled) setEscrowContractBalanceUsd(Number(formatUnits(raw, 6)));
+      } catch { /* non-fatal — card shows Unknown */ }
+    }
+    fetchEscrowBalance();
+    const interval = setInterval(fetchEscrowBalance, 15_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [selectedChain?.rpcUrl]);
 
   // [REMOVED] Stored allocation plans hydration effect removed. Allocation state now comes
   // from Phase 5 frozen evidence in the lifecycle controller — never from DB-loaded plan stubs.
@@ -5052,13 +7346,36 @@ export default function EscrowTab() {
     }
   }, [batches, selectedBatchId]);
 
+  // Fetch full lifecycle state (including phase evidence) for the selected batch.
+  useEffect(() => {
+    const batch = batches.find((candidate) => candidate.batchId === selectedBatchId);
+    const lcRow = findLifecycleBatchForBatch(lifecycleBatchByKey, batch);
+    const escrowBatchId = lcRow?.escrow_batch_id;
+    if (!escrowBatchId) { setSelectedBatchEvidence({}); setSelectedBatchAllAttempts([]); return; }
+    let cancelled = false;
+    fetch(`/api/banking/escrow/lifecycle?escrowBatchId=${encodeURIComponent(escrowBatchId)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (cancelled) return;
+        if (data?.evidence) setSelectedBatchEvidence(data.evidence as Record<number, PhaseEvidenceRow>);
+        if (data?.allAttempts) setSelectedBatchAllAttempts(data.allAttempts as PhaseAttemptRow[]);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedBatchId, batches, lifecycleBatchByKey]);
+
   useEffect(() => {
     let cancelled = false;
 
     async function loadIncomingTreasuryBatches() {
       try {
-        const response = await fetch(`${bankingUrl('/state')}?chainKey=${encodeURIComponent(selectedChain.key)}`);
+        const [response, institutionList] = await Promise.all([
+          fetch(`${bankingUrl('/state')}?chainKey=${encodeURIComponent(selectedChain.key)}`),
+          fetchInstitutions().catch(() => [] as { institutionId: string; displayName: string }[]),
+        ]);
         if (!response.ok) return;
+        const resolvedInstitutionNames = new Map<string, string>(institutionList.map((i) => [i.institutionId, i.displayName] as [string, string]));
+        setInstitutionNames(resolvedInstitutionNames);
         const payload = await response.json();
         const state = payload.state ?? payload;
         const orders = (state.escrowExecutionOrders ?? payload.escrowExecutionOrders ?? []) as any[];
@@ -5079,7 +7396,7 @@ export default function EscrowTab() {
           return acc;
         }, {} as Record<string, StoredAllocationPlanHydration>);
         const backendDerivedBatches = orders
-          .map((order) => buildIncomingTreasuryBatch(order, termPositions))
+          .map((order) => buildIncomingTreasuryBatch(order, termPositions, resolvedInstitutionNames))
           .filter((batch): batch is TreasuryHandoffPackage => Boolean(batch));
         let onChainTreasuryBatches: TreasuryHandoffPackage[] = [];
         const treasuryAddress = getRuntimeAddress('Treasury');
@@ -5092,12 +7409,14 @@ export default function EscrowTab() {
             escrowAddress,
           }).catch(() => []);
         }
+        const backendByNaturalKey = new Map(
+          backendDerivedBatches
+            .map((batch) => [getHandoffNaturalKey(batch), batch] as const)
+            .filter(([key]) => Boolean(key))
+        );
         const incoming = onChainTreasuryBatches.map((onChainBatch) => {
-          const matchedBackend = backendDerivedBatches.find((batch) =>
-            batch.proposedBatchId === onChainBatch.proposedBatchId ||
-            (batch.sourceBatchId && batch.sourceBatchId === (onChainBatch.sourceBatchId ?? onChainBatch.handoffId)) ||
-            batch.handoffId === onChainBatch.handoffId
-          );
+          const naturalKey = getHandoffNaturalKey(onChainBatch);
+          const matchedBackend = naturalKey ? backendByNaturalKey.get(naturalKey) : undefined;
           return mergeBackendMetadataIntoOnChainBatch(onChainBatch, matchedBackend);
         });
 
@@ -5106,9 +7425,9 @@ export default function EscrowTab() {
         setStoredAllocationPlans(nextStoredAllocationPlans);
 
         setHandoffs((current) => {
-          const currentById = new Map(current.map((batch) => [batch.handoffId || batch.proposedBatchId, batch]));
+          const currentById = new Map(current.map((batch) => [getHandoffLookupKey(batch), batch]));
           const merged = incoming.map((batch) => {
-            const key = batch.handoffId || batch.proposedBatchId;
+            const key = getHandoffLookupKey(batch);
             return { ...currentById.get(key), ...batch };
           });
           return merged;
@@ -5288,7 +7607,6 @@ export default function EscrowTab() {
   useEffect(() => {
     if (executingDeploymentBatchId) return;
     if (!selectedChain?.key || !isLocalExecutionChain(selectedChain.key)) return;
-    if (!areBothSignerServicesConfigured(signerServiceConfig)) return;
 
     for (const batch of batches) {
       if (!canExecuteDeployment(batch)) continue;
@@ -5579,11 +7897,11 @@ export default function EscrowTab() {
               const roleByAss  = (currentPlan as any)?.role_by_asset  ?? {};
               const roleYield: Record<string, number> = {
                 core: 800, liquidity: 400, satellite: 600, defensive: 300,
-                speculative: 1200, yield_fund: 700, external: 500,
+                speculative: 1200, yield_fund: 700, external: 900,
               };
               const blendedYieldBps = Math.round(
                 Object.entries(weights).reduce(
-                  (sum, [sym, w]) => sum + (w as number) * (roleYield[roleByAss[sym] ?? ''] ?? 500),
+                  (sum, [sym, w]) => sum + (w as number) * (roleYield[roleByAss[sym] ?? ''] ?? 900),
                   0,
                 )
               );
@@ -6049,76 +8367,69 @@ export default function EscrowTab() {
     setSigningAuthorityError(null);
     setSigningAuthorityKey(`${binding.bindingId}:${role}`);
 
-    // ── Service path: autonomous signer service reconstructs payload and signs ──
-    const serviceUrl = role === 'treasury' ? signerServiceConfig.treasurySignerUrl : signerServiceConfig.escrowSignerUrl;
-    if (serviceUrl) {
-      const sourceBatchId = binding.canonicalPayload?.sourceBatchId ?? batch.sourceBatchId;
-      if (!sourceBatchId) {
-        setSigningAuthorityError('sourceBatchId is missing from batch — cannot request service signature.');
-        setSigningAuthorityKey('');
-        return;
-      }
-
-      requestSignatureFromService({
-        serviceUrl,
-        sourceBatchId,
-        escrowBatchId: batch.batchId,
-        chainId: selectedChain.chainId,
-        custodyMode: batch.custodyMode ?? 'escrow_contract_custody',
-      })
-        .then((response) => {
-          // Cross-check: service binding hash must match local binding hash.
-          if (response.bindingHash.toLowerCase() !== binding.batchAuthorityBindingHash.toLowerCase()) {
-            throw new Error(
-              `Signer service returned binding hash mismatch. ` +
-              `Service: ${response.bindingHash}, local: ${binding.batchAuthorityBindingHash}. ` +
-              `This may mean contract addresses or batch data have changed since the binding was created.`
-            );
-          }
-
-          const isValidSig = response.recoveredAddress.toLowerCase() === response.signerAddress.toLowerCase();
-          const newStatus = isValidSig ? ('signed' as const) : ('invalid' as const);
-          const bothSigned = newStatus === 'signed' && (
-            role === 'treasury' ? binding.escrowSignatureStatus === 'signed' : binding.treasurySignatureStatus === 'signed'
-          );
-
-          let updatedBinding = { ...binding };
-          if (role === 'treasury') {
-            updatedBinding = {
-              ...updatedBinding,
-              treasurySignature: response.signature,
-              treasurySignerAddress: response.signerAddress,
-              treasuryRecoveredSignerAddress: response.recoveredAddress,
-              treasurySignedAt: response.signedAt,
-              treasurySignatureStatus: newStatus,
-              signatureVerificationStatus: newStatus === 'invalid' ? 'invalid' : bothSigned ? 'verified' : 'unverified',
-            };
-          } else {
-            updatedBinding = {
-              ...updatedBinding,
-              escrowSignature: response.signature,
-              escrowSignerAddress: response.signerAddress,
-              escrowRecoveredSignerAddress: response.recoveredAddress,
-              escrowSignedAt: response.signedAt,
-              escrowSignatureStatus: newStatus,
-              signatureVerificationStatus: newStatus === 'invalid' ? 'invalid' : bothSigned ? 'verified' : 'unverified',
-            };
-          }
-
-          applyAuthoritySignatureToBatch(batch, role, updatedBinding as NonNullable<EscrowBatch['batchAuthorityBinding']>);
-        })
-        .catch((err: unknown) => {
-          const errMessage = String((err as any)?.message ?? err ?? 'Unknown service signing error');
-          setSigningAuthorityError(errMessage);
-          setSigningAuthorityKey('');
-        });
+    const sourceBatchId = binding.canonicalPayload?.sourceBatchId ?? batch.sourceBatchId;
+    if (!sourceBatchId) {
+      setSigningAuthorityError('sourceBatchId is missing from batch — cannot advance the lifecycle.');
+      setSigningAuthorityKey('');
       return;
     }
 
-    // Browser wallet fallback removed. Phase 2 (authority binding anchor) is now handled
-    // server-side by the lifecycle controller. Use the BatchLifecycleCard advance button.
-    setSigningAuthorityError('Authority binding signing is now handled server-side (lifecycle Phase 2). Use the BatchLifecycleCard advance button.');
-    setSigningAuthorityKey('');
+    // Signing and anchoring are both Phase 2, executed server-side. The browser
+    // asks the lifecycle controller to advance; the banking server calls the
+    // signer services with its own credential. See lib/escrow/lifecycleActions.
+    //
+    // `role` no longer selects a service to call — both role signatures are
+    // produced within the one phase — but it is retained so the UI can report
+    // which button the operator pressed.
+    advanceEscrowLifecycleOrThrow({
+      sourceBatchId,
+      escrowBatchId: batch.batchId,
+      chainKey: selectedChain.key,
+    })
+      .then(async () => {
+        // Re-derive from chain. The anchor record carries the recovered signer
+        // addresses, so it — not a response body — is what proves the binding
+        // was signed by the expected role authorities.
+        const onChainAnchor = await readBatchAuthorityAnchorFromChain({
+          escrowAddress: getRuntimeAddress('InvestmentEscrow'),
+          sourceBatchId,
+          rpcUrl: selectedChain.rpcUrl,
+        });
+
+        if (!onChainAnchor || !onChainAnchor.exists) {
+          // Phase 2 may legitimately not have reached the anchor yet.
+          setSigningAuthorityKey('');
+          setSelectedBatchId(batch.batchId);
+          return;
+        }
+
+        if (onChainAnchor.batchAuthorityBindingHash.toLowerCase() !== binding.batchAuthorityBindingHash.toLowerCase()) {
+          throw new Error(
+            `On-chain anchor hash mismatch: local ${binding.batchAuthorityBindingHash} vs on-chain ` +
+            `${onChainAnchor.batchAuthorityBindingHash}. Contract addresses or batch data may have changed ` +
+            'since the binding was created.'
+          );
+        }
+
+        const updatedBinding = {
+          ...binding,
+          treasurySignerAddress: onChainAnchor.treasurySignerAddress,
+          treasuryRecoveredSignerAddress: onChainAnchor.treasurySignerAddress,
+          treasurySignatureStatus: 'signed' as const,
+          treasurySignedAt: onChainAnchor.anchoredAt,
+          escrowSignerAddress: onChainAnchor.escrowSignerAddress,
+          escrowRecoveredSignerAddress: onChainAnchor.escrowSignerAddress,
+          escrowSignatureStatus: 'signed' as const,
+          escrowSignedAt: onChainAnchor.anchoredAt,
+          signatureVerificationStatus: 'verified' as const,
+        };
+
+        applyAuthoritySignatureToBatch(batch, role, updatedBinding as NonNullable<EscrowBatch['batchAuthorityBinding']>);
+      })
+      .catch((err: unknown) => {
+        setSigningAuthorityError(String((err as any)?.message ?? err ?? 'Lifecycle advance failed.'));
+        setSigningAuthorityKey('');
+      });
   };
 
   const anchorBatchForBatch = (batch: EscrowBatch) => {
@@ -6132,37 +8443,57 @@ export default function EscrowTab() {
 
     const escrowAddress = getRuntimeAddress('InvestmentEscrow');
 
-    // ── Service path: escrow signer service reconstructs and submits anchor ──
-    const escrowSignerUrl = signerServiceConfig.escrowSignerUrl;
-    if (escrowSignerUrl && binding.treasurySignature && binding.escrowSignature) {
-      requestAnchorFromService({
-        escrowSignerUrl,
+    // ── Lifecycle path: the banking server signs, anchors, and binds the wallet ──
+    // Phase 2 performs all of it behind an authenticated boundary. Everything
+    // below is re-derived from chain, never from a response body.
+    {
+      advanceEscrowLifecycleOrThrow({
         sourceBatchId,
         escrowBatchId: batch.batchId,
-        treasurySignature: binding.treasurySignature,
-        escrowSignature: binding.escrowSignature,
-        batchAuthorityBindingHash: binding.batchAuthorityBindingHash,
-        custodyMode: batch.custodyMode ?? 'escrow_contract_custody',
+        chainKey: selectedChain.key,
       })
-        .then(async ({ txHash, blockNumber, anchoredAt, wallet: walletResult }) => {
+        .then(async () => {
           const onChainAnchor = await readBatchAuthorityAnchorFromChain({
             escrowAddress,
             sourceBatchId,
             rpcUrl: selectedChain.rpcUrl,
           });
           if (!onChainAnchor || !onChainAnchor.exists) {
-            throw new Error('Anchor transaction succeeded but anchor record not found on-chain. Please refresh.');
+            throw new Error('Lifecycle advanced but no anchor record was found on-chain. Please refresh.');
           }
           const localHash = binding.batchAuthorityBindingHash.toLowerCase();
           const chainHash = onChainAnchor.batchAuthorityBindingHash.toLowerCase();
           if (localHash !== chainHash) {
             throw new Error(`On-chain anchor hash mismatch: local ${localHash} vs on-chain ${chainHash}.`);
           }
+
+          const txHash = '';                       // anchor tx hash lives in Phase 2 evidence
+          const blockNumber = 0;
+          const anchoredAt = onChainAnchor.anchoredAt;
+
           const anchorEventId = `${batch.batchId}-authority-binding-anchored`;
           const walletEventId = `${batch.batchId}-batch-wallet-bound`;
-          const walletBound = walletResult && !walletResult.error && walletResult.walletAddress;
-          const wr = walletBound
-            ? walletResult as { walletAddress: string; creationTxHash: string; bindingTxHash: string; boundAt: string; ownerTreasury: string; ownerEscrow: string; ownerContinuity: string; threshold: number; batchAuthorityBindingHash: string; fundingTxHash?: string; fundingError?: string }
+
+          // Wallet binding comes from the on-chain record the factory wrote.
+          const onChainWallet = await readBatchWalletBindingFromChain({
+            escrowAddress,
+            sourceBatchId,
+            rpcUrl: selectedChain.rpcUrl,
+          }).catch(() => null);
+
+          const wr = onChainWallet?.exists && onChainWallet.walletAddress
+            ? {
+                walletAddress: onChainWallet.walletAddress,
+                creationTxHash: onChainWallet.creationTxHash,
+                bindingTxHash: onChainWallet.creationTxHash,
+                boundAt: onChainWallet.boundAt,
+                ownerTreasury: onChainWallet.ownerTreasury,
+                ownerEscrow: onChainWallet.ownerEscrow,
+                ownerContinuity: onChainWallet.ownerContinuity,
+                threshold: onChainWallet.threshold,
+                batchAuthorityBindingHash: onChainWallet.batchAuthorityBindingHash,
+                fundingTxHash: undefined as string | undefined,
+              }
             : null;
 
           // Verify funding from chain before updating state so we can apply it in one pass.
@@ -6259,71 +8590,6 @@ export default function EscrowTab() {
       return;
     }
 
-    // ── Browser wallet fallback ──
-    anchorBatchAuthorityBindingOnChain({ binding, escrowAddress, sourceBatchId })
-      .then(async ({ txHash, blockNumber, anchoredAt }) => {
-        // Read back from chain — on-chain record is the source of truth.
-        const onChainAnchor = await readBatchAuthorityAnchorFromChain({
-          escrowAddress,
-          sourceBatchId,
-          rpcUrl: selectedChain.rpcUrl,
-        });
-
-        if (!onChainAnchor || !onChainAnchor.exists) {
-          throw new Error('Anchor transaction succeeded but anchor record not found on-chain. Please refresh and try again.');
-        }
-
-        const localHash = binding.batchAuthorityBindingHash.toLowerCase();
-        const chainHash = onChainAnchor.batchAuthorityBindingHash.toLowerCase();
-        if (localHash !== chainHash) {
-          throw new Error(`On-chain anchor hash mismatch: local ${localHash} vs on-chain ${chainHash}.`);
-        }
-
-        const eventId = `${batch.batchId}-authority-binding-anchored`;
-        setBatches((current) =>
-          current.map((item) => {
-            if (item.batchId !== batch.batchId) return item;
-            const b = item.batchAuthorityBinding;
-            if (!b) return item;
-            const hasEvent = item.auditTrail.some((e) => e.eventId === eventId);
-            return {
-              ...item,
-              batchAuthorityBinding: {
-                ...b,
-                anchorStatus: 'anchored',
-                anchorTxHash: txHash,
-                anchorBlockNumber: blockNumber,
-                anchoredAt,
-              },
-              auditTrail: hasEvent ? item.auditTrail : [
-                ...item.auditTrail,
-                {
-                  eventId,
-                  timestamp: anchoredAt,
-                  actor: 'Escrow Operator',
-                  eventType: 'Batch Authority Binding anchored on-chain',
-                  description: `batchAuthorityBindingHash anchored on-chain for sourceBatchId ${sourceBatchId}. Anchor verified by on-chain read. Block: ${blockNumber}.`,
-                  txHash,
-                  reference: binding.batchAuthorityBindingHash,
-                },
-              ],
-            };
-          })
-        );
-        setAnchoringBatchId('');
-        setSelectedBatchId(batch.batchId);
-      })
-      .catch((err: any) => {
-        // Extract revert reason from ethers custom errors and reverts.
-        const reason: string =
-          err?.revert?.name ??
-          err?.reason ??
-          err?.shortMessage ??
-          err?.message ??
-          'Unknown anchor error';
-        setAnchorError(reason);
-        setAnchoringBatchId('');
-      });
   };
 
   const approveDestinationsForBatch = (batch: EscrowBatch) => {
@@ -6428,9 +8694,9 @@ export default function EscrowTab() {
       if (!isLocalExecutionChain(selectedChain.key)) {
         throw new Error('One-leg deployment execution is currently enabled only on the local protocol chain.');
       }
-      if (!areBothSignerServicesConfigured(signerServiceConfig)) {
-        throw new Error('Treasury and Escrow signer services must both be configured for deployment execution.');
-      }
+      // Signer reachability is the banking server's concern now — the browser
+      // never contacts those services. If one is down, the lifecycle advance
+      // returns treasury_signer_service_unreachable with a real explanation.
       if (getFundingValidation(batch).state !== 'verified') {
         throw new Error('Funding is not verified.');
       }
@@ -6486,89 +8752,38 @@ export default function EscrowTab() {
         throw new Error(`Batch wallet USDC balance is insufficient. Need ${legAmount}, have ${formatUnits(walletBalanceBeforeRaw, 6)}.`);
       }
       const amountText = legAmount.toFixed(6);
-      const treasuryResult = await requestTreasuryDeployLegFromService({
-        treasurySignerUrl: signerServiceConfig.treasurySignerUrl!,
+      // ── Lifecycle path: the banking server drives both signer services ──────
+      // Phase 8 submits the multisig transfer as ROLE_TREASURY_VAULT and
+      // confirms it as ROLE_ESCROW. The browser cannot do this itself: it would
+      // need the signer credential, which must never leave the server.
+      await advanceEscrowLifecycleOrThrow({
         sourceBatchId,
         escrowBatchId: batch.batchId,
-        walletAddress,
-        assetSymbol: requestedAssetSymbol,
-        amount: amountText,
-        destinationAddress: approvedDestinationAddress,
-        chainId: Number(selectedChain.chainId ?? 31337),
+        chainKey: selectedChain.key,
       });
-      const escrowResult = await requestEscrowDeployLegConfirmationFromService({
-        escrowSignerUrl: signerServiceConfig.escrowSignerUrl!,
-        sourceBatchId,
-        escrowBatchId: batch.batchId,
-        walletAddress,
-        assetSymbol: requestedAssetSymbol,
-        amount: amountText,
-        destinationAddress: approvedDestinationAddress,
-        txIndex: treasuryResult.txIndex,
-        chainId: Number(selectedChain.chainId ?? 31337),
+
+      // Reconstruct the execution record from chain. Every field the UI used to
+      // take from the signer responses — tx index, tx hashes, signer addresses,
+      // executed-at — is recovered from the multisig's own events.
+      const execution = await rehydrateDeploymentExecutionFromChain({
+        batch,
+        rpcUrl: selectedChain.rpcUrl,
+        escrowAddress,
+        existingExecution: priorExecution,
+        legIdHint: targetLeg.leg.legId,
+        destinationAddressHint: approvedDestinationAddress,
+        amountHint: legAmount,
       });
-      const multisigTxIndex = Number(escrowResult.txIndex);
-      const signerProof = {
-        treasurySignerAddress: treasuryResult.signerAddress,
-        treasurySubmitTxHash: treasuryResult.submitTxHash,
-        treasuryConfirmTxHash: treasuryResult.confirmTxHash,
-        escrowSignerAddress: escrowResult.signerAddress,
-        escrowConfirmTxHash: escrowResult.confirmTxHash,
-      } satisfies Partial<Pick<
-        DeploymentExecutionRecord['deploymentLegResults'][number],
-        'treasurySignerAddress' | 'treasurySubmitTxHash' | 'treasuryConfirmTxHash' | 'escrowSignerAddress' | 'escrowConfirmTxHash'
-      >>;
-      if (treasuryResult.executed || escrowResult.alreadyExecuted) {
-        const existingExecution = await rehydrateDeploymentExecutionFromChain({
-          batch,
-          rpcUrl: selectedChain.rpcUrl,
-          escrowAddress,
-          existingExecution: priorExecution,
-          legIdHint: targetLeg.leg.legId,
-          txIndexHint: multisigTxIndex,
-          destinationAddressHint: approvedDestinationAddress,
-          amountHint: legAmount,
-          signerProof,
-        });
-        if (existingExecution) {
-          await saveDeploymentExecutionToDb(batch.batchId, existingExecution).catch(() => undefined);
-          setBatches((current) =>
-            current.map((item) =>
-              item.batchId === batch.batchId
-                ? applyDeploymentExecutionToBatch(item, existingExecution)
-                : item
-            )
-          );
-          return;
-        }
-      }
-      let deploymentTxHash = String(escrowResult.deploymentTxHash || escrowResult.confirmTxHash || treasuryResult.confirmTxHash || treasuryResult.submitTxHash);
-      if (!deploymentTxHash) {
-        const existingExecution = await rehydrateDeploymentExecutionFromChain({
-          batch,
-          rpcUrl: selectedChain.rpcUrl,
-          escrowAddress,
-          existingExecution: priorExecution,
-          legIdHint: targetLeg.leg.legId,
-          txIndexHint: multisigTxIndex,
-          destinationAddressHint: approvedDestinationAddress,
-          amountHint: legAmount,
-          signerProof,
-        });
-        if (existingExecution?.deploymentTxHash) {
-          await saveDeploymentExecutionToDb(batch.batchId, existingExecution).catch(() => undefined);
-          setBatches((current) =>
-            current.map((item) =>
-              item.batchId === batch.batchId
-                ? applyDeploymentExecutionToBatch(item, existingExecution)
-                : item
-            )
-          );
-          return;
-        }
-        throw new Error('Deployment execution completed without a transaction hash.');
+
+      if (!execution?.deploymentTxHash) {
+        throw new Error(
+          'Lifecycle advanced but no on-chain deployment transaction was found for this leg. ' +
+          'Check the batch lifecycle phase state.'
+        );
       }
 
+      // Independent confirmation that the money actually moved, and by exactly
+      // the approved amount. The lifecycle reporting success is not sufficient.
       const [walletBalanceAfterRaw, destinationBalanceAfterRaw] = await Promise.all([
         usdc.balanceOf(walletAddress),
         usdc.balanceOf(approvedDestinationAddress),
@@ -6581,41 +8796,7 @@ export default function EscrowTab() {
         throw new Error('Destination USDC balance delta does not match the approved leg amount.');
       }
 
-      const executedAt = escrowResult.executedAt || new Date().toISOString();
-      const execution = await saveDeploymentExecutionToDb(
-        batch.batchId,
-        mergeDeploymentExecutionRecord(
-          batch,
-          priorExecution,
-          {
-            legId: targetLeg.leg.legId,
-            provider: targetLeg.leg.provider,
-            asset: requestedAssetSymbol,
-            amountUsd: legAmount,
-            allocationPercent: targetLeg.leg.allocationPercent,
-            targetYieldBps: targetLeg.leg.targetYieldBps,
-            status: 'executed',
-            providerReferenceId: `multisig:${multisigTxIndex}`,
-            deploymentTxHash,
-            deployedAt: executedAt,
-            walletAddress,
-            destinationAddress: approvedDestinationAddress,
-            sourceBalanceBefore: Number(formatUnits(walletBalanceBeforeRaw, 6)),
-            sourceBalanceAfter: Number(formatUnits(walletBalanceAfterRaw, 6)),
-            destinationBalanceBefore: Number(formatUnits(destinationBalanceBeforeRaw, 6)),
-            destinationBalanceAfter: Number(formatUnits(destinationBalanceAfterRaw, 6)),
-            multisigTxIndex,
-            signingSource: 'signer_services',
-            treasurySignerAddress: treasuryResult.signerAddress,
-            treasurySubmitTxHash: treasuryResult.submitTxHash,
-            treasuryConfirmTxHash: treasuryResult.confirmTxHash,
-            escrowSignerAddress: escrowResult.signerAddress,
-            escrowConfirmTxHash: escrowResult.confirmTxHash,
-          },
-          executedAt,
-          deploymentTxHash,
-        ),
-      );
+      await saveDeploymentExecutionToDb(batch.batchId, execution).catch(() => undefined);
 
       setBatches((current) =>
         current.map((item) =>
@@ -6631,19 +8812,49 @@ export default function EscrowTab() {
     }
   };
 
-  const metrics = useMemo(() => {
-    const verifiedRealBatches = batches.filter((batch) =>
-      getFundingValidation(batch).state === 'verified'
-    );
-    return {
-      totalEscrowed: verifiedRealBatches
-        .reduce((sum, batch) => sum + (batch.observedWalletBalanceUsd ?? 0), 0),
-      fundingVerified: verifiedRealBatches.length,
-      walletsFunded: verifiedRealBatches.filter((batch) => batch.custodyMode === 'batch_wallet_custody' && batch.wallet.fundingStatus === 'verified').length,
-      pendingHandoffs: batches.filter((batch) => getFundingValidation(batch).state !== 'verified').length,
-      bindingPending: batches.filter((batch) => batch.batchWalletBinding?.bindingStatus !== 'binding_locked').length,
-    };
-  }, [batches]);
+  const bankingApiUrl = process.env.NEXT_PUBLIC_BANKING_API_URL ?? null;
+  const headerStats = useMemo(
+    () => buildEscrowHeaderStats(lifecycleBatches, batches, signerServiceConfig, escrowContractBalanceUsd, bankingApiUrl),
+    [lifecycleBatches, batches, signerServiceConfig, escrowContractBalanceUsd, bankingApiUrl],
+  );
+
+  const batchManagementRows = useMemo(
+    () => batches.map(b =>
+      buildEscrowBatchManagementRow(
+        b,
+        findLifecycleBatchForBatch(lifecycleBatchByKey, b),
+        findLifecycleEvidenceForBatch(lifecycleEvidenceByBatchId, b),
+      )
+    ),
+    [batches, lifecycleBatchByKey, lifecycleEvidenceByBatchId],
+  );
+
+  const sortedFilteredRows = useMemo(() => {
+    let rows = [...batchManagementRows];
+    // Filter by origin
+    if (filterOrigin) rows = rows.filter(r => r.origin === filterOrigin);
+    // Filter by status
+    if (filterStatus === 'settled') rows = rows.filter(r => r.isSettled);
+    else if (filterStatus === 'active') rows = rows.filter(r => !r.isSettled && !r.isBlocked && !r.isFailed);
+    else if (filterStatus === 'blocked') rows = rows.filter(r => r.isBlocked);
+    else if (filterStatus === 'failed') rows = rows.filter(r => r.isFailed);
+    // Sort
+    if (sortCol) {
+      rows.sort((a, b) => {
+        let cmp = 0;
+        if (sortCol === 'batch') cmp = Number(a.sourceBatchId || 0) - Number(b.sourceBatchId || 0);
+        else if (sortCol === 'principal') cmp = a.originalAmountUsd - b.originalAmountUsd;
+        else if (sortCol === 'phase') cmp = a.currentPhase - b.currentPhase;
+        else if (sortCol === 'settlement') {
+          const aV = a.settlement.returnedAmountUsd ?? -1;
+          const bV = b.settlement.returnedAmountUsd ?? -1;
+          cmp = aV - bV;
+        }
+        return sortDir === 'asc' ? cmp : -cmp;
+      });
+    }
+    return rows;
+  }, [batchManagementRows, sortCol, sortDir, filterOrigin, filterStatus]);
 
   return (
     <div className="tab-screen">
@@ -6660,226 +8871,270 @@ export default function EscrowTab() {
         }
       />
 
+      {/* Primary header row — 4 cards */}
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard title="Batch Containers" value={String(lifecycleBatches.length)} hint="Treasury-sent batches" icon={<Database size={20} />} />
-        <MetricCard title="Funding Verified" value={String(metrics.fundingVerified)} hint="verified custody sources" tone="success" icon={<Landmark size={20} />} />
-        <MetricCard title="Wallets Funded" value={String(metrics.walletsFunded)} hint="batch-wallet custody only" tone="warning" icon={<KeyRound size={20} />} />
-        <MetricCard title="Total Escrowed" value={fmtUsd(metrics.totalEscrowed)} hint="verified real custody" tone="success" icon={<CircleDollarSign size={20} />} />
+        {/* Custody Health: value = status label so the operator reads the verdict immediately */}
+        <MetricCard
+          title="Custody Health"
+          value={headerStats.custodyHealthLabel}
+          hint={
+            headerStats.custodyHealthLabel === 'Unknown'
+              ? 'chain data unavailable'
+              : headerStats.custodyHealthLabel === 'No Custody Expected'
+              ? `${fmtUsd(headerStats.escrowContractBalanceUsd!)} actual / ${fmtUsd(headerStats.expectedCustodyUsd)} expected`
+              : headerStats.custodyHealthLabel === 'Balanced'
+              ? `${fmtUsd(headerStats.escrowContractBalanceUsd!)} actual / ${fmtUsd(headerStats.expectedCustodyUsd)} expected`
+              : headerStats.custodyHealthLabel === 'Surplus'
+              ? `${fmtUsd(headerStats.escrowContractBalanceUsd!)} actual / ${fmtUsd(headerStats.expectedCustodyUsd)} expected · +${fmtUsd(headerStats.custodyDeltaUsd!)} unexplained`
+              : /* Deficit */ `${fmtUsd(headerStats.escrowContractBalanceUsd!)} actual / ${fmtUsd(headerStats.expectedCustodyUsd)} expected · ${fmtUsd(headerStats.custodyDeltaUsd!)} shortage`
+          }
+          tone={
+            headerStats.custodyHealthLabel === 'Deficit' ? 'danger' :
+            headerStats.custodyHealthLabel === 'Surplus' || headerStats.custodyHealthLabel === 'Unknown' ? 'warning' :
+            headerStats.custodyHealthLabel === 'No Custody Expected' ? 'neutral' :
+            'success'
+          }
+          icon={<Lock size={20} />}
+        />
+        {/* Open Exposure: uses "unsettled" to distinguish from lifecycle-active status */}
+        <MetricCard
+          title="Open Exposure"
+          value={fmtUsd(headerStats.openExposureUsd)}
+          hint={
+            headerStats.openBatchCount === 0 ? 'No unsettled batches' :
+            headerStats.openBatchCount === 1 ? '1 unsettled batch' :
+            `${headerStats.openBatchCount} unsettled batches`
+          }
+          tone={headerStats.openExposureUsd > 0 ? 'neutral' : 'success'}
+          icon={<Layers size={20} />}
+        />
+        {/* Lifecycle Health: full breakdown in hint; active = currently running lifecycle phases */}
+        <MetricCard
+          title="Lifecycle Health"
+          value={`${headerStats.lc_active} active`}
+          hint={`${headerStats.lc_blocked} blocked · ${headerStats.lc_failed} failed · ${headerStats.lc_settled} settled`}
+          tone={
+            headerStats.lc_failed > 0 ? 'danger' :
+            headerStats.lc_blocked > 0 ? 'warning' :
+            'success'
+          }
+          icon={<Database size={20} />}
+        />
+        {/* Integrity Checks: short reason visible on the card; no hunting required */}
+        <MetricCard
+          title="Integrity Checks"
+          value={`${headerStats.criticalCount} critical`}
+          hint={headerStats.integrityReason}
+          tone={
+            headerStats.criticalCount > 0 ? 'danger' :
+            headerStats.warnCount > 0 ? 'warning' :
+            'success'
+          }
+          icon={<ShieldCheck size={20} />}
+        />
+      </section>
+
+      {/* Secondary strip — Settlement Health + Authority Health */}
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <MetricCard
+          title="Settlement Health"
+          value={`${headerStats.settledCount} finalized`}
+          hint={
+            headerStats.settlementPending > 0
+              ? `${headerStats.settlementPending} settlement pending`
+              : 'No pending settlement'
+          }
+          tone={headerStats.settlementPending > 0 ? 'warning' : 'success'}
+          icon={<CheckCircle2 size={20} />}
+        />
+        {/* Authority Health: Treasury signer · Escrow signer · Banking server */}
+        <MetricCard
+          title="Authority Health"
+          value={headerStats.authorityLabel}
+          hint={[
+            headerStats.treasuryOk ? 'Treasury' : 'Treasury missing',
+            headerStats.escrowOk   ? 'Escrow'   : 'Escrow missing',
+            headerStats.bankingOk  ? 'Banking'  : 'Banking missing',
+          ].join(' · ')}
+          tone={
+            headerStats.servicesHealthy === 3 ? 'success' :
+            headerStats.servicesHealthy === 0 ? 'danger' :
+            'warning'
+          }
+          icon={<KeyRound size={20} />}
+        />
       </section>
 
       <section className="sagitta-cell">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="section-title !mb-0">Escrow Batch Containers</h3>
-            <p className="mt-1 text-sm text-slate-400">Treasury-sent batches automatically appear here under Escrow control.</p>
+            <h3 className="section-title !mb-0">Escrow Batch Management</h3>
+            <p className="mt-1 text-sm text-slate-400">
+              Origin, wallet, principal, phase, settlement, and blocking state for all Treasury-sent batches. Select a batch to open the lifecycle panel.
+            </p>
           </div>
           <span className="data-chip" data-tone="purple">Batch-Controlled Escrow</span>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1380px] text-sm">
-            <thead>
-              <tr className="border-b border-slate-700/50 text-left text-[10px] uppercase tracking-[0.16em] text-slate-500">
-                <th className="whitespace-nowrap pb-3 pr-4">Batch ID</th>
-                <th className="whitespace-nowrap pb-3 pr-4">Status</th>
-                <th className="whitespace-nowrap pb-3 pr-4">Wallet</th>
-                <th className="whitespace-nowrap pb-3 pr-4 text-right">Deposits</th>
-                <th className="whitespace-nowrap pb-3 pr-4 text-right">Total</th>
-                <th className="whitespace-nowrap pb-3 pr-4 text-right">Term</th>
-                <th className="whitespace-nowrap pb-3 pr-4">Auth</th>
-                <th className="whitespace-nowrap pb-3 pr-4">AAA</th>
-                <th className="whitespace-nowrap pb-3 pr-4">Funding</th>
-                <th className="whitespace-nowrap pb-3 pr-4">Deploy</th>
-                <th className="whitespace-nowrap pb-3 pr-4">Settle</th>
-                <th className="whitespace-nowrap pb-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {batches.length === 0 ? (
-                <tr className="border-b border-slate-800/60">
-                  <td className="py-6 text-center text-sm text-slate-400" colSpan={12}>
-                    No Treasury-sent batch has been registered as an Escrow batch container.
-                  </td>
-                </tr>
-              ) : null}
-              {batches.map((batch) => {
-                const isSelected = batch.batchId === selectedBatch?.batchId;
-                const primaryAction = getPrimaryAction(batch);
-                const fundingValidation = getFundingValidation(batch);
-                const canAdvance = canAdvanceBatch(batch);
-                const isVerifyFundingAction = primaryAction === 'Verify Funding';
-                const isRequestAaaAllocationAction = ['Request AAA Allocation', 'Anchor AAA Allocation'].includes(primaryAction);
-                const isRecoverPlanAction = primaryAction === 'Recover Plan Data';
-                const isApproveDestinationAction = primaryAction === 'Approve Destination';
-                const isApproveDeploymentAction = primaryAction === 'Approve Deployment';
-                const isCreateDeploymentSigningRequestAction = primaryAction === 'Create Deployment Signing Request';
-                const isExecuteDeploymentAction = primaryAction === 'Execute Deployment' || primaryAction === 'Deploy Batch';
-                const compactPrimaryAction = compactPrimaryActionLabel(primaryAction);
-                return (
-                  <tr
-                    key={batch.batchId}
-                    className={`cursor-pointer border-b border-slate-800/60 transition-colors hover:bg-slate-800/30 ${isSelected ? 'bg-[rgba(80,40,160,0.18)]' : ''}`}
-                    onClick={() => setSelectedBatchId(batch.batchId)}
-                  >
-                    <td className="whitespace-nowrap py-1.5 pr-4 font-mono text-xs text-slate-100" title={batch.batchId}>
-                      {compactBatchId(batch.batchId)}
-                    </td>
-                    <td className="whitespace-nowrap py-1.5 pr-4" title={batchStatusLabel(batch)}>
-                      <StatusBadge label={compactBatchStatusLabel(batch)} tone={statusTone(batch)} />
-                    </td>
-                    <td className="whitespace-nowrap py-1.5 pr-4 font-mono text-xs text-slate-300">{shortHash(walletDisplay(batch))}</td>
-                    <td className="whitespace-nowrap py-1.5 pr-4 text-right font-mono text-xs">{batch.deposits.length}</td>
-                    <td className="whitespace-nowrap py-1.5 pr-4 text-right font-mono text-xs">{fmtUsd(batch.totalAmountUsd)}</td>
-                    <td className="whitespace-nowrap py-1.5 pr-4 text-right font-mono text-xs">{batch.termMonths}M</td>
-                    <td className="whitespace-nowrap py-1.5 pr-4">
-                      {batch.batchAuthorityBinding ? (
-                        <div className="flex flex-nowrap items-center gap-1.5">
-                          <EvidencePopover
-                            title="Batch Authority Binding (EIP-712)"
-                            rows={getAuthorityBindingEvidence(batch)}
-                          >
-                            <span className="cursor-pointer font-mono text-xs text-[var(--gold-300)] underline decoration-dotted hover:text-amber-200">
-                              {shortHash(batch.batchAuthorityBinding.batchAuthorityBindingHash)}
-                            </span>
-                          </EvidencePopover>
-                          <EvidencePopover title="Treasury/Vault Signature" rows={getSigBadgeEvidence(batch, 'treasury')}>
-                            <span className="cursor-pointer">
-                              <SigIndicator role="T" status={batch.batchAuthorityBinding.treasurySignatureStatus} />
-                            </span>
-                          </EvidencePopover>
-                          <EvidencePopover title="Escrow Signature" rows={getSigBadgeEvidence(batch, 'escrow')}>
-                            <span className="cursor-pointer">
-                              <SigIndicator role="E" status={batch.batchAuthorityBinding.escrowSignatureStatus} />
-                            </span>
-                          </EvidencePopover>
-                          <span
-                            className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${
-                              batch.batchAuthorityBinding.anchorStatus === 'anchored'
-                                ? 'bg-emerald-900/40 text-emerald-300'
-                                : batch.batchAuthorityBinding.anchorStatus === 'binding_mismatch'
-                                  ? 'bg-rose-900/40 text-rose-300'
-                                  : 'bg-slate-800/60 text-slate-500'
-                            }`}
-                            title={batch.batchAuthorityBinding.anchorTxHash ?? 'Pending on-chain anchor'}
-                          >
-                            <Anchor size={9} />
-                            {batch.batchAuthorityBinding.anchorStatus === 'anchored'
-                              ? 'Anch'
-                              : batch.batchAuthorityBinding.anchorStatus === 'binding_mismatch'
-                                ? 'Mism'
-                                : 'Pend'}
-                          </span>
-                          {batch.batchAuthorityBinding.anchorStatus === 'anchored' && (
-                            <span
-                              className="inline-flex items-center gap-0.5 rounded bg-emerald-900/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-200"
-                              title={`Batch locked. Anchor tx: ${batch.batchAuthorityBinding.anchorTxHash ?? '—'}`}
-                            >
-                              <Lock size={8} /> Locked
-                            </span>
-                          )}
-                          {batch.batchAuthorityBinding.anchorStatus === 'binding_mismatch' && (
-                            <span className="text-[9px] text-rose-400">On-chain mismatch</span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-slate-600">—</span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap py-1.5 pr-4 text-xs" title={titleCase(batch.aaaAllocation.status)}>
-                      {titleCase(batch.aaaAllocation.status)}
-                    </td>
-                    <td className="whitespace-nowrap py-1.5 pr-4 text-xs" title={fundingStatusLabel(batch)}>
-                      {compactFundingStatusLabel(batch)}
-                    </td>
-                    <td className="whitespace-nowrap py-1.5 pr-4 text-xs">{deploymentExecutionLabel(batch)}</td>
-                    <td className="whitespace-nowrap py-1.5 pr-4 text-xs" title={titleCase(batch.settlement.status)}>
-                      {compactSettlementStatusLabel(batch)}
-                    </td>
-                    <td className="whitespace-nowrap py-1.5 text-right">
-                      <button
-                        type="button"
-                        className={`action-button inline-flex min-h-0 items-center gap-2 whitespace-nowrap px-3 py-2 text-xs ${batch.status === 'exception' ? 'action-button--danger' : 'action-button--ghost'}`}
-                        data-can-advance={isVerifyFundingAction || isRequestAaaAllocationAction || isRecoverPlanAction || isApproveDestinationAction || isApproveDeploymentAction || isCreateDeploymentSigningRequestAction || isExecuteDeploymentAction || canAdvance}
-                        title={primaryAction}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          if (isVerifyFundingAction) {
-                            verifyFundingForBatch(batch);
-                          } else if (isRequestAaaAllocationAction) {
-                            setAllocationRequestError('AAA allocation is now handled by the lifecycle controller. Use the lifecycle Advance button for Phase 5.');
-                          } else if (isRecoverPlanAction) {
-                            onRecoverAllocationPlan(batch);
-                          } else if (isApproveDestinationAction) {
-                            approveDestinationsForBatch(batch);
-                          } else if (isApproveDeploymentAction) {
-                            approveDeploymentForBatch(batch);
-                          } else if (isCreateDeploymentSigningRequestAction) {
-                            createDeploymentSigningRequestForBatch(batch);
-                          } else if (isExecuteDeploymentAction) {
-                            executeDeploymentForBatch(batch);
-                          } else {
-                            setSelectedBatchId(batch.batchId);
-                          }
-                        }}
-                      >
-                        {batch.status === 'exception' ? <AlertTriangle size={14} /> : <ArrowRight size={14} />}
-                        {compactPrimaryAction}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        {/* Filter bar */}
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <Filter size={12} className="shrink-0 text-slate-500" />
+
+          {/* Origin filter */}
+          <div className="flex overflow-hidden rounded-lg border border-slate-700/50 bg-slate-900/50 text-[11px]">
+            {(['', 'Vault', 'Bank'] as const).map(v => (
+              <button
+                key={v || 'all-origin'}
+                type="button"
+                className={`px-2.5 py-1 transition-colors ${filterOrigin === v ? 'bg-slate-700 text-slate-100' : 'text-slate-500 hover:text-slate-300'}`}
+                onClick={() => setFilterOrigin(v)}
+              >
+                {v || 'All Origins'}
+              </button>
+            ))}
+          </div>
+
+          {/* Status filter */}
+          <div className="flex overflow-hidden rounded-lg border border-slate-700/50 bg-slate-900/50 text-[11px]">
+            {(['', 'active', 'blocked', 'failed', 'settled'] as const).map(v => (
+              <button
+                key={v || 'all-status'}
+                type="button"
+                className={`px-2.5 py-1 capitalize transition-colors ${filterStatus === v
+                  ? v === 'failed'   ? 'bg-red-900/60 text-red-200'
+                  : v === 'blocked'  ? 'bg-orange-900/60 text-orange-200'
+                  : v === 'settled'  ? 'bg-emerald-900/60 text-emerald-200'
+                  : v === 'active'   ? 'bg-blue-900/60 text-blue-200'
+                  : 'bg-slate-700 text-slate-100'
+                  : 'text-slate-500 hover:text-slate-300'}`}
+                onClick={() => setFilterStatus(v)}
+              >
+                {v || 'All States'}
+              </button>
+            ))}
+          </div>
+
+          {/* Row count */}
+          <span className="ml-1 text-[11px] text-slate-500">
+            {sortedFilteredRows.length}{sortedFilteredRows.length !== batchManagementRows.length && ` of ${batchManagementRows.length}`} batch{sortedFilteredRows.length !== 1 ? 'es' : ''}
+          </span>
+
+          {/* Clear filters */}
+          {(filterOrigin || filterStatus || sortCol) && (
+            <button
+              type="button"
+              className="ml-auto text-[11px] text-slate-500 hover:text-slate-300 transition-colors"
+              onClick={() => { setFilterOrigin(''); setFilterStatus(''); setSortCol(null); }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        <div className="overflow-hidden rounded-xl border border-slate-700/50">
+          {/* Sortable column header */}
+          {(() => {
+            const SortBtn = ({ col, label, className }: { col: SortColumn; label: string; className?: string }) => {
+              const active = sortCol === col;
+              return (
+                <button
+                  type="button"
+                  className={`flex items-center gap-1 uppercase tracking-[0.14em] text-[10px] transition-colors select-none ${active ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300'} ${className ?? ''}`}
+                  onClick={() => handleSort(col)}
+                >
+                  {label}
+                  {active
+                    ? sortDir === 'asc'
+                      ? <ChevronUp size={9} />
+                      : <ChevronDown size={9} />
+                    : <ChevronUp size={9} className="opacity-20" />}
+                </button>
+              );
+            };
+            return (
+              <div className="flex items-center gap-3 border-b border-slate-700/80 bg-slate-900/90 px-4 py-2">
+                <div className="w-36 shrink-0"><SortBtn col="batch" label="Batch · Origin" /></div>
+                <div className="hidden w-32 shrink-0 md:block">
+                  <span className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Wallet</span>
+                </div>
+                <div className="w-28 shrink-0"><SortBtn col="principal" label="Principal · Deposits" /></div>
+                <div className="min-w-0 flex-1"><SortBtn col="phase" label="Batch State" /></div>
+                <div className="hidden w-36 shrink-0 lg:block"><SortBtn col="settlement" label="Settlement · P&L" /></div>
+                <div className="hidden w-36 shrink-0 xl:block">
+                  <span className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Blocking / Next</span>
+                </div>
+                <div className="w-24 shrink-0 text-right">
+                  <span className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Actions</span>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Row list — inline panels expand in place */}
+          <div className="max-h-[520px] divide-y divide-slate-800/60 overflow-y-auto">
+            {batches.length === 0 ? (
+              <div className="py-10 text-center text-sm text-slate-400">
+                No Treasury-sent batch has been registered as an Escrow batch container.
+              </div>
+            ) : sortedFilteredRows.length === 0 ? (
+              <div className="py-8 text-center text-sm text-slate-400">
+                No batches match the current filters.
+                <button
+                  type="button"
+                  className="ml-2 text-blue-400 hover:text-blue-300 transition-colors"
+                  onClick={() => { setFilterOrigin(''); setFilterStatus(''); }}
+                >
+                  Clear filters
+                </button>
+              </div>
+            ) : (
+              sortedFilteredRows.map(row => (
+                <BatchManagementRow
+                  key={row.batchId}
+                  row={row}
+                  isSelected={row.batchId === selectedBatch?.batchId}
+                  onSelect={() => setSelectedBatchId(row.batchId)}
+                  explorerUrl={selectedChain?.explorerUrl ?? ''}
+                />
+              ))
+            )}
+          </div>
         </div>
       </section>
 
-      {selectedBatch?.sourceBatchId && selectedChain?.key && (
-        <BatchLifecycleCard
-          chainKey={selectedChain.key}
-          sourceBatchId={selectedBatch.sourceBatchId}
-        />
-      )}
-
       {selectedBatch ? (
-        <BatchDetail
-          batch={selectedBatch}
-          onVerifyFunding={verifyFundingForBatch}
-          onManualConfirmFunding={applyManualFundingConfirmation}
-          isVerifyingFunding={verifyingFundingBatchId === selectedBatch.batchId}
-          fundingVerificationError={verifyingFundingBatchId === selectedBatch.batchId || selectedBatch.batchId === selectedBatchId ? fundingVerificationError : null}
-          onApproveDestinations={approveDestinationsForBatch}
-          onApproveDeployment={approveDeploymentForBatch}
-          onCreateDeploymentSigningRequest={createDeploymentSigningRequestForBatch}
-          onApproveSigningRequest={approveSigningRequestForBatch}
-          onExecuteDeployment={executeDeploymentForBatch}
-          onSignAuthorityBinding={signAuthorityBindingForBatch}
-          onAnchorBinding={anchorBatchForBatch}
-          isAnchoring={anchoringBatchId === selectedBatch.batchId}
-          anchorError={anchoringBatchId === selectedBatch.batchId || anchoringBatchId === '' ? anchorError : null}
-          onCreateBatchWallet={createBatchWalletForBatch}
-          isCreatingWallet={walletCreatingBatchId === selectedBatch.batchId}
-          walletCreationError={walletCreatingBatchId === selectedBatch.batchId || walletCreatingBatchId === '' ? walletCreationError : null}
-          onSetCustodyMode={setCustodyModeForBatch}
-          signingAuthorityRole={signingAuthorityKey.startsWith(selectedBatch.batchAuthorityBinding?.bindingId ?? '__none__') ? signingAuthorityKey.split(':')[1] : undefined}
-          signingAuthorityError={signingAuthorityKey.startsWith(selectedBatch.batchAuthorityBinding?.bindingId ?? '__none__') || !signingAuthorityKey ? signingAuthorityError : null}
-          onChainRoleAuthorities={onChainRoleAuthorities}
-          onRoleAuthoritiesInitialized={() => setRoleAuthoritiesRefreshTick((t) => t + 1)}
-          signerServicesConfigured={{
-            treasury: isSignerServiceConfigured(signerServiceConfig, 'treasury'),
-            escrow: isSignerServiceConfigured(signerServiceConfig, 'escrow'),
-          }}
-          onRequestAaaAllocation={() => setAllocationRequestError('AAA allocation is now handled server-side by the lifecycle controller (Phase 5). Use the BatchLifecycleCard advance button.')}
-          isRequestingAllocation={requestingAllocationBatchId === selectedBatch.batchId}
-          allocationRequestError={requestingAllocationBatchId === selectedBatch.batchId || requestingAllocationBatchId === '' ? allocationRequestError : null}
-          onRecoverAllocationPlan={onRecoverAllocationPlan}
-          isRecoveringPlan={recoveringPlanBatchId === selectedBatch.batchId}
-          planRecoveryError={recoveringPlanBatchId === selectedBatch.batchId || recoveringPlanBatchId === '' ? planRecoveryError : null}
-          isApprovingDeployment={approvingDeploymentBatchId === selectedBatch.batchId}
-          deploymentApprovalError={approvingDeploymentBatchId === selectedBatch.batchId || approvingDeploymentBatchId === '' ? deploymentApprovalError : null}
-          isExecutingDeployment={executingDeploymentBatchId === selectedBatch.batchId}
-          deploymentExecutionError={executingDeploymentBatchId === selectedBatch.batchId || executingDeploymentBatchId === '' ? deploymentExecutionError : null}
-        />
+        <div>
+          <BatchDetail
+            batch={selectedBatch}
+            evidence={selectedBatchEvidence}
+            allAttempts={selectedBatchAllAttempts}
+            lcRow={findLifecycleBatchForBatch(lifecycleBatchByKey, selectedBatch)}
+            chainKey={selectedChain?.key}
+            sourceBatchId={selectedBatch.sourceBatchId}
+            onVerifyFunding={verifyFundingForBatch}
+            onManualConfirmFunding={applyManualFundingConfirmation}
+            isVerifyingFunding={verifyingFundingBatchId === selectedBatch.batchId}
+            fundingVerificationError={verifyingFundingBatchId === selectedBatch.batchId || selectedBatch.batchId === selectedBatchId ? fundingVerificationError : null}
+            onCreateDeploymentSigningRequest={createDeploymentSigningRequestForBatch}
+            onApproveSigningRequest={approveSigningRequestForBatch}
+            onExecuteDeployment={executeDeploymentForBatch}
+            onSignAuthorityBinding={signAuthorityBindingForBatch}
+            onAnchorBinding={anchorBatchForBatch}
+            isAnchoring={anchoringBatchId === selectedBatch.batchId}
+            anchorError={anchoringBatchId === selectedBatch.batchId || anchoringBatchId === '' ? anchorError : null}
+            onCreateBatchWallet={createBatchWalletForBatch}
+            isCreatingWallet={walletCreatingBatchId === selectedBatch.batchId}
+            walletCreationError={walletCreatingBatchId === selectedBatch.batchId || walletCreatingBatchId === '' ? walletCreationError : null}
+            signingAuthorityRole={signingAuthorityKey.startsWith(selectedBatch.batchAuthorityBinding?.bindingId ?? '__none__') ? signingAuthorityKey.split(':')[1] : undefined}
+            signingAuthorityError={signingAuthorityKey.startsWith(selectedBatch.batchAuthorityBinding?.bindingId ?? '__none__') || !signingAuthorityKey ? signingAuthorityError : null}
+            onChainRoleAuthorities={onChainRoleAuthorities}
+            onRoleAuthoritiesInitialized={() => setRoleAuthoritiesRefreshTick((t) => t + 1)}
+            signerServicesConfigured={{
+              treasury: isSignerServiceConfigured(signerServiceConfig, 'treasury'),
+              escrow: isSignerServiceConfigured(signerServiceConfig, 'escrow'),
+            }}
+          />
+        </div>
       ) : (
         <section className="sagitta-cell">
           <div className="text-sm text-slate-400">

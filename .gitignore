@@ -20,3 +20,5 @@ deployments.json
 # addresses.ts is a stable committed selector; only the per-network variants are gitignored.
 frontend/src/lib/addresses.local.ts
 src/lib/addresses.local.ts
+docs/
+*.md

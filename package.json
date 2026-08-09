@@ -14,14 +14,16 @@
     "deploy:arc": "hardhat run scripts/deploy.ts --network arc",
     "ff:year": "hardhat run scripts/fastForward.ts --network localhost",
     "ff:days": "hardhat run scripts/fastForward.ts --network localhost",
-    "demo": "concurrently -k -n NODE,DEPLOY,T-SIGN,E-SIGN,W-FACT,WEB -c blue,magenta,cyan,yellow,white,green \"hardhat node\" \"sleep 2 && hardhat run scripts/deploy.ts --network localhost\" \"sleep 14 && cd services/signer-treasury && npm run dev\" \"sleep 14 && cd services/signer-escrow && npm run dev\" \"sleep 14 && cd services/wallet-factory && npm run dev\" \"sleep 14 && pnpm --dir frontend dev\"",
+    "demo": "node scripts/demo.js",
     "prepare": "npm run compile",
     "dev": "npm run compile && cd frontend && npm run dev",
+    "migrate": "cd server && npm run migrate",
     "server": "cd server && npm run dev",
     "server:install": "cd server && npm install",
     "debugVaultDeposit": "ts-node scripts/debugVaultDeposit.ts",
     "init-roles": "node scripts/init-role-authorities.mjs",
-    "sync-signers": "node scripts/sync-signer-addresses.mjs"
+    "sync-signers": "node scripts/sync-signer-addresses.mjs",
+    "preflight:local": "node scripts/preflight.mjs"
   },
   "keywords": [],
   "author": "",

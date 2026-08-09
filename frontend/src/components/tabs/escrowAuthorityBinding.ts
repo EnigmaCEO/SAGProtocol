@@ -180,7 +180,12 @@ export function createBatchAuthorityBindingPayload(
   addressMatrix: DAOSystemAddressMatrix
 ): BatchAuthorityBindingCanonicalPayload {
   const custodyMode = handoff.custodyMode ?? 'batch_wallet_custody';
-  const custodyLocation = handoff.sourceContract ?? handoff.batchWalletAddress ?? addressMatrix.activeEscrowAddress;
+  // Never use the predicted wallet address as custodyLocation — it is factory-computed before
+  // deployment and may differ from the real deployed address. The authority binding must be
+  // stable for the entire batch lifecycle, so custodyLocation anchors to the escrow contract
+  // (for escrow_contract_custody) or the active escrow address (for batch_wallet_custody)
+  // until the wallet is confirmed. The wallet binding records the confirmed wallet separately.
+  const custodyLocation = handoff.sourceContract ?? addressMatrix.activeEscrowAddress;
   const sourceBatchId = handoff.sourceBatchId;
   if (!sourceBatchId) {
     throw new Error(
@@ -403,18 +408,23 @@ export function getBatchAuthorityBindingValidation(batch: EscrowBatch, liveChain
 
   const storedPayload = binding.canonicalPayload;
 
-  // Use liveChainId if provided, else fall back to the active deployment's chain ID
-  const resolvedLiveChainId = liveChainId ?? getActiveDeployment().chainId;
-  const liveMatrix = getDAOSystemAddressMatrix(resolvedLiveChainId);
+  // Live chain/address matrix checks are only meaningful once the wallet is funded on-chain.
+  // 'created' means Treasury assigned an address (may be factory-predicted, not yet deployed) —
+  // running live checks before that produces false mismatches against a non-existent wallet.
+  const walletConfirmed =
+    batch.wallet.fundingStatus === 'funded' || batch.wallet.fundingStatus === 'verified';
+  let resolvedLiveChainId: number | undefined;
+  if (walletConfirmed) {
+    resolvedLiveChainId = liveChainId ?? getActiveDeployment().chainId;
+    const liveMatrix = getDAOSystemAddressMatrix(resolvedLiveChainId);
 
-  // Chain ID must match the live provider
-  if (resolvedLiveChainId !== storedPayload.chainId) mismatchedFields.push('chainId');
-
-  if (liveMatrix.activeTreasuryAddress !== storedPayload.activeTreasuryAddress) mismatchedFields.push('activeTreasuryAddress');
-  if (liveMatrix.activeVaultAddress !== storedPayload.activeVaultAddress) mismatchedFields.push('activeVaultAddress');
-  if (liveMatrix.activeEscrowAddress !== storedPayload.activeEscrowAddress) mismatchedFields.push('activeEscrowAddress');
-  if (liveMatrix.daoSystemRegistryVersion !== storedPayload.daoSystemRegistryVersion) mismatchedFields.push('daoSystemRegistryVersion');
-  if (liveMatrix.systemMapHash !== storedPayload.systemMapHash) mismatchedFields.push('systemMapHash');
+    if (resolvedLiveChainId !== storedPayload.chainId) mismatchedFields.push('chainId');
+    if (liveMatrix.activeTreasuryAddress !== storedPayload.activeTreasuryAddress) mismatchedFields.push('activeTreasuryAddress');
+    if (liveMatrix.activeVaultAddress !== storedPayload.activeVaultAddress) mismatchedFields.push('activeVaultAddress');
+    if (liveMatrix.activeEscrowAddress !== storedPayload.activeEscrowAddress) mismatchedFields.push('activeEscrowAddress');
+    if (liveMatrix.daoSystemRegistryVersion !== storedPayload.daoSystemRegistryVersion) mismatchedFields.push('daoSystemRegistryVersion');
+    if (liveMatrix.systemMapHash !== storedPayload.systemMapHash) mismatchedFields.push('systemMapHash');
+  }
 
   if (batch.batchId !== storedPayload.escrowBatchId) mismatchedFields.push('escrowBatchId');
   if (batch.totalAmountUsd !== storedPayload.totalAmountUsd) mismatchedFields.push('totalAmountUsd');
@@ -432,7 +442,7 @@ export function getBatchAuthorityBindingValidation(batch: EscrowBatch, liveChain
       label: 'Authority Binding Mismatch',
       recomputedHash,
       blockingReason: chainIdMismatch
-        ? `Authority binding chainId mismatch: binding has ${storedPayload.chainId}, live provider is ${resolvedLiveChainId}.`
+        ? `Authority binding chainId mismatch: binding has ${storedPayload.chainId}, live provider is ${resolvedLiveChainId ?? 'unknown'}.`
         : `Authority binding invariant mismatch detected for: ${mismatchedFields.join(', ')}.`,
       mismatchedFields,
     };
@@ -440,7 +450,7 @@ export function getBatchAuthorityBindingValidation(batch: EscrowBatch, liveChain
 
   return {
     state: 'valid',
-    label: 'Authority Binding Valid',
+    label: walletConfirmed ? 'Authority Binding Valid' : 'Authority Binding Locked',
     recomputedHash,
     blockingReason: null,
     mismatchedFields: [],
@@ -768,7 +778,16 @@ export function applyOnChainAnchorToBatch(
   const chainHash = onChainAnchor.batchAuthorityBindingHash.toLowerCase();
   const isMatch = localHash === chainHash;
 
-  const anchorStatus = isMatch ? 'anchored' as const : 'binding_mismatch' as const;
+  // Only mark 'binding_mismatch' when the binding is fully signed. An unsigned binding was
+  // never legitimately anchored by this batch — any hash found on-chain belongs to a previous
+  // session that reused the same sourceBatchId (common in dev). Marking it as a mismatch
+  // would be a false positive that blocks an otherwise healthy batch.
+  const signed = isBatchAuthorityFullySigned(binding);
+  const anchorStatus = isMatch
+    ? 'anchored' as const
+    : signed
+      ? 'binding_mismatch' as const
+      : 'pending_onchain_anchor' as const;
   const anchoredAt = onChainAnchor.anchoredAt;
   const eventId = `${batch.batchId}-authority-binding-${anchorStatus}`;
   const hasEvent = batch.auditTrail.some((e) => e.eventId === eventId);
@@ -815,8 +834,8 @@ export function createAuthorityBindingAuditEvent(
     eventId: `${batchId}-authority-binding-created`,
     timestamp: binding.createdAt,
     actor: 'Escrow Service',
-    eventType: 'Batch authority binding hash created',
-    description: `EIP-712 Batch Authority Binding hash created and locked for chain ${binding.canonicalPayload.chainId} (${binding.networkLabel}): active Treasury, Vault, Escrow addresses, DAO system map hash, source batch, custody mode, amount, asset, term, and manifest hashes form the canonical typed payload.`,
+    eventType: 'Precomputed authority payload preview',
+    description: `EIP-712 authority payload precomputed for chain ${binding.canonicalPayload.chainId} (${binding.networkLabel}) — candidate metadata only, not a Phase 2 confirmed authority binding anchor.`,
     reference: binding.batchAuthorityBindingHash,
   };
 }

@@ -1,0 +1,861 @@
+{
+  "epochId": "0x22bebc95bf37cf4a6fa5b0ea9c0dfd850593afdcdeefa2fdf79e389ee56a69bf",
+  "checkedAt": "2026-06-15T06:56:55.099Z",
+  "chainId": 1337,
+  "rpcUrl": "http://localhost:8545",
+  "checks": [
+    {
+      "severity": "PASS",
+      "component": "Node",
+      "name": "rpc_reachable",
+      "expected": "http://localhost:8545 (block 81)",
+      "observed": "http://localhost:8545 (block 81)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Node",
+      "name": "chain_id_match",
+      "expected": "1337",
+      "observed": "1337",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Treasury",
+      "name": "Treasury_code_deployed",
+      "expected": "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6 (23253 bytes)",
+      "observed": "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6 (23253 bytes)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Treasury",
+      "name": "Treasury_sel_28e27ca2",
+      "expected": "registerBankOriginLot(bytes32,uint256,uint64)",
+      "observed": "registerBankOriginLot(bytes32,uint256,uint64)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Treasury",
+      "name": "Treasury_sel_6259b252",
+      "expected": "createAndFundBatch(uint8,uint256[],uint64,uint64,bytes32)",
+      "observed": "createAndFundBatch(uint8,uint256[],uint64,uint64,bytes32)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Treasury",
+      "name": "Treasury_sel_79a722f0",
+      "expected": "getTreasuryBatch(uint256)",
+      "observed": "getTreasuryBatch(uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Treasury",
+      "name": "Treasury_sel_da5dfbd1",
+      "expected": "originLots(uint256)",
+      "observed": "originLots(uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Treasury",
+      "name": "Treasury_sel_541e5e37",
+      "expected": "adminReportBatchSettled(uint256,uint256,uint256)",
+      "observed": "adminReportBatchSettled(uint256,uint256,uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Treasury",
+      "name": "Treasury_sel_5e3343cd",
+      "expected": "rollIfDue()",
+      "observed": "rollIfDue()",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "MockUSDC",
+      "name": "MockUSDC_code_deployed",
+      "expected": "0x5FbDB2315678afecb367f032d93F642f64180aa3 (1990 bytes)",
+      "observed": "0x5FbDB2315678afecb367f032d93F642f64180aa3 (1990 bytes)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "MockUSDC",
+      "name": "MockUSDC_sel_40c10f19",
+      "expected": "mint(address,uint256)",
+      "observed": "mint(address,uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "MockUSDC",
+      "name": "MockUSDC_sel_9dc29fac",
+      "expected": "burn(address,uint256)",
+      "observed": "burn(address,uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "MockUSDC",
+      "name": "MockUSDC_sel_a9059cbb",
+      "expected": "transfer(address,uint256)",
+      "observed": "transfer(address,uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "MockUSDC",
+      "name": "MockUSDC_sel_23b872dd",
+      "expected": "transferFrom(address,address,uint256)",
+      "observed": "transferFrom(address,address,uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "MockUSDC",
+      "name": "MockUSDC_sel_70a08231",
+      "expected": "balanceOf(address)",
+      "observed": "balanceOf(address)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "MockUSDC",
+      "name": "MockUSDC_sel_095ea7b3",
+      "expected": "approve(address,uint256)",
+      "observed": "approve(address,uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_code_deployed",
+      "expected": "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e (28324 bytes)",
+      "observed": "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e (28324 bytes)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_9d4e8f23",
+      "expected": "finalizePreFundedBatch(uint256,uint256)",
+      "observed": "finalizePreFundedBatch(uint256,uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_802ec2b2",
+      "expected": "depositReturnForBatch(uint256,uint256)",
+      "observed": "depositReturnForBatch(uint256,uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_345c6e7f",
+      "expected": "anchorBatchAuthorityBinding(uint256,bytes32,bytes32,bytes32,address,address,bytes,bytes)",
+      "observed": "anchorBatchAuthorityBinding(uint256,bytes32,bytes32,bytes32,address,address,bytes,bytes)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_7f097266",
+      "expected": "getBatchWalletBinding(uint256)",
+      "observed": "getBatchWalletBinding(uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_d6bda9c2",
+      "expected": "getBatchAuthorityAnchor(uint256)",
+      "observed": "getBatchAuthorityAnchor(uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_08228b8a",
+      "expected": "finalizeBatchSettlement(uint256,bytes32,bytes32)",
+      "observed": "finalizeBatchSettlement(uint256,bytes32,bytes32)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_fe9d092c",
+      "expected": "getBatchSettlement(uint256)",
+      "observed": "getBatchSettlement(uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_5b24e10e",
+      "expected": "attachAllocation(uint256,bytes32,bytes32,string)",
+      "observed": "attachAllocation(uint256,bytes32,bytes32,string)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_c464e0bc",
+      "expected": "getAllocationAttachment(uint256)",
+      "observed": "getAllocationAttachment(uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_b9b03377",
+      "expected": "getBatchAccounting(uint256)",
+      "observed": "getBatchAccounting(uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_12ec0b3d",
+      "expected": "escrowBatchPositions(uint256)",
+      "observed": "escrowBatchPositions(uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_79b1ca84",
+      "expected": "getRoleAuthority(uint8)",
+      "observed": "getRoleAuthority(uint8)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_c74a38a7",
+      "expected": "setRoleAuthority(uint8,address,uint8)",
+      "observed": "setRoleAuthority(uint8,address,uint8)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_aced1661",
+      "expected": "keeper()",
+      "observed": "keeper()",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_3e413bee",
+      "expected": "usdc()",
+      "observed": "usdc()",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Vault",
+      "name": "Vault_code_deployed",
+      "expected": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0 (15635 bytes)",
+      "observed": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0 (15635 bytes)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Roles",
+      "name": "escrow_owner",
+      "expected": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+      "observed": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Roles",
+      "name": "role_treasury_vault",
+      "expected": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+      "observed": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Roles",
+      "name": "role_escrow",
+      "expected": "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
+      "observed": "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Services",
+      "name": "signer_treasury_healthy",
+      "expected": "http://localhost:4001 (role: treasury, signer: 0x70997970c51812dc3a010c7d01b50e0d17dc79c8)",
+      "observed": "http://localhost:4001 (role: treasury, signer: 0x70997970c51812dc3a010c7d01b50e0d17dc79c8)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Services",
+      "name": "signer_escrow_healthy",
+      "expected": "http://localhost:4002 (role: escrow, signer: 0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc)",
+      "observed": "http://localhost:4002 (role: escrow, signer: 0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Services",
+      "name": "wallet_factory_healthy",
+      "expected": "http://localhost:4003 (role: ?, signer: n/a)",
+      "observed": "http://localhost:4003 (role: ?, signer: n/a)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "db_connected",
+      "expected": "postgresql://sagitta:***@127.0.0.1:5432/sagitta_banking",
+      "observed": "postgresql://sagitta:***@127.0.0.1:5432/sagitta_banking",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "table_term_positions",
+      "expected": "term_positions",
+      "observed": "term_positions",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "table_escrow_batch_lifecycle",
+      "expected": "escrow_batch_lifecycle",
+      "observed": "escrow_batch_lifecycle",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "table_escrow_batch_phase_evidence",
+      "expected": "escrow_batch_phase_evidence",
+      "observed": "escrow_batch_phase_evidence",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "table_escrow_dev_leg_positions",
+      "expected": "escrow_dev_leg_positions",
+      "observed": "escrow_dev_leg_positions",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "table_circle_transfers",
+      "expected": "circle_transfers",
+      "observed": "circle_transfers",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "table_escrow_execution_orders",
+      "expected": "escrow_execution_orders",
+      "observed": "escrow_execution_orders",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "table_protocol_sync_events",
+      "expected": "protocol_sync_events",
+      "observed": "protocol_sync_events",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "table_escrow_banking_reconciliation",
+      "expected": "escrow_banking_reconciliation",
+      "observed": "escrow_banking_reconciliation",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "migration_021",
+      "expected": "escrow_dev_leg_positions.return_tx_hash",
+      "observed": "escrow_dev_leg_positions.return_tx_hash",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "migration_022",
+      "expected": "escrow_batch_lifecycle.deployment_epoch_id",
+      "observed": "escrow_batch_lifecycle.deployment_epoch_id",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "stale_active_batch_wallets",
+      "expected": "no active batch wallets",
+      "observed": "no active batch wallets",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "epoch_mismatch",
+      "expected": "all active batches match current epoch",
+      "observed": "all active batches match current epoch",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "bank_batch_simulated_custody",
+      "expected": "no BANK-origin simulated custody evidence",
+      "observed": "no BANK-origin simulated custody evidence",
+      "fix": ""
+    }
+  ],
+  "blockers": [],
+  "warnings": [],
+  "passes": [
+    {
+      "severity": "PASS",
+      "component": "Node",
+      "name": "rpc_reachable",
+      "expected": "http://localhost:8545 (block 81)",
+      "observed": "http://localhost:8545 (block 81)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Node",
+      "name": "chain_id_match",
+      "expected": "1337",
+      "observed": "1337",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Treasury",
+      "name": "Treasury_code_deployed",
+      "expected": "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6 (23253 bytes)",
+      "observed": "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6 (23253 bytes)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Treasury",
+      "name": "Treasury_sel_28e27ca2",
+      "expected": "registerBankOriginLot(bytes32,uint256,uint64)",
+      "observed": "registerBankOriginLot(bytes32,uint256,uint64)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Treasury",
+      "name": "Treasury_sel_6259b252",
+      "expected": "createAndFundBatch(uint8,uint256[],uint64,uint64,bytes32)",
+      "observed": "createAndFundBatch(uint8,uint256[],uint64,uint64,bytes32)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Treasury",
+      "name": "Treasury_sel_79a722f0",
+      "expected": "getTreasuryBatch(uint256)",
+      "observed": "getTreasuryBatch(uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Treasury",
+      "name": "Treasury_sel_da5dfbd1",
+      "expected": "originLots(uint256)",
+      "observed": "originLots(uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Treasury",
+      "name": "Treasury_sel_541e5e37",
+      "expected": "adminReportBatchSettled(uint256,uint256,uint256)",
+      "observed": "adminReportBatchSettled(uint256,uint256,uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Treasury",
+      "name": "Treasury_sel_5e3343cd",
+      "expected": "rollIfDue()",
+      "observed": "rollIfDue()",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "MockUSDC",
+      "name": "MockUSDC_code_deployed",
+      "expected": "0x5FbDB2315678afecb367f032d93F642f64180aa3 (1990 bytes)",
+      "observed": "0x5FbDB2315678afecb367f032d93F642f64180aa3 (1990 bytes)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "MockUSDC",
+      "name": "MockUSDC_sel_40c10f19",
+      "expected": "mint(address,uint256)",
+      "observed": "mint(address,uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "MockUSDC",
+      "name": "MockUSDC_sel_9dc29fac",
+      "expected": "burn(address,uint256)",
+      "observed": "burn(address,uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "MockUSDC",
+      "name": "MockUSDC_sel_a9059cbb",
+      "expected": "transfer(address,uint256)",
+      "observed": "transfer(address,uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "MockUSDC",
+      "name": "MockUSDC_sel_23b872dd",
+      "expected": "transferFrom(address,address,uint256)",
+      "observed": "transferFrom(address,address,uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "MockUSDC",
+      "name": "MockUSDC_sel_70a08231",
+      "expected": "balanceOf(address)",
+      "observed": "balanceOf(address)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "MockUSDC",
+      "name": "MockUSDC_sel_095ea7b3",
+      "expected": "approve(address,uint256)",
+      "observed": "approve(address,uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_code_deployed",
+      "expected": "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e (28324 bytes)",
+      "observed": "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e (28324 bytes)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_9d4e8f23",
+      "expected": "finalizePreFundedBatch(uint256,uint256)",
+      "observed": "finalizePreFundedBatch(uint256,uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_802ec2b2",
+      "expected": "depositReturnForBatch(uint256,uint256)",
+      "observed": "depositReturnForBatch(uint256,uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_345c6e7f",
+      "expected": "anchorBatchAuthorityBinding(uint256,bytes32,bytes32,bytes32,address,address,bytes,bytes)",
+      "observed": "anchorBatchAuthorityBinding(uint256,bytes32,bytes32,bytes32,address,address,bytes,bytes)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_7f097266",
+      "expected": "getBatchWalletBinding(uint256)",
+      "observed": "getBatchWalletBinding(uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_d6bda9c2",
+      "expected": "getBatchAuthorityAnchor(uint256)",
+      "observed": "getBatchAuthorityAnchor(uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_08228b8a",
+      "expected": "finalizeBatchSettlement(uint256,bytes32,bytes32)",
+      "observed": "finalizeBatchSettlement(uint256,bytes32,bytes32)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_fe9d092c",
+      "expected": "getBatchSettlement(uint256)",
+      "observed": "getBatchSettlement(uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_5b24e10e",
+      "expected": "attachAllocation(uint256,bytes32,bytes32,string)",
+      "observed": "attachAllocation(uint256,bytes32,bytes32,string)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_c464e0bc",
+      "expected": "getAllocationAttachment(uint256)",
+      "observed": "getAllocationAttachment(uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_b9b03377",
+      "expected": "getBatchAccounting(uint256)",
+      "observed": "getBatchAccounting(uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_12ec0b3d",
+      "expected": "escrowBatchPositions(uint256)",
+      "observed": "escrowBatchPositions(uint256)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_79b1ca84",
+      "expected": "getRoleAuthority(uint8)",
+      "observed": "getRoleAuthority(uint8)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_c74a38a7",
+      "expected": "setRoleAuthority(uint8,address,uint8)",
+      "observed": "setRoleAuthority(uint8,address,uint8)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_aced1661",
+      "expected": "keeper()",
+      "observed": "keeper()",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "InvestmentEscrow",
+      "name": "InvestmentEscrow_sel_3e413bee",
+      "expected": "usdc()",
+      "observed": "usdc()",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Vault",
+      "name": "Vault_code_deployed",
+      "expected": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0 (15635 bytes)",
+      "observed": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0 (15635 bytes)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Roles",
+      "name": "escrow_owner",
+      "expected": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+      "observed": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Roles",
+      "name": "role_treasury_vault",
+      "expected": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+      "observed": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Roles",
+      "name": "role_escrow",
+      "expected": "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
+      "observed": "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Services",
+      "name": "signer_treasury_healthy",
+      "expected": "http://localhost:4001 (role: treasury, signer: 0x70997970c51812dc3a010c7d01b50e0d17dc79c8)",
+      "observed": "http://localhost:4001 (role: treasury, signer: 0x70997970c51812dc3a010c7d01b50e0d17dc79c8)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Services",
+      "name": "signer_escrow_healthy",
+      "expected": "http://localhost:4002 (role: escrow, signer: 0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc)",
+      "observed": "http://localhost:4002 (role: escrow, signer: 0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Services",
+      "name": "wallet_factory_healthy",
+      "expected": "http://localhost:4003 (role: ?, signer: n/a)",
+      "observed": "http://localhost:4003 (role: ?, signer: n/a)",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "db_connected",
+      "expected": "postgresql://sagitta:***@127.0.0.1:5432/sagitta_banking",
+      "observed": "postgresql://sagitta:***@127.0.0.1:5432/sagitta_banking",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "table_term_positions",
+      "expected": "term_positions",
+      "observed": "term_positions",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "table_escrow_batch_lifecycle",
+      "expected": "escrow_batch_lifecycle",
+      "observed": "escrow_batch_lifecycle",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "table_escrow_batch_phase_evidence",
+      "expected": "escrow_batch_phase_evidence",
+      "observed": "escrow_batch_phase_evidence",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "table_escrow_dev_leg_positions",
+      "expected": "escrow_dev_leg_positions",
+      "observed": "escrow_dev_leg_positions",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "table_circle_transfers",
+      "expected": "circle_transfers",
+      "observed": "circle_transfers",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "table_escrow_execution_orders",
+      "expected": "escrow_execution_orders",
+      "observed": "escrow_execution_orders",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "table_protocol_sync_events",
+      "expected": "protocol_sync_events",
+      "observed": "protocol_sync_events",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "table_escrow_banking_reconciliation",
+      "expected": "escrow_banking_reconciliation",
+      "observed": "escrow_banking_reconciliation",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "migration_021",
+      "expected": "escrow_dev_leg_positions.return_tx_hash",
+      "observed": "escrow_dev_leg_positions.return_tx_hash",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "migration_022",
+      "expected": "escrow_batch_lifecycle.deployment_epoch_id",
+      "observed": "escrow_batch_lifecycle.deployment_epoch_id",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "stale_active_batch_wallets",
+      "expected": "no active batch wallets",
+      "observed": "no active batch wallets",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "epoch_mismatch",
+      "expected": "all active batches match current epoch",
+      "observed": "all active batches match current epoch",
+      "fix": ""
+    },
+    {
+      "severity": "PASS",
+      "component": "Database",
+      "name": "bank_batch_simulated_custody",
+      "expected": "no BANK-origin simulated custody evidence",
+      "observed": "no BANK-origin simulated custody evidence",
+      "fix": ""
+    }
+  ],
+  "ready": true
+}

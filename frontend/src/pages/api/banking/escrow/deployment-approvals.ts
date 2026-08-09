@@ -1,4 +1,4 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
+import { withAuthority } from '../../../../lib/security/apiGuard';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -83,9 +83,14 @@ async function pgInsert(record: DeploymentApprovalRecord): Promise<boolean> {
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
+//
+// WHAT CHANGED
+//   The POST branch previously allowed every request when INTERNAL_API_TOKEN
+//   was unset. Authority now comes from a verified wallet session carrying
+//   `escrow:deployment:write`, enforced by withAuthority before this code runs.
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method === 'GET') {
+export default withAuthority('/api/banking/escrow/deployment-approvals', {
+  GET: async (req, res) => {
     const { batchUuid } = req.query;
     if (!batchUuid || typeof batchUuid !== 'string') {
       return res.status(400).json({ error: 'batchUuid query parameter is required.' });
@@ -98,15 +103,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (mem) return res.status(200).json(mem);
 
     return res.status(200).json({ approval: null });
-  }
+  },
 
-  if (req.method === 'POST') {
-    // INTERNAL_ONLY — only lifecycle controller (server-to-server) may write deployment approvals.
-    const internalToken = process.env.INTERNAL_API_TOKEN;
-    if (internalToken && req.headers['x-internal-token'] !== internalToken) {
-      return res.status(403).json({ error: 'Forbidden: deployment-approvals POST is an internal endpoint. Public clients may not create deployment approvals.' });
-    }
-
+  POST: async (req, res) => {
     const body: Partial<DeploymentApprovalRecord> = req.body ?? {};
     const {
       batchUuid, approvalId, deploymentApprovalHash, destinationApprovalHash,
@@ -170,7 +169,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         status:                 'deployment_approved',
       },
     });
-  }
-
-  return res.status(405).json({ error: 'Method not allowed.' });
-}
+  },
+});

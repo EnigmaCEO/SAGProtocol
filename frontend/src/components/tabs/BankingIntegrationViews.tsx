@@ -38,6 +38,18 @@ function formatDateTime(value: string): string {
 }
 
 function protocolDisplayStatus(position: BankingDashboardState['termPositions'][number]): string {
+  if (
+    [
+      'treasury_registration_pending',
+      'treasury_registration_failed',
+      'fineract_created_treasury_pending',
+      'protocol_synced',
+      'compensation_required',
+      'manual_review',
+    ].includes(position.protocolSyncStatus)
+  ) {
+    return String(position.protocolSyncStatus).replaceAll('_', ' ');
+  }
   if (position.protocolStatus === 'settled') return 'completed';
   return String(position.protocolStatus || position.protocolSyncStatus || 'pending').replaceAll('_', ' ');
 }

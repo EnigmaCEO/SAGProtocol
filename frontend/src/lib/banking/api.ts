@@ -1,8 +1,16 @@
+// API CLIENT ONLY — calls the banking API endpoints. No financial logic lives here.
+// All values returned are display/cache objects. Canonical truth lives in the backend DB.
+// Do NOT compute settlement amounts, allocate payouts, or write protocol state from this layer.
+
 import type {
   BankingAccountSummary,
   BankingDashboardState,
   CapitalAccount,
   CheckingTransaction,
+  DistributionExecution,
+  DistributionExecutionLine,
+  DistributionManifestRecord,
+  DistributionRule,
   FundingInstruction,
   MaturitySchedule,
   ProtectionStatus,
@@ -347,4 +355,126 @@ export function mapProtectionStatus(
     as_of: protectionStatus.asOf,
     note: protectionStatus.note || 'This object is intended for partner-bank servicing and customer status sync.',
   };
+}
+
+type BankingApiRequestOptions = RequestInit & {
+  allowNotFound?: boolean;
+};
+
+async function requestBankingApiJson<T>(
+  path: string,
+  options: BankingApiRequestOptions = {}
+): Promise<T | null> {
+  const { allowNotFound = false, headers, ...init } = options;
+  const response = await fetch(path, {
+    cache: 'no-store',
+    ...init,
+    headers: {
+      'content-type': 'application/json',
+      ...headers,
+    },
+  });
+
+  const raw = await response.text();
+  let payload: any = null;
+  try {
+    payload = raw ? JSON.parse(raw) : null;
+  } catch {
+    payload = raw ? { error: raw } : null;
+  }
+
+  if (!response.ok) {
+    if (allowNotFound && response.status === 404) return null;
+    throw new Error(payload?.error ?? `Banking API request failed (${response.status})`);
+  }
+
+  return payload as T;
+}
+
+export async function getActiveDistributionRule(): Promise<DistributionRule | null> {
+  const data = await requestBankingApiJson<{ rule: DistributionRule }>(
+    '/api/banking/escrow/distribution-rules/active',
+    { allowNotFound: true }
+  );
+  return data?.rule ?? null;
+}
+
+export async function getDistributionManifest(
+  escrowBatchId: string
+): Promise<DistributionManifestRecord | null> {
+  const data = await requestBankingApiJson<{ manifest: DistributionManifestRecord }>(
+    `/api/banking/escrow/distribution-manifests/${encodeURIComponent(escrowBatchId)}`,
+    { allowNotFound: true }
+  );
+  return data?.manifest ?? null;
+}
+
+export async function generateDistributionManifestPreview(
+  escrowBatchId: string
+): Promise<DistributionManifestRecord> {
+  const data = await requestBankingApiJson<{ manifest: DistributionManifestRecord }>(
+    `/api/banking/escrow/distribution-manifests/${encodeURIComponent(escrowBatchId)}/preview`,
+    { method: 'POST', body: '{}' }
+  );
+  if (!data?.manifest) {
+    throw new Error(`Distribution manifest preview missing for escrow batch ${escrowBatchId}.`);
+  }
+  return data.manifest;
+}
+
+export interface ExecuteDistributionResult {
+  execution: DistributionExecution;
+  lines: DistributionExecutionLine[];
+  idempotent: boolean;
+}
+
+export async function executeDistribution(
+  escrowBatchId: string
+): Promise<ExecuteDistributionResult> {
+  const response = await fetch(
+    `/api/banking/escrow/distribution-manifests/${encodeURIComponent(escrowBatchId)}/execute`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+      cache: 'no-store',
+    }
+  );
+
+  const raw = await response.text();
+  let payload: any = null;
+  try {
+    payload = raw ? JSON.parse(raw) : null;
+  } catch {
+    payload = raw ? { error: raw } : null;
+  }
+
+  if (!response.ok) {
+    const err: any = new Error(
+      payload?.error ?? payload?.message ?? `Execution request failed (${response.status})`
+    );
+    err.status = response.status;
+    err.code = payload?.code;
+    err.payload = payload;
+    throw err;
+  }
+
+  return {
+    execution: payload.execution,
+    lines: payload.lines ?? [],
+    idempotent: response.status === 200,
+  };
+}
+
+export async function getDistributionExecution(
+  escrowBatchId: string
+): Promise<{ execution: DistributionExecution; lines: DistributionExecutionLine[] } | null> {
+  const data = await requestBankingApiJson<{
+    execution: DistributionExecution;
+    lines: DistributionExecutionLine[];
+  }>(`/api/banking/escrow/distribution-executions/${encodeURIComponent(escrowBatchId)}`, {
+    allowNotFound: true,
+  });
+  if (!data?.execution) return null;
+  return { execution: data.execution, lines: data.lines ?? [] };
 }

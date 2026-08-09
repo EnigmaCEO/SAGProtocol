@@ -1,5 +1,12 @@
 import { canonicalKeccak } from './canonicalHash';
 
+// Off-chain container identity. Random — not derived from any batch parameters.
+// The server generates this on first registration and stores it as the PK.
+// Use this for all new batch creation paths.
+export function generateEscrowBatchId(): string {
+  return crypto.randomUUID();
+}
+
 export interface EscrowBatchUuidParams {
   chainId: number | string;
   treasuryAddress: string;
@@ -7,6 +14,12 @@ export interface EscrowBatchUuidParams {
   openedAt: number | string;
 }
 
+/**
+ * @deprecated Use generateEscrowBatchId() for new batch containers.
+ * This deterministic ID is kept only for reading/validating legacy rows.
+ * Do NOT use for new batch creation — deterministic IDs can collide across environments.
+ * See: docs/legacy-false-authorities.md #10, docs/architectural-decisions.md ADR-008.
+ */
 export function escrowBatchUuid(params: EscrowBatchUuidParams): string {
   const hex = canonicalKeccak({
     chainId: Number(params.chainId || 0),

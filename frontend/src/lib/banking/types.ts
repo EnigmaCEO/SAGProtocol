@@ -4,6 +4,9 @@ export type BankingProtocolStatus =
   | 'awaiting_circle_conversion'
   | 'circle_transfer_pending'
   | 'circle_transfer_complete'
+  | 'treasury_registration_pending'
+  | 'treasury_registration_failed'
+  | 'fineract_created_treasury_pending'
   | 'treasury_lot_registered'
   | 'batch_pending'
   | 'batch_formed'
@@ -11,9 +14,23 @@ export type BankingProtocolStatus =
   | 'ready_for_escrow'
   | 'handed_to_escrow'
   | 'in_execution'
+  | 'compensation_required'
+  | 'manual_review'
   | 'settled'
   | 'failed';
-export type BankingProtocolSyncStatus = 'not_configured' | 'pending' | 'registered' | 'batched' | 'settled' | 'failed';
+export type BankingProtocolSyncStatus =
+  | 'not_configured'
+  | 'pending'
+  | 'registered'
+  | 'batched'
+  | 'treasury_registration_pending'
+  | 'treasury_registration_failed'
+  | 'fineract_created_treasury_pending'
+  | 'protocol_synced'
+  | 'compensation_required'
+  | 'manual_review'
+  | 'settled'
+  | 'failed';
 export type ProtectionTone = 'protected' | 'reserved' | 'monitoring';
 export type SettlementMode = 'onchain' | 'mirrored';
 export type SettlementEventStatus = 'completed' | 'processing' | 'mirrored';
@@ -249,6 +266,138 @@ export interface SettlementEvent {
   note?: string;
 }
 
+export type DistributionManifestStatus = 'draft' | 'validated' | 'blocked';
+export type DistributionCoverageStatus =
+  | 'not_required'
+  | 'treasury_coverage_required'
+  | 'treasury_coverage_available'
+  | 'treasury_coverage_unavailable';
+export type TreasuryCoverageSource =
+  | 'treasury_buffer'
+  | 'treasury_usdc_balance'
+  | 'reserve_later'
+  | 'none';
+
+export interface DistributionRule {
+  id: string;
+  rule_key: string;
+  rule_version: number;
+  status: 'active' | 'inactive' | 'deprecated';
+  bank_fee_bps_apy: number;
+  treasury_fee_bps_apy: number;
+  depositor_rate_bps_apy: number;
+  shortfall_policy: 'block_manifest' | 'allow_with_warning' | 'treasury_cover_shortfall';
+  surplus_policy: 'treasury_retained_for_now' | 'distribute_pro_rata';
+  effective_from: string;
+  effective_to: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DistributionManifestInstitutionRow {
+  institution_id: string;
+  institution_name: string | null;
+  settlement_account_id: string | null;
+  // External Treasury payout destination
+  settlement_wallet_address: string | null;
+  payout_destination_type: string | null;
+  payout_status: string | null;
+  payout_approval_status: string | null;
+  payout_destination_hash: string | null;
+  // Fineract settlement clearing ref (internal ledger)
+  fineract_settlement_account_ref: string | null;
+  principal_total: string;
+  depositor_yield_total: string;
+  bank_fee_total: string;
+  institution_settlement_total: string;
+  eligibility_status: 'eligible' | 'ineligible';
+  eligibility_reason: string;
+}
+
+export interface DistributionManifestAccountRow {
+  institution_id: string;
+  term_position_id: string;
+  owner_key: string;
+  fineract_account_id: number | null;
+  principal: string;
+  term_days: number;
+  principal_days: string;
+  depositor_yield: string;
+  bank_fee_share: string;
+  treasury_fee_share: string;
+  settlement_status: string;
+}
+
+export interface DistributionManifestPayload {
+  manifest_id: string;
+  escrow_batch_id: string;
+  source_batch_id: string;
+  treasury_batch_id: string | null;
+  rule_key: string;
+  rule_version: number;
+  calculated_at: string;
+  settlement_source: string;
+  depositor_yield_source: string;
+  total_principal: string;
+  total_returned: string;
+  total_gross_yield: string;
+  depositor_principal_total: string;
+  depositor_yield_total: string;
+  bank_fee_total: string;
+  treasury_fee_total: string;
+  treasury_fee_target_usd?: string;
+  treasury_fee_retained_usd?: string;
+  treasury_fee_foregone_usd?: string;
+  treasury_cash_coverage_used_usd?: string;
+  institution_settlement_total: string;
+  surplus_amount: string;
+  shortfall_amount: string;
+  coverage_status: DistributionCoverageStatus;
+  treasury_coverage_required_usd: string;
+  treasury_coverage_available_usd: string | null;
+  treasury_coverage_source: TreasuryCoverageSource;
+  treasury_coverage_reason: string | null;
+  external_institution_transfer_gap_usd: string;
+  net_treasury_impact_usd: string;
+  institution_rows: DistributionManifestInstitutionRow[];
+  account_rows: DistributionManifestAccountRow[];
+  validation_errors: string[];
+}
+
+export interface DistributionManifestRecord {
+  id: string;
+  manifest_id: string;
+  source_batch_id: string;
+  treasury_batch_id: string | null;
+  escrow_batch_id: string;
+  rule_id: string;
+  rule_version: number;
+  status: DistributionManifestStatus;
+  principal_usd: string;
+  returned_usd: string;
+  gross_yield_usd: string;
+  depositor_principal_usd: string;
+  depositor_yield_usd: string;
+  bank_fee_usd: string;
+  treasury_fee_usd: string;
+  surplus_usd: string;
+  shortfall_usd: string;
+  coverage_status: DistributionCoverageStatus;
+  treasury_coverage_required_usd: string;
+  treasury_coverage_available_usd: string | null;
+  treasury_coverage_source: TreasuryCoverageSource;
+  treasury_coverage_reason: string | null;
+  external_institution_transfer_gap_usd: string;
+  net_treasury_impact_usd: string;
+  institution_count: number;
+  account_count: number;
+  manifest_hash: string;
+  manifest_payload: DistributionManifestPayload;
+  validation_errors: string[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface TermPosition {
   id: string;
   label: string;
@@ -347,6 +496,67 @@ export interface BankingDepositResponse {
   state: BankingDashboardState;
   createdPosition: TermPosition;
   settlementEvent: SettlementEvent;
+}
+
+export type DistributionExecutionStatus =
+  | 'pending'
+  | 'executing'
+  | 'failed_before_payout'
+  | 'payout_pending'
+  | 'payout_failed'
+  | 'payout_completed'
+  | 'completed'
+  | 'failed'
+  | 'partially_completed';
+
+export type DistributionExecutionLineType =
+  | 'circle_payout'
+  | 'treasury_coverage'
+  | 'institution_settlement_clearing_credit'
+  | 'customer_maturity_credit'
+  | 'bank_fee_credit'
+  | 'treasury_fee_retained'
+  | 'evidence_writeback';
+
+export type DistributionExecutionLineStatus = 'pending' | 'completed' | 'failed' | 'skipped';
+
+export interface DistributionExecution {
+  id: string;
+  execution_id: string;
+  escrow_batch_id: string;
+  manifest_id: string;
+  manifest_hash: string;
+  rail_type: string;
+  rail_reference: string | null;
+  treasury_coverage_used_usd: string | null;
+  external_institution_transfer_gap_usd: string | null;
+  institution_settlement_total_usd: string | null;
+  treasury_fee_retained_usd: string | null;
+  net_treasury_impact_usd: string | null;
+  status: DistributionExecutionStatus;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+  execution_payload: Record<string, unknown> | null;
+  execution_receipt: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DistributionExecutionLine {
+  id: string;
+  execution_id: string;
+  line_type: DistributionExecutionLineType;
+  institution_id: string | null;
+  term_position_id: string | null;
+  fineract_account_id: string | null;
+  amount_usd: string | null;
+  status: DistributionExecutionLineStatus;
+  external_ref: string | null;
+  fineract_ref: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface BankingBatchResponse {

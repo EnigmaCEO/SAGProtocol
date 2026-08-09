@@ -3,7 +3,6 @@ import Head from 'next/head';
 import '../styles/globals.css';
 import { initOnChainAddresses } from '../lib/runtime-addresses';
 import { ProtocolChainProvider } from '../context/ProtocolChainContext';
-import ApiLogPanel from '../components/ApiLogPanel';
 
 // Kick off the ProtocolDAO address fetch as early as possible so that by the
 // time any component mounts and calls fetchData, the on-chain cache is already
@@ -57,7 +56,6 @@ export default function App({ Component, pageProps }: AppProps) {
       </Head>
       <ProtocolChainProvider>
         <Component {...pageProps} />
-        <ApiLogPanel />
       </ProtocolChainProvider>
     </>
   );

@@ -91,6 +91,15 @@ const ERC20_ABI = [
 ];
 
 import { canonicalKeccak } from '../../shared/canonicalHash';
+import {
+  loadServiceSecurityConfig,
+  createServiceAuthGuard,
+  routeResolverFor,
+  serviceSecuritySummary,
+  ServiceSecurityConfigError,
+  type ServiceSecurityConfig,
+} from '../../shared/serviceGuard';
+import { SERVICE_IDS } from '../../shared/routeAuthority';
 
 // ─── EIP-712 helpers (mirrors frontend escrowAuthorityBinding.ts) ──────────────
 
@@ -199,10 +208,13 @@ async function reconstructPayload(sourceBatchId: string, escrowBatchId: string, 
   const openedAt = Number(batch.openedAt);
   const expectedReturnAt = Number(batch.expectedReturnAt);
 
-  // Resolve the escrow batch UUID now that we have openedAt from chain.
+  // Invariant: the server lifecycle controller owns the escrow batch UUID.
+  // Callers MUST pass escrowBatchId from the server registration response.
+  // The fallback derivation below is LEGACY — it exists only to keep old flows alive
+  // while migration completes. New code must never reach this fallback.
   const resolvedEscrowBatchId = typeof escrowBatchId === 'string' && escrowBatchId
     ? escrowBatchId
-    : escrowBatchUuid(sourceBatchId, openedAt);
+    : escrowBatchUuid(sourceBatchId, openedAt); // LEGACY FALLBACK — do not rely on this
 
   // 2. Use treasury batch principal and timing for amount and term computation.
   const totalAmountUsd = Number(batch.principalAllocated) / 1_000_000;
@@ -317,13 +329,62 @@ async function findMatchingTransaction(params: {
 
 // ─── App ───────────────────────────────────────────────────────────────────────
 
-const app = express();
-app.use(cors({ origin: CORS_ORIGIN }));
-app.use(express.json());
+// ── Security configuration — fail closed before the listener exists ──────────
+// This service holds TREASURY_SIGNER_PRIVATE_KEY. A misconfigured start would
+// expose signature production to anyone who can reach the port.
+let SECURITY: ServiceSecurityConfig;
+try {
+  SECURITY = loadServiceSecurityConfig({ serviceId: SERVICE_IDS.signerTreasury });
+} catch (err) {
+  if (err instanceof ServiceSecurityConfigError) {
+    console.error('[security] STARTUP ABORTED — signer-treasury security configuration is invalid');
+    for (const problem of err.problems) console.error(`[security] ✗ ${problem}`);
+    process.exit(1);
+  }
+  throw err;
+}
+console.log('[security] Configuration validated', serviceSecuritySummary(SECURITY));
 
+// Contract binding is opt-in during rollout: both sides must resolve the same
+// address or every call fails closed. Confirm agreement, then set this to true.
+const BIND_CONTRACT = String(process.env.SIGNER_BIND_CONTRACT ?? '').toLowerCase() === 'true';
+
+const app = express();
+app.disable('x-powered-by');
+
+// CORS supplements authentication for browsers. It is not the boundary — every
+// non-public route below is authenticated by createServiceAuthGuard().
+app.use(cors({ origin: CORS_ORIGIN }));
+// `verify` records the EXACT received bytes so the guard can bind the
+// assertion's body digest to them.
+app.use(express.json({
+  limit: '256kb',
+  verify: (req: any, _res, buf) => { req.rawBody = Buffer.from(buf); },
+}));
+
+// Minimal by contract: liveness and version only. The signer address, role id,
+// and chain configuration are NOT exposed — an unauthenticated caller has no
+// reason to learn which key this service holds.
 app.get('/health', (_req: Request, res: Response) => {
-  res.json({ role: ROLE, roleId: ROLE_ID, signerAddress: SIGNER_ADDRESS, version: '1.0.0' });
+  res.json({ status: 'ok', service: 'signer-treasury', version: '1.0.0' });
 });
+
+app.get('/ready', (_req: Request, res: Response) => {
+  res.json({ ready: true, environment: SECURITY.environment });
+});
+
+// Everything past this point requires an authenticated, approved service caller.
+// Signer assertions must name the chain and contract this service is
+// configured for, and the operation they authorize. A token minted for a
+// different chain or a different operation is refused even if it is otherwise
+// valid — signature production is bound to one concrete on-chain action.
+app.use(createServiceAuthGuard(SECURITY, routeResolverFor(SERVICE_IDS.signerTreasury), {
+  requiredContext: (route) => ({
+    chainId: CHAIN_ID,
+    op: route.path.slice(1),
+    contract: BIND_CONTRACT ? ((TREASURY_ADDRESS || '').toLowerCase() || undefined) : undefined,
+  }),
+}) as any);
 
 // POST /request-signature
 // Body: { sourceBatchId: string, escrowBatchId: string, chainId?: number }
@@ -483,10 +544,17 @@ app.post('/deploy-leg', async (req: Request, res: Response) => {
 
     const usdc = new Contract(usdcAddress, ERC20_ABI, provider);
     const walletBalance = BigInt(await usdc.balanceOf(String(walletAddress)));
+    // Per-leg integer division in simulate-leg-returns can leave a dust shortfall (≤ ~10 units).
+    // If the wallet is within 100 micro-USDC of the requested amount, use the actual balance.
+    const DUST_TOLERANCE_UNITS = 100n;
     if (walletBalance < amountUnits) {
-      throw new Error(
-        `Batch wallet USDC balance is insufficient. Need ${String(amount)}, have ${formatUnits(walletBalance, 6)}.`
-      );
+      if (amountUnits - walletBalance <= DUST_TOLERANCE_UNITS) {
+        amountUnits = walletBalance;
+      } else {
+        throw new Error(
+          `Batch wallet USDC balance is insufficient. Need ${String(amount)}, have ${formatUnits(walletBalance, 6)}.`
+        );
+      }
     }
 
     const transferData = new Interface([

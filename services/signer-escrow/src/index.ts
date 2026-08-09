@@ -38,6 +38,9 @@ if (!privateKey) {
 const wallet = new Wallet(privateKey);
 const SIGNER_ADDRESS = wallet.address.toLowerCase();
 
+// LEGACY: deterministic derivation from sourceBatchId alone.
+// Invariant: signer services receive the authoritative UUID from the server lifecycle controller.
+// This function exists only for backward compatibility with old flows. New code must not reach it.
 function escrowBatchUuid(sourceBatchId: string): string {
   const hex = keccak256(toUtf8Bytes(JSON.stringify({
     sourceBatchId: String(sourceBatchId || '').trim(),
@@ -88,6 +91,15 @@ const BATCH_MULTISIG_WALLET_ABI = [
 ];
 
 import { canonicalKeccak } from '../../shared/canonicalHash';
+import {
+  loadServiceSecurityConfig,
+  createServiceAuthGuard,
+  routeResolverFor,
+  serviceSecuritySummary,
+  ServiceSecurityConfigError,
+  type ServiceSecurityConfig,
+} from '../../shared/serviceGuard';
+import { SERVICE_IDS } from '../../shared/routeAuthority';
 
 // ─── EIP-712 helpers ──────────────────────────────────────────────────────────
 
@@ -330,13 +342,60 @@ async function getExecutedTransactionHash(multisig: Contract, txIndex: number): 
 
 // ─── App ───────────────────────────────────────────────────────────────────────
 
-const app = express();
-app.use(cors({ origin: CORS_ORIGIN }));
-app.use(express.json());
+// ── Security configuration — fail closed before the listener exists ──────────
+// This service holds ESCROW_SIGNER_PRIVATE_KEY and submits anchor and
+// allocation transactions. A misconfigured start would expose both.
+let SECURITY: ServiceSecurityConfig;
+try {
+  SECURITY = loadServiceSecurityConfig({ serviceId: SERVICE_IDS.signerEscrow });
+} catch (err) {
+  if (err instanceof ServiceSecurityConfigError) {
+    console.error('[security] STARTUP ABORTED — signer-escrow security configuration is invalid');
+    for (const problem of err.problems) console.error(`[security] ✗ ${problem}`);
+    process.exit(1);
+  }
+  throw err;
+}
+console.log('[security] Configuration validated', serviceSecuritySummary(SECURITY));
 
+// Contract binding is opt-in during rollout: both sides must resolve the same
+// address or every call fails closed. Confirm agreement, then set this to true.
+const BIND_CONTRACT = String(process.env.SIGNER_BIND_CONTRACT ?? '').toLowerCase() === 'true';
+
+const app = express();
+app.disable('x-powered-by');
+
+// CORS supplements authentication for browsers. It is not the boundary.
+app.use(cors({ origin: CORS_ORIGIN }));
+// `verify` records the EXACT received bytes so the guard can bind the
+// assertion's body digest to them.
+app.use(express.json({
+  limit: '256kb',
+  verify: (req: any, _res, buf) => { req.rawBody = Buffer.from(buf); },
+}));
+
+// Minimal by contract — no signer address, role id, or chain configuration.
 app.get('/health', (_req: Request, res: Response) => {
-  res.json({ role: ROLE, roleId: ROLE_ID, signerAddress: SIGNER_ADDRESS, version: '1.0.0' });
+  res.json({ status: 'ok', service: 'signer-escrow', version: '1.0.0' });
 });
+
+app.get('/ready', (_req: Request, res: Response) => {
+  res.json({ ready: true, environment: SECURITY.environment });
+});
+
+// Everything past this point requires an authenticated, approved service caller.
+// Signer assertions must name the chain and contract this service is
+// configured for, and the operation they authorize. A token minted for a
+// different chain or a different operation is refused even if it is otherwise
+// valid — signature production is bound to one concrete on-chain action.
+app.use(createServiceAuthGuard(SECURITY, routeResolverFor(SERVICE_IDS.signerEscrow), {
+  requiredContext: (route) => ({
+    chainId: CHAIN_ID,
+    op: route.path.slice(1),
+    contract: BIND_CONTRACT ? ((ESCROW_ADDRESS || '').toLowerCase() || undefined) : undefined,
+  }),
+}) as any);
+
 
 // ─── POST /request-signature ──────────────────────────────────────────────────
 // Body: { sourceBatchId: string, escrowBatchId?: string, chainId?: number }
@@ -352,7 +411,7 @@ app.post('/request-signature', async (req: Request, res: Response) => {
 
   const resolvedEscrowBatchId = typeof escrowBatchId === 'string' && escrowBatchId
     ? escrowBatchId
-    : escrowBatchUuid(sourceBatchId);
+    : escrowBatchUuid(sourceBatchId); // LEGACY FALLBACK — caller must pass server UUID
 
   const resolvedCustodyMode = typeof custodyMode === 'string' && custodyMode
     ? custodyMode
@@ -442,7 +501,7 @@ app.post('/anchor', async (req: Request, res: Response) => {
 
   const resolvedEscrowBatchId = typeof escrowBatchId === 'string' && escrowBatchId
     ? escrowBatchId
-    : escrowBatchUuid(String(sourceBatchId));
+    : escrowBatchUuid(String(sourceBatchId)); // LEGACY FALLBACK — caller must pass server UUID
 
   const resolvedCustodyMode = typeof custodyMode === 'string' && custodyMode
     ? custodyMode
@@ -754,9 +813,9 @@ app.post('/confirm-deploy-leg', async (req: Request, res: Response) => {
       throw new Error('USDC token address is unavailable on-chain.');
     }
 
-    const transferData = new Interface([
+    const transferInterface = new Interface([
       'function transfer(address to, uint256 amount) returns (bool)',
-    ]).encodeFunctionData('transfer', [String(destinationAddress), amountUnits]).toLowerCase();
+    ]);
 
     const multisigRead = new Contract(String(walletAddress), BATCH_MULTISIG_WALLET_ABI, provider);
     const tx = await multisigRead.transactions(txIndexNum).catch(() => null);
@@ -768,9 +827,28 @@ app.post('/confirm-deploy-leg', async (req: Request, res: Response) => {
     const txValue = BigInt(tx.value ?? tx[1] ?? 0);
     const txData = String(tx.data ?? tx[2] ?? '').toLowerCase();
     const alreadyExecuted = Boolean(tx.executed ?? tx[3] ?? false);
-    if (normalizeAddress(txTo) !== normalizeAddress(usdcAddress) || txValue !== 0n || txData !== transferData) {
+
+    // Decode actual transfer amount from on-chain tx data and verify within dust tolerance.
+    // The submitted amount may be up to 100 micro-USDC less than requested due to per-leg
+    // integer division rounding in simulate-leg-returns (treasury side adjusts to wallet balance).
+    const DUST_TOLERANCE_UNITS = 100n;
+    let actualAmountUnits = amountUnits;
+    try {
+      const decoded = transferInterface.decodeFunctionData('transfer', txData);
+      actualAmountUnits = BigInt(decoded[1]);
+    } catch { /* fall through to strict check below */ }
+
+    const transferData = transferInterface.encodeFunctionData('transfer', [String(destinationAddress), actualAmountUnits]).toLowerCase();
+    if (
+      normalizeAddress(txTo) !== normalizeAddress(usdcAddress) ||
+      txValue !== 0n ||
+      txData !== transferData ||
+      actualAmountUnits > amountUnits ||
+      amountUnits - actualAmountUnits > DUST_TOLERANCE_UNITS
+    ) {
       throw new Error('Batch multisig transaction does not match the approved deployment transfer leg.');
     }
+    amountUnits = actualAmountUnits;
 
     const alreadyConfirmed = Boolean(await multisigRead.confirmed(txIndexNum, SIGNER_ADDRESS).catch(() => false));
 
@@ -811,7 +889,7 @@ app.post('/confirm-deploy-leg', async (req: Request, res: Response) => {
       role: ROLE,
       signerAddress: SIGNER_ADDRESS,
       sourceBatchId: String(sourceBatchId),
-      escrowBatchId: typeof escrowBatchId === 'string' && escrowBatchId ? escrowBatchId : escrowBatchUuid(String(sourceBatchId)),
+      escrowBatchId: typeof escrowBatchId === 'string' && escrowBatchId ? escrowBatchId : escrowBatchUuid(String(sourceBatchId)), // LEGACY FALLBACK
       walletAddress: String(walletAddress),
       assetSymbol: normalizedAssetSymbol,
       amount: String(amount),
